@@ -116,3 +116,4 @@ The application will display logs that directly map Petri Net transitions to cod
 - The upload period is set to 15 seconds for demonstration purposes (real device uses 15 minutes)
 - All components are fully simulated, allowing for comprehensive testing without hardware dependencies
 - The implementation maintains strict correspondence with the Petri Net model for verification purposes
+
