@@ -193,10 +193,3 @@ cmake --build . --config Release
 MIT License – Use and adapt freely for your projects.
 
 ---
-
-## 🤝 Contributing
-
-1. Follow the Petri Net model when adding features
-2. Maintain log message consistency between Python and C++ versions
-3. Test fault scenarios (inverter down, cloud unavailable)
-4. Update both implementations when modifying core logic
