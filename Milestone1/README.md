@@ -153,11 +153,12 @@ cmake --build . --config Release
 ## 📊 Simulation Logs
 
 ### Python Version
-![Python Simulation Log](Python/images/simulation-log.png)
+![Python Simulation Log](Python/image.png)
 *Figure 1: Python implementation showing Petri Net transitions*
 
 ### C++ Version  
-![C++ Simulation Log](cpp/images/simulation-log.png)
+![C++ Simulation Log](cpp/image2.png)
+
 *Figure 2: C++ implementation with identical transition logging*
 
 ---
