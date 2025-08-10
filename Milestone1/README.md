@@ -48,7 +48,7 @@ The Petri Net ensures:
 ## 🗂 Project Structure
 
 ```
-Milestone1/
+Python/
 ├── app.py                    # Main application runner, wires modules together
 ├── core/
 │   ├── timers.py            # Periodic timers (poll/upload)
@@ -90,7 +90,7 @@ source .venv/bin/activate
 
 ### 2. Run the Application
 ```bash
-python app.py
+python3 app.py
 ```
 
 ### 3. Understanding the Output
