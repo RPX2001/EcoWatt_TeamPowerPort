@@ -100,7 +100,7 @@ The application will display logs that directly map Petri Net transitions to cod
 - **Periodic polling**: `[Ttick_Poll]`, `[P3 SampleReady]`, `[T2_BufferPush]`
 - **Upload cycles** (every 15 seconds): `[Ttick_Upload]`, `[T4_UploadBatch]`, cloud ACK/NACK responses, `[T5_AckAndFlush]`
 
-![Simulation Log](image.png)
+![Simulation Log](Python/image.png)
 *Figure 1: Simulation Log*
 
 ## 🔍 Key Features
