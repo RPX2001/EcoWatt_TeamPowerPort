@@ -11,9 +11,8 @@ class RingBuffer:
         return len(self._q)
 
     def push(self, sample: Dict[str, Any]) -> bool:
-        # T2_BufferPush {BUF_HAS_SPACE}
         if len(self._q) >= self.capacity:
-            print("[Guard BUF_HAS_SPACE] Buffer full -> drop/warn")
+            print("Buffer full — sample dropped")
             return False
         self._q.append(sample)
         return True

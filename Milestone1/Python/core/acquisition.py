@@ -1,29 +1,18 @@
-import time
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 from sim.inverter_sim import InverterSIM
-from core.buffer import RingBuffer
 
 class AcquisitionScheduler:
-    def __init__(self, sim: InverterSIM, buffer: RingBuffer):
+    def __init__(self, sim: InverterSIM):
         self.sim = sim
-        self.buffer = buffer
 
-    async def poll_once(self):
-        # T1_DoPoll {SIM_OK}
+    async def poll_once(self) -> Tuple[bool, Dict[str, Any]]:
         ok, reading = await self.sim.read()
         if not ok:
-            print("[T1_DoPoll] SIM_OK=false -> poll skipped")
-            return
-
+            return False, {}
         sample: Dict[str, Any] = {
-            "t": time.time(),
+            "t": reading["t"],
             "voltage": reading["voltage"],
             "current": reading["current"],
             "power": reading["voltage"] * reading["current"],
         }
-        print(f"[P3 SampleReady] {sample}")
-
-        # T2_BufferPush {BUF_HAS_SPACE}
-        pushed = self.buffer.push(sample)
-        if pushed:
-            print(f"[T2_BufferPush] P4 size={self.buffer.size}")
+        return True, sample

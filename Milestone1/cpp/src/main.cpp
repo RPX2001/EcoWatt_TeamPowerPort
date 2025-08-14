@@ -1,52 +1,56 @@
 #include <atomic>
 #include <csignal>
-#include <iostream>
 #include <thread>
+#include <chrono>
+#include <iostream>
+#include "core/BlockingQueue.h"
 #include "core/Timers.h"
 #include "core/RingBuffer.h"
 #include "core/Acquisition.h"
 #include "core/Uploader.h"
+#include "core/Coordinator.h"
 #include "sim/InverterSim.h"
 #include "sim/CloudStub.h"
 
 static std::atomic<bool> g_running{true};
-
-void handle_sigint(int){ g_running.store(false); }
+void handle_sigint(int) { g_running.store(false); }
 
 int main() {
     std::signal(SIGINT, handle_sigint);
-    constexpr double POLL_PERIOD_S   = 2.0;   // fast sampling
-    constexpr double UPLOAD_PERIOD_S = 15.0;  // 15s sim window
+
+    constexpr double POLL_PERIOD_S   = 2.0;
+    constexpr double UPLOAD_PERIOD_S = 15.0;
     constexpr size_t BUFFER_CAPACITY = 256;
 
     RingBuffer<Sample> buffer(BUFFER_CAPACITY);
     InverterSIM sim;
     CloudStub cloud;
-    AcquisitionScheduler acq(sim, buffer);
-    Uploader uploader(buffer, cloud);
+    AcquisitionScheduler acq(sim);
+    Uploader upl(cloud);
 
-    std::cout << "M0: P0=1, P8=1, P9=1 | Starting scaffold…\n";
+    BlockingQueue<Event> q;
+    Coordinator coord(q, buffer, acq, upl, g_running);
 
-    PeriodicTimer pollTimer(POLL_PERIOD_S, "Poll", [&]{
-        if (!g_running.load()) return;
-        acq.poll_once(); // T1_DoPoll -> P3 -> T2_BufferPush
-    });
+    std::cout << "Idle started | (Re)start Poll Timer | (Re)start Upload Timer\n";
 
-    PeriodicTimer uploadTimer(UPLOAD_PERIOD_S, "Upload", [&]{
-        if (!g_running.load()) return;
-        uploader.upload_once(); // T4_UploadBatch -> T5_AckAndFlush
-    });
+    PeriodicTimer pollTimer(POLL_PERIOD_S, "Poll", [&]{ q.push({EventKind::PollTick}); });
+    PeriodicTimer uploadTimer(UPLOAD_PERIOD_S, "Upload", [&]{ q.push({EventKind::UploadTick}); });
 
     pollTimer.start();
     uploadTimer.start();
 
-    // Simple wait loop until Ctrl+C
+    std::thread coordThread([&]{ coord.run(); });
+
     while (g_running.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
     pollTimer.stop();
     uploadTimer.stop();
+    q.push({EventKind::Shutdown});
+    coord.request_stop();
+    if (coordThread.joinable()) coordThread.join();
+
     std::cout << "Stopped.\n";
     return 0;
 }

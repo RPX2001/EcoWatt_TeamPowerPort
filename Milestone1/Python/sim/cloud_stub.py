@@ -3,11 +3,9 @@ import random
 
 class CloudStub:
     async def upload(self, batch):
-        # emulate network latency
         await asyncio.sleep(0.1)
-        # 95% success, 5% fail
         if random.random() < 0.05:
-            print("[CloudStub] NACK")
+            print("Upload failed — re-queue for next window")
             return False
-        print(f"[CloudStub] ACK | received {len(batch)} samples")
+        print(f"Received ACK → Idle")  # coordinator also prints this line; harmless duplication if kept
         return True

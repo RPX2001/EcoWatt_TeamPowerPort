@@ -9,18 +9,14 @@
 class CloudStub {
 public:
     bool upload(const std::vector<Sample>& batch) {
-        // emulate network latency ~100ms
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-        // 5% NACK
         if (rand01_() < 0.05) {
-            std::cout << "[CloudStub] NACK\n";
+            std::cout << "Upload failed — re-queue for next window\n";
             return false;
         }
-        std::cout << "[CloudStub] ACK | received " << batch.size() << " samples\n";
+        // Prefer single ACK line from coordinator; return true silently.
         return true;
     }
-
 private:
     double rand01_() {
         static thread_local std::mt19937_64 rng{std::random_device{}()};
