@@ -87,7 +87,7 @@ class InverterSIM
         }
 
         /**
-         @fn rand01_() 
+         * @fn rand01_() 
          * @brief InverterSIM::rand01_
          * Generate a random double between 0.0 and 1.0.
          *
