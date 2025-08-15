@@ -39,6 +39,7 @@ class InverterSIM
 {
     public:
         /**
+         * @fn read() 
          * @brief InverterSIM::read
          * Acquire a new simulated inverter reading.
          *
@@ -72,6 +73,7 @@ class InverterSIM
 
     private:
         /**
+         * @fn now_epoch() 
          * @brief InverterSIM::now_epoch
          * Get the current epoch time in seconds.
          *
@@ -85,6 +87,7 @@ class InverterSIM
         }
 
         /**
+         @fn rand01_() 
          * @brief InverterSIM::rand01_
          * Generate a random double between 0.0 and 1.0.
          *
@@ -100,6 +103,7 @@ class InverterSIM
         }
 
         /**
+         * @fn uniform_(double a,double b)
          * @brief InverterSIM::uniform_
          * Generate a random double between a specified range.
          *
