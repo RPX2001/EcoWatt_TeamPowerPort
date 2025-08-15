@@ -19,8 +19,8 @@ class BlockingQueue
 {
     public:
         /**
-         * @brief BlockingQueue::push
-         * Push an element into the queue.
+         * @fn BlockingQueue::push
+         * @brief Push an element into the queue.
          *
          * @param v [in] The element to push.
          * @details
@@ -36,8 +36,8 @@ class BlockingQueue
         }
 
         /**
-         * @brief BlockingQueue::pop
-         * Pop an element from the queue.
+         * @fn BlockingQueue::pop
+         * @brief Pop an element from the queue.
          *
          * @return T The element removed from the queue.
          *
