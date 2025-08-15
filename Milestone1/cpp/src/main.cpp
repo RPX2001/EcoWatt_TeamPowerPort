@@ -12,8 +12,23 @@
 #include "sim/InverterSim.h"
 #include "sim/CloudStub.h"
 
+/**
+ * @brief Global atomic flag controlling the running state of the application.
+ */
 static std::atomic<bool> g_running{true};
-void handle_sigint(int) { g_running.store(false); }
+
+/**
+ * @fn handle_sigint
+ * @brief Signal handler for SIGINT (Ctrl+C) to request application shutdown.
+ *
+ * @param sig [in] Signal number (unused).
+ *
+ * @details Sets the global `g_running` flag to false to initiate clean shutdown.
+ */
+void handle_sigint(int) 
+{ 
+    g_running.store(false);
+}
 
 int main() {
     std::signal(SIGINT, handle_sigint);
@@ -41,7 +56,8 @@ int main() {
 
     std::thread coordThread([&]{ coord.run(); });
 
-    while (g_running.load()) {
+    while (g_running.load()) 
+    {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
