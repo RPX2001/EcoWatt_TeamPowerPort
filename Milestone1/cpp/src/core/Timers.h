@@ -24,9 +24,8 @@ class PeriodicTimer {
         using TickFn = std::function<void()>;
 
         /**
-         * @fn PeriodicTimer(double period_seconds, std::string name, TickFn on_tick)
-         * @brief PeriodicTimer::PeriodicTimer
-         * Construct a periodic timer with a given period, name, and callback.
+         * @fn PeriodicTimer::PeriodicTimer
+         * @brief Construct a periodic timer with a given period, name, and callback.
          *
          * @param period_seconds [in] The interval between ticks, in seconds.
          * @param name [in] A human-readable name for the timer (used for identification/logging).
@@ -38,9 +37,8 @@ class PeriodicTimer {
             : period_(period_seconds), name_(std::move(name)), on_tick_(std::move(on_tick)) {}
 
         /**
-         * @fn start()
-         * @brief PeriodicTimer::start
-         * Start the timer and begin executing the callback at fixed intervals.
+         * @fn PeriodicTimer::start
+         * @brief Start the timer and begin executing the callback at fixed intervals.
          *
          * @details
          * - The timer starts immediately and waits for the first period before calling `on_tick_()`.
@@ -64,9 +62,8 @@ class PeriodicTimer {
         }
 
         /**
-         * @fn stop()
-         * @brief PeriodicTimer::stop
-         * Stop the timer and wait for the worker thread to finish.
+         * @fn PeriodicTimer::stop
+         * @brief Stop the timer and wait for the worker thread to finish.
          *
          * @details
          * Safe to call multiple times; has no effect if the timer is not running.
@@ -78,8 +75,8 @@ class PeriodicTimer {
         }
 
         /**
-         * @brief PeriodicTimer::~PeriodicTimer
-         * Destructor that ensures the timer is stopped before destruction.
+         * @fn PeriodicTimer::~PeriodicTimer
+         * @brief Destructor that ensures the timer is stopped before destruction.
          */
         ~PeriodicTimer() 
         { 
