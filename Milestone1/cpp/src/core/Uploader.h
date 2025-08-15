@@ -1,8 +1,9 @@
 #pragma once
 
-#include <vector>
 #include "sim/CloudStub.h"
 #include "sim/InverterSim.h"
+
+#include <vector>
 
 /**
  * @class Uploader
@@ -24,7 +25,7 @@ class Uploader
          *
          * @note The referenced CloudStub instance must outlive the Uploader instance.
          */
-        explicit Uploader(CloudStub& cloud) : cloud_(cloud) {}
+        explicit Uploader(CloudStub& cloud);
 
         /**
          * @fn Uploader::upload_once
@@ -38,18 +39,8 @@ class Uploader
          * This method delegates the actual upload to the underlying CloudStub.
          * The upload process may block and may fail based on CloudStub’s behavior.
          */
-        bool upload_once(const std::vector<Sample>& batch) 
-        { 
-            return cloud_.upload(batch); 
-        }
+        bool upload_once(const std::vector<Sample>& batch);
 
     private:
-        /**
-         * @fn cloud_
-         * @brief Reference to the cloud interface used for uploads.
-         *
-         * @details This is a non-owning reference. The referenced CloudStub object
-         * must remain valid for the lifetime of the Uploader instance.
-         */
         CloudStub& cloud_;
 };
