@@ -1,10 +1,4 @@
-#pragma once
-
 #include "Uploader.h"
-
-#include <vector>
-#include "sim/CloudStub.h"
-#include "sim/InverterSim.h"
 
 /**
  * @fn Uploader::Uploader
