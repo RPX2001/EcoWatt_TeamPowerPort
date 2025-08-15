@@ -1,13 +1,5 @@
 #include "CloudStub.h"
 
-#include "InverterSim.h"
-
-#include <vector>
-#include <thread>
-#include <chrono>
-#include <random>
-#include <iostream>
-
 /**
  * @fn upload(const std::vector<Sample>& batch) 
  * @brief Uploads a batch of samples to the simulated cloud service.
