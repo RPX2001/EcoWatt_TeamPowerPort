@@ -22,7 +22,7 @@ class AcquisitionScheduler
          *
          * @note The referenced InverterSIM instance must outlive this scheduler.
          */
-        explicit AcquisitionScheduler(InverterSIM& sim) : sim_(sim) {}
+        explicit AcquisitionScheduler(InverterSIM& sim);
 
         /**
          * @brief AcquisitionScheduler::poll_once
@@ -34,7 +34,8 @@ class AcquisitionScheduler
          *
          * @details Delegates the polling operation to the underlying InverterSIM instance.
          */
-        std::pair<bool, Sample> poll_once() { return sim_.read(); }
+        std::pair<bool, Sample> poll_once();
+
     private:
         InverterSIM& sim_;
 };
