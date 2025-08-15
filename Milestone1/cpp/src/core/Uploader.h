@@ -17,9 +17,8 @@ class Uploader
 {
     public:
         /**
-         * @fn Uploader(CloudStub& cloud) : cloud_(cloud)
-         * @brief Uploader::Uploader
-         * Constructor that binds the uploader to a given cloud interface.
+         * @fn Uploader::Uploader
+         * @briefConstructor that binds the uploader to a given cloud interface.
          *
          * @param cloud [in] Reference to a CloudStub instance that will perform the uploads.
          *
@@ -28,9 +27,8 @@ class Uploader
         explicit Uploader(CloudStub& cloud) : cloud_(cloud) {}
 
         /**
-         * @fn upload_once(const std::vector<Sample>& batch)
-         * @brief Uploader::upload_once
-         * Upload a single batch of inverter samples.
+         * @fn Uploader::upload_once
+         * @brief Upload a single batch of inverter samples.
          *
          * @param batch [in] Vector of samples to upload.
          * @return true  If the batch was successfully uploaded.
