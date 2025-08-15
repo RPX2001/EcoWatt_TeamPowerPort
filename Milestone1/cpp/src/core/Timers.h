@@ -33,8 +33,7 @@ class PeriodicTimer {
          *
          * @note The callback will be executed in the context of the timer's worker thread.
          */
-        PeriodicTimer(double period_seconds, std::string name, TickFn on_tick)
-            : period_(period_seconds), name_(std::move(name)), on_tick_(std::move(on_tick)) {}
+        PeriodicTimer(double period_seconds, std::string name, TickFn on_tick);
 
         /**
          * @fn PeriodicTimer::start
@@ -45,21 +44,7 @@ class PeriodicTimer {
          * - Runs in a background thread until `stop()` is called or the object is destroyed.
          * - Thread-safe.
          */
-        void start() 
-        {
-            running_.store(true);
-            worker_ = std::thread([this]
-                {
-                    auto next = Clock::now() + Sec(period_);
-                    while (running_.load()) 
-                    {
-                        std::this_thread::sleep_until(next);
-                        if (!running_.load()) break;
-                        on_tick_();                 // Coordinator prints human messages
-                        next += Sec(period_);
-                    }
-                });
-        }
+        void start();
 
         /**
          * @fn PeriodicTimer::stop
@@ -68,20 +53,13 @@ class PeriodicTimer {
          * @details
          * Safe to call multiple times; has no effect if the timer is not running.
          */
-        void stop() 
-        { 
-                running_.store(false); 
-                if (worker_.joinable()) worker_.join(); 
-        }
+        void stop();
 
         /**
          * @fn PeriodicTimer::~PeriodicTimer
          * @brief Destructor that ensures the timer is stopped before destruction.
          */
-        ~PeriodicTimer() 
-        { 
-            stop(); 
-        }
+        ~PeriodicTimer();
     
     private:
         double period_;
