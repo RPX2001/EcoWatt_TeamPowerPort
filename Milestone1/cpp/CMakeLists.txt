@@ -1,19 +1,42 @@
 cmake_minimum_required(VERSION 3.12)
 project(ecowatt_cpp LANGUAGES CXX)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(ecowatt
-  src/main.cpp
+# Collect all source files
+set(SRC_FILES
+    src/main.cpp
+
+    # Application
+    src/core/application/Coordinator.cpp
+
+    # Peripheral/Driver
+    src/core/peripheral/Acquisition.cpp
+    src/core/peripheral/Uploader.cpp
+    src/core/peripheral/Timers.cpp
+
+    # HAL
+    src/sim/InverterSim.cpp
+
+    # Sim
+    src/sim/CloudStub.cpp
 )
 
-target_include_directories(ecowatt PRIVATE src)
+add_executable(ecowatt ${SRC_FILES})
 
-find_package(Threads REQUIRED)
-target_link_libraries(ecowatt PRIVATE Threads::Threads)
+# Include directories
+target_include_directories(ecowatt PRIVATE
+    include
+    include/core
+    include/core/peripheral
+    include/core/application
+    include/sim
+)
 
-if (MSVC)
-  target_compile_options(ecowatt PRIVATE /W4)
+# Compiler warnings
+if(MSVC)
+    target_compile_options(ecowatt PRIVATE /W4)
 else()
-  target_compile_options(ecowatt PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(ecowatt PRIVATE -Wall -Wextra -Wpedantic)
 endif()
