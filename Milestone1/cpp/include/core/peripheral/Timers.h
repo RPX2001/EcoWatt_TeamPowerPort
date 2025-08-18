@@ -1,3 +1,23 @@
+/**
+ * @file Timers.h
+ * @brief Declaration of the PeriodicTimer class for periodic callback execution.
+ *
+ * @details
+ * Defines the PeriodicTimer class, which executes a user-supplied callback function
+ * at a fixed interval in a background thread. Supports explicit start and stop operations,
+ * and ensures thread-safe periodic execution using a steady clock.
+ *
+ * @author Prabath (original)
+ * @author Yasith (revision)
+ * @version 1.1
+ * @date 2025-08-18
+ *
+ * @par Revision history
+ * - 1.0 (Prabath, 2025-08-14) Original file.
+ * - 1.1 (Yasith, 2025-08-18) Split into header and source files and split to layers.
+ */
+
+
 #pragma once
 
 #include <atomic>

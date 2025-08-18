@@ -1,3 +1,23 @@
+/**
+ * @file Coordinator.h
+ * @brief Declaration of the Coordinator class for managing acquisition and upload events.
+ *
+ * @details
+ * Defines the Coordinator class, event types, and supporting structures for orchestrating
+ * polling and uploading of inverter samples. The Coordinator interacts with a blocking queue,
+ * ring buffer, acquisition scheduler, and uploader to manage system state transitions.
+ *
+ * @author Prabath (original)
+ * @author Yasith (revision)
+ * @version 1.1
+ * @date 2025-08-18
+ *
+ * @par Revision history
+ * - 1.0 (Prabath, 2025-08-14) Original file.
+ * - 1.1 (Yasith, 2025-08-18) Split into header and source files and split to layers.
+ */
+
+
 #pragma once
 
 #include <atomic>

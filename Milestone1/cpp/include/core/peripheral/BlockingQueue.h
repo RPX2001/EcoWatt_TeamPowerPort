@@ -1,3 +1,21 @@
+/**
+ * @file BlockingQueue.h
+ * @brief Declaration of the BlockingQueue template class for thread-safe queues.
+ *
+ * @details
+ * Defines the BlockingQueue class template, which provides a thread-safe, blocking
+ * queue suitable for producer-consumer scenarios. Supports synchronized push and pop
+ * operations using mutexes and condition variables to ensure safe access from multiple threads.
+ *
+ * @author Prabath (original)
+ * @version 1.0
+ * @date 2025-08-14
+ *
+ * @par Revision history
+ * - 1.0 (Prabath, 2025-08-14) Original file.
+ */
+
+
 #pragma once
 
 #include <queue>

@@ -1,3 +1,22 @@
+/**
+ * @file Uploader.cpp
+ * @brief Implementation of the Uploader class for uploading inverter samples to a cloud service.
+ *
+ * @details
+ * Implements the Uploader class methods, providing a wrapper around a CloudStub (or real cloud interface)
+ * to manage the process of sending batches of inverter measurements. Designed for testability and
+ * dependency injection in embedded or simulated environments.
+ *
+ * @author Yasith
+ * @author Prabath
+ * @version 1.0
+ * @date 2025-08-18
+ *
+ * @par Revision history
+ * - 1.0 (Yasith, 2025-08-18) Moved implementations to cpp file and split to layers.
+ */
+
+
 #include "Uploader.h"
 
 /**
@@ -8,7 +27,7 @@
  *
  * @note The referenced CloudStub instance must outlive the Uploader instance.
  */
-explicit Uploader::Uploader(CloudStub& cloud) : cloud_(cloud) {}
+Uploader::Uploader(CloudStub& cloud) : cloud_(cloud) {}
 
 /**
  * @fn Uploader::upload_once

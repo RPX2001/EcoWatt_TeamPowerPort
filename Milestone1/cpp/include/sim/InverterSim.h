@@ -1,5 +1,29 @@
+/**
+ * @file InverterSim.h
+ * @brief Declaration of the InverterSIM class for simulating inverter measurements.
+ *
+ * @details
+ * Defines the Sample struct and the InverterSIM class, which simulates an inverter
+ * producing pseudo-random voltage, current, and power readings. The simulator introduces
+ * acquisition delays and occasional read failures to mimic real hardware behavior.
+ *
+ * @author Prabath (original)
+ * @author Yasith (revision)
+ * @version 1.1
+ * @date 2025-08-18
+ *
+ * @par Revision history
+ * - 1.0 (Prabath, 2025-08-14) Original file.
+ * - 1.1 (Yasith, 2025-08-18) Split into header and source files.
+ */
+
+
 #pragma once
 
+#include <chrono>
+#include <random>
+#include <thread>
+#include <cmath>
 #include <utility>
 
 /**

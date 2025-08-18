@@ -1,4 +1,23 @@
-#include "InverterSim.h"
+/**
+ * @file InverterSim.cpp
+ * @brief Implementation of the InverterSIM class for simulating inverter measurements.
+ *
+ * @details
+ * Implements the InverterSIM methods, generating pseudo-random voltage, current, and power
+ * readings to simulate an inverter. Introduces acquisition delays and occasional read failures
+ * to mimic real hardware behavior for testing and development.
+ *
+ * @author Yasith
+ * @author Prabath
+ * @version 1.0
+ * @date 2025-08-18
+ *
+ * @par Revision history
+ * - 1.0 (Yasith, 2025-08-18) Moved implementations to cpp file.
+ */
+
+
+#include "sim/InverterSim.h"
 
 /**
  * @fn InverterSIM::read
@@ -17,7 +36,7 @@
  *
  * @note Caller must handle the failure case (`first == false`).
  */
-std::pair<bool, Sample> InverterSim::read() 
+std::pair<bool, Sample> InverterSIM::read() 
 {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     if (rand01_() < 0.02) return {false, {}};
@@ -38,7 +57,7 @@ std::pair<bool, Sample> InverterSim::read()
  *
  * @return double Current time since the Unix epoch in seconds.
  */
-static double InverterSim::now_epoch() 
+double InverterSIM::now_epoch() 
 {
     using Clock = std::chrono::system_clock;
     auto now = Clock::now().time_since_epoch();
@@ -53,7 +72,7 @@ static double InverterSim::now_epoch()
  *
  * @details Uses a thread-local Mersenne Twister engine.
  */
-double InverterSim::rand01_() 
+double InverterSIM::rand01_() 
 {
     static thread_local std::mt19937_64 rng{std::random_device{}()};
     static thread_local std::uniform_real_distribution<double> dist(0.0,1.0);
@@ -70,7 +89,7 @@ double InverterSim::rand01_()
  *
  * @details Uses a thread-local Mersenne Twister engine.
  */
-double InverterSim::uniform_(double a,double b)
+double InverterSIM::uniform_(double a,double b)
 {
     static thread_local std::mt19937_64 rng{std::random_device{}()};
     std::uniform_real_distribution<double> dist(a,b);

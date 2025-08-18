@@ -1,14 +1,31 @@
+/**
+ * @file main.cpp
+ * @brief Application entry point for inverter data acquisition and upload system.
+ *
+ * @details
+ * Initializes system components, sets up periodic polling and upload timers,
+ * and starts the main coordinator event loop. Handles clean shutdown on SIGINT.
+ *
+ * @author Prabath (original)
+ * @version 1.0
+ * @date 2025-08-18
+ *
+ * @par Revision history
+ * - 1.0 (Prabath, 2025-08-18) Original file.
+ */
+
+
 #include <atomic>
 #include <csignal>
 #include <thread>
 #include <chrono>
 #include <iostream>
-#include "core/BlockingQueue.h"
-#include "core/Timers.h"
-#include "core/RingBuffer.h"
-#include "core/Acquisition.h"
-#include "core/Uploader.h"
-#include "core/Coordinator.h"
+#include "core/peripheral/BlockingQueue.h"
+#include "core/peripheral/Timers.h"
+#include "core/peripheral/RingBuffer.h"
+#include "core/peripheral/Acquisition.h"
+#include "core/peripheral/Uploader.h"
+#include "core/application/Coordinator.h"
 #include "sim/InverterSim.h"
 #include "sim/CloudStub.h"
 
