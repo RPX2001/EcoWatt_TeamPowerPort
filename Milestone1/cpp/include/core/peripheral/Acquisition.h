@@ -1,3 +1,23 @@
+/**
+ * @file Acquisition.h
+ * @brief Declaration of the AcquisitionScheduler class for inverter data acquisition.
+ *
+ * @details
+ * Defines the AcquisitionScheduler class, which provides an interface for polling
+ * samples from an InverterSIM instance. Designed for integration with system coordinators
+ * or other scheduling logic to facilitate periodic or event-driven data acquisition.
+ *
+ * @author Prabath (original)
+ * @author Yasith (revision)
+ * @version 1.1
+ * @date 2025-08-18
+ *
+ * @par Revision history
+ * - 1.0 (Prabath, 2025-08-14) Original file.
+ * - 1.1 (Yasith, 2025-08-18) Split into header and source files and split to layers.
+ */
+
+
 #pragma once
 
 #include <utility>

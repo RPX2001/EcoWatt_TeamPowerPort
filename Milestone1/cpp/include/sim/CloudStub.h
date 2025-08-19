@@ -1,8 +1,33 @@
+/**
+ * @file CloudStub.h
+ * @brief Declaration of the CloudStub class for simulating cloud uploads of inverter samples.
+ *
+ * @details
+ * Defines the CloudStub class, which simulates a cloud service for uploading batches of inverter
+ * samples. It introduces artificial delays and a configurable failure probability to mimic network
+ * unreliability during testing and development.
+ *
+ * @author Prabath (original)
+ * @author Yasith (revision)
+ * @version 1.1
+ * @date 2025-08-18
+ *
+ * @par Revision history
+ * - 1.0 (Prabath, 2025-08-14) Original file.
+ * - 1.1 (Yasith, 2025-08-18) Split into header and source files.
+ */
+
+
 #pragma once
 
 #include "InverterSim.h"
 
 #include <vector>
+#include <random>
+#include <chrono>
+#include <iostream>
+#include <thread>
+#include <utility>
 
 /**
  * @class CloudStub

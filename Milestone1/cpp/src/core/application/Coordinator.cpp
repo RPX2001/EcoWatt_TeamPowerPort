@@ -1,4 +1,24 @@
-#include "Coordinator.cpp"
+/**
+ * @file Coordinator.cpp
+ * @brief Implementation of the Coordinator class for managing acquisition and upload events.
+ *
+ * @details
+ * Implements the Coordinator class methods, handling the main event-processing loop,
+ * state transitions, polling, and uploading of inverter samples. Coordinates between
+ * the event queue, ring buffer, acquisition scheduler, and uploader to manage system
+ * state and ensure reliable operation.
+ *
+ * @author Yasith
+ * @author Prabath
+ * @version 1.0
+ * @date 2025-08-18
+ *
+ * @par Revision history
+ * - 1.0 (Yasith, 2025-08-18) Moved implementations to cpp file and split to layers.
+ */
+
+
+#include "Coordinator.h"
 
 /**
  * @fn Coordinator::Coordinator
@@ -45,12 +65,12 @@ void Coordinator::run()
         if (ev.kind == EventKind::PollTick) 
         {
             poll_ready_ = true;
-            std::cout << "[Poll Timer = 2s] tick → Poll Ready\n";
+            std::cout << "[Poll Timer = 2s] tick -> Poll Ready\n";
         } 
         else if (ev.kind == EventKind::UploadTick) 
         {
             upload_ready_ = true;
-            std::cout << "[Upload Timer = 15s] tick → Upload Ready\n";
+            std::cout << "[Upload Timer = 15s] tick -> Upload Ready\n";
         }
         
         drain_enabled_transitions();
@@ -86,7 +106,7 @@ void Coordinator::drain_enabled_transitions()
 
         if (upload_ready_ && !polling_ && !uploading_ && buffer_.not_empty()) 
         {
-            std::cout << "Not Polling → Uploading\n";
+            std::cout << "Not Polling -> Uploading\n";
             do_uploading();
             progress = true;
             continue;
@@ -94,7 +114,7 @@ void Coordinator::drain_enabled_transitions()
         
         if (poll_ready_ && !uploading_ && !polling_) 
         {
-            std::cout << "Not Uploading → Polling\n";
+            std::cout << "Not Uploading -> Polling\n";
             do_polling();
             progress = true;
             continue;
@@ -162,7 +182,7 @@ void Coordinator::do_uploading()
     bool ok = upl_.upload_once(batch);
     if (ok) 
     {
-        std::cout << "Received ACK → Idle\n";
+        std::cout << "Received ACK -> Idle\n";
         upload_ready_ = false;
     } 
     else 

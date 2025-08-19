@@ -1,3 +1,21 @@
+/**
+ * @file RingBuffer.h
+ * @brief Declaration of the RingBuffer template class for thread-safe fixed-capacity FIFO buffers.
+ *
+ * @details
+ * Defines the RingBuffer class template, which implements a thread-safe, bounded FIFO queue
+ * for generic data types. Supports synchronized push, drain, and query operations using mutexes
+ * to ensure safe access from multiple threads. When full, new items are dropped instead of overwriting.
+ *
+ * @author Prabath (original)
+ * @version 1.0
+ * @date 2025-08-14
+ *
+ * @par Revision history
+ * - 1.0 (Prabath, 2025-08-14) Original file.
+ */
+
+
 #pragma once
 
 #include <deque>
