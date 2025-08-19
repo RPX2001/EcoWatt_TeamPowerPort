@@ -1,3 +1,22 @@
+/**
+ * @file Timers.cpp
+ * @brief Implementation of the PeriodicTimer class for periodic callback execution.
+ *
+ * @details
+ * Implements the PeriodicTimer methods, enabling periodic execution of a user-supplied
+ * callback function in a background thread. Supports explicit start and stop operations,
+ * and ensures thread-safe periodic execution using a steady clock.
+ *
+ * @author Yasith
+ * @author Prabath
+ * @version 1.0
+ * @date 2025-08-18
+ *
+ * @par Revision history
+ * - 1.0 (Yasith, 2025-08-18) Moved implementations to cpp file and split to layers.
+ */
+
+
 #include "Timers.h"
 
 /**

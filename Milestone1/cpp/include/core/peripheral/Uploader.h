@@ -1,3 +1,23 @@
+/**
+ * @file Uploader.h
+ * @brief Declaration of the Uploader class for uploading inverter samples to a cloud service.
+ *
+ * @details
+ * Defines the Uploader class, which acts as a wrapper around a CloudStub (or real cloud interface)
+ * to manage the process of sending batches of inverter measurements. Designed for testability and
+ * dependency injection in embedded or simulated environments.
+ *
+ * @author Prabath (original)
+ * @author Yasith (revision)
+ * @version 1.0
+ * @date 2025-08-18
+ *
+ * @par Revision history
+ * - 1.0 (Prabath, 2025-08-18) Original file.
+ * - 1.1 (Yasith, 2025-08-18) Split into header and source files and split to layers.
+ */
+
+
 #pragma once
 
 #include "sim/CloudStub.h"

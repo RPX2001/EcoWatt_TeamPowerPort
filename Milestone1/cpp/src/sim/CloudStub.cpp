@@ -1,4 +1,23 @@
-#include "CloudStub.h"
+/**
+ * @file CloudStub.cpp
+ * @brief Implementation of the CloudStub class for simulating cloud uploads of inverter samples.
+ *
+ * @details
+ * Implements the CloudStub methods, simulating a cloud service for uploading batches of inverter
+ * samples. Introduces artificial delays and a configurable failure probability to mimic network
+ * unreliability during testing and development.
+ *
+ * @author Yasith
+ * @author Prabath
+ * @version 1.0
+ * @date 2025-08-18
+ *
+ * @par Revision history
+ * - 1.0 (Yasith, 2025-08-18) Moved implementations to cpp file.
+ */
+
+
+#include "sim/CloudStub.h"
 
 /**
  * @fn upload(const std::vector<Sample>& batch) 
@@ -11,8 +30,9 @@
  * @param   batch A vector containing the samples to upload.
  * @return `true` if the upload was successful, `false` if it failed.
  */
-bool upload(const std::vector<Sample>& batch) 
+bool CloudStub::upload(const std::vector<Sample>& batch)
 {
+    (void)batch;
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     if (rand01_() < 0.05)
     {
@@ -32,7 +52,7 @@ bool upload(const std::vector<Sample>& batch)
   *
   * @return A random number in the range [0.0, 1.0].
   */
-double rand01_() 
+double CloudStub::rand01_() 
 {
     static thread_local std::mt19937_64 rng{std::random_device{}()};
     static thread_local std::uniform_real_distribution<double> dist(0.0,1.0);
