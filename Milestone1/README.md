@@ -72,18 +72,32 @@ Milestone1/
 │
 ├── cpp/
 │   ├── CMakeLists.txt            # Build configuration
-│   ├── src/
-│   │   ├── main.cpp             # Main application entry point
+│   ├── include/
 │   │   ├── core/
-│   │   │   ├── Timers.h         # Timer implementations
-│   │   │   ├── Acquisition.h    # Data acquisition logic
-│   │   │   ├── RingBuffer.h     # Circular buffer implementation
-│   │   │   └── Uploader.h       # Cloud upload functionality
-│   │   └── sim/
-│   │       ├── InverterSim.h    # Inverter simulation
-│   │       └── CloudStub.h      # Cloud service simulation
-│   └── build/                   # Build output directory
-└── README.md                    # This file
+│   │   │   ├── application/
+│   │   │   │   ├── Coordinator.h      # Coordinate the states
+│   │   │   ├── peripheral/
+│   │   │   │   ├── Acquisition.h      # Data acquisition logic
+│   │   │   │   ├── BlockingQueue.h    # Handles events and flags
+│   │   │   │   ├── RingBuffer.h       # Circular buffer implementation
+│   │   │   │   ├── Timers.h           # Timer implementations
+│   │   │   │   ├── Uploader.h         # Cloud upload functionality
+│   │   ├── sim/
+│   │   │   ├── CloudStub.h
+│   │   │   ├── InverterSim.h
+│   ├── src/
+│   │   ├── core/
+│   │   │   ├── application/
+│   │   │   │   ├── Coordinator.cpp
+│   │   │   ├── peripheral/
+│   │   │   │   ├── Acquisition.cpp
+│   │   │   │   ├── Timers.cpp
+│   │   │   │   ├── Uploader.cpp
+│   │   ├── sim/
+│   │   │   ├── CloudStub.cpp
+│   │   │   ├── InverterSim.cpp
+│   │   ├── main.cpp             # Main application entry point
+└── README.md                   
 ```
 
 ---
