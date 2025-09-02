@@ -1,7 +1,29 @@
-#ifndef PROTCOL_ADAPTER_H
-#define PROTCOL_ADAPTER_H
+#ifndef PROTOCOL_ADAPTER_H
+#define PROTOCOL_ADAPTER_H
 
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 
+class ProtocolAdapter {
+  public:
+    ProtocolAdapter();
+    void begin();  // connect WiFi
+    String writeRegister(String frame);
+    String readRegister(String frame);
+    void parseResponse(String response);
 
+  private:
+    // keep WiFi & API key private
+    const char* ssid     = "Wokwi-GUEST";
+    const char* password = "";
+    String apiKey        = "NjhhZWIwNDU1ZDdmMzg3MzNiMTQ5YTFmOjY4YWViMDQ1NWQ3ZjM4NzMzYjE0OWExNQ==";
+
+    String writeURL = "http://20.15.114.131:8080/api/inverter/write";
+    String readURL  = "http://20.15.114.131:8080/api/inverter/read";
+
+    String sendRequest(String url, String frame);
+    void printErrorCode(int code);
+};
 
 #endif

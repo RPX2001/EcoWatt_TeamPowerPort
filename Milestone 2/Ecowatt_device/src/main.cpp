@@ -1,18 +1,19 @@
 #include <Arduino.h>
 
-// put function declarations here:
-int myFunction(int, int);
+#include "protocol_adapter.h"
+
+ProtocolAdapter adapter;
 
 void setup() {
-  // put your setup code here, to run once:
-  int result = myFunction(2, 3);
+  adapter.begin();
+
+  // Example write
+  adapter.writeRegister("1106000800100B54");
+
+  // Example read
+  adapter.readRegister("110300000002C69B");
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-}
-
-// put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
+  // Your main program logic
 }
