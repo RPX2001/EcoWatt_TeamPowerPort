@@ -71,26 +71,11 @@ include CMakeFiles/ecowatt.dir/flags.make
 CMakeFiles/ecowatt.dir/codegen:
 .PHONY : CMakeFiles/ecowatt.dir/codegen
 
-CMakeFiles/ecowatt.dir/src/main.cpp.obj: CMakeFiles/ecowatt.dir/flags.make
-CMakeFiles/ecowatt.dir/src/main.cpp.obj: CMakeFiles/ecowatt.dir/includes_CXX.rsp
-CMakeFiles/ecowatt.dir/src/main.cpp.obj: D:/Work/Semester\ 7/Embedded\ Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/main.cpp
-CMakeFiles/ecowatt.dir/src/main.cpp.obj: CMakeFiles/ecowatt.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\build\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/ecowatt.dir/src/main.cpp.obj"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/ecowatt.dir/src/main.cpp.obj -MF CMakeFiles\ecowatt.dir\src\main.cpp.obj.d -o CMakeFiles\ecowatt.dir\src\main.cpp.obj -c "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\main.cpp"
-
-CMakeFiles/ecowatt.dir/src/main.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/ecowatt.dir/src/main.cpp.i"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\main.cpp" > CMakeFiles\ecowatt.dir\src\main.cpp.i
-
-CMakeFiles/ecowatt.dir/src/main.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/ecowatt.dir/src/main.cpp.s"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\main.cpp" -o CMakeFiles\ecowatt.dir\src\main.cpp.s
-
 CMakeFiles/ecowatt.dir/src/core/application/Coordinator.cpp.obj: CMakeFiles/ecowatt.dir/flags.make
 CMakeFiles/ecowatt.dir/src/core/application/Coordinator.cpp.obj: CMakeFiles/ecowatt.dir/includes_CXX.rsp
 CMakeFiles/ecowatt.dir/src/core/application/Coordinator.cpp.obj: D:/Work/Semester\ 7/Embedded\ Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/core/application/Coordinator.cpp
 CMakeFiles/ecowatt.dir/src/core/application/Coordinator.cpp.obj: CMakeFiles/ecowatt.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\build\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/ecowatt.dir/src/core/application/Coordinator.cpp.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\build\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/ecowatt.dir/src/core/application/Coordinator.cpp.obj"
 	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/ecowatt.dir/src/core/application/Coordinator.cpp.obj -MF CMakeFiles\ecowatt.dir\src\core\application\Coordinator.cpp.obj.d -o CMakeFiles\ecowatt.dir\src\core\application\Coordinator.cpp.obj -c "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\core\application\Coordinator.cpp"
 
 CMakeFiles/ecowatt.dir/src/core/application/Coordinator.cpp.i: cmake_force
@@ -105,7 +90,7 @@ CMakeFiles/ecowatt.dir/src/core/peripheral/Acquisition.cpp.obj: CMakeFiles/ecowa
 CMakeFiles/ecowatt.dir/src/core/peripheral/Acquisition.cpp.obj: CMakeFiles/ecowatt.dir/includes_CXX.rsp
 CMakeFiles/ecowatt.dir/src/core/peripheral/Acquisition.cpp.obj: D:/Work/Semester\ 7/Embedded\ Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/core/peripheral/Acquisition.cpp
 CMakeFiles/ecowatt.dir/src/core/peripheral/Acquisition.cpp.obj: CMakeFiles/ecowatt.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\build\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/ecowatt.dir/src/core/peripheral/Acquisition.cpp.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\build\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/ecowatt.dir/src/core/peripheral/Acquisition.cpp.obj"
 	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/ecowatt.dir/src/core/peripheral/Acquisition.cpp.obj -MF CMakeFiles\ecowatt.dir\src\core\peripheral\Acquisition.cpp.obj.d -o CMakeFiles\ecowatt.dir\src\core\peripheral\Acquisition.cpp.obj -c "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\core\peripheral\Acquisition.cpp"
 
 CMakeFiles/ecowatt.dir/src/core/peripheral/Acquisition.cpp.i: cmake_force
@@ -115,6 +100,21 @@ CMakeFiles/ecowatt.dir/src/core/peripheral/Acquisition.cpp.i: cmake_force
 CMakeFiles/ecowatt.dir/src/core/peripheral/Acquisition.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/ecowatt.dir/src/core/peripheral/Acquisition.cpp.s"
 	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\core\peripheral\Acquisition.cpp" -o CMakeFiles\ecowatt.dir\src\core\peripheral\Acquisition.cpp.s
+
+CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj: CMakeFiles/ecowatt.dir/flags.make
+CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj: CMakeFiles/ecowatt.dir/includes_CXX.rsp
+CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj: D:/Work/Semester\ 7/Embedded\ Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/core/peripheral/Timers.cpp
+CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj: CMakeFiles/ecowatt.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\build\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj -MF CMakeFiles\ecowatt.dir\src\core\peripheral\Timers.cpp.obj.d -o CMakeFiles\ecowatt.dir\src\core\peripheral\Timers.cpp.obj -c "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\core\peripheral\Timers.cpp"
+
+CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.i"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\core\peripheral\Timers.cpp" > CMakeFiles\ecowatt.dir\src\core\peripheral\Timers.cpp.i
+
+CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.s"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\core\peripheral\Timers.cpp" -o CMakeFiles\ecowatt.dir\src\core\peripheral\Timers.cpp.s
 
 CMakeFiles/ecowatt.dir/src/core/peripheral/Uploader.cpp.obj: CMakeFiles/ecowatt.dir/flags.make
 CMakeFiles/ecowatt.dir/src/core/peripheral/Uploader.cpp.obj: CMakeFiles/ecowatt.dir/includes_CXX.rsp
@@ -131,41 +131,26 @@ CMakeFiles/ecowatt.dir/src/core/peripheral/Uploader.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/ecowatt.dir/src/core/peripheral/Uploader.cpp.s"
 	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\core\peripheral\Uploader.cpp" -o CMakeFiles\ecowatt.dir\src\core\peripheral\Uploader.cpp.s
 
-CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj: CMakeFiles/ecowatt.dir/flags.make
-CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj: CMakeFiles/ecowatt.dir/includes_CXX.rsp
-CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj: D:/Work/Semester\ 7/Embedded\ Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/core/peripheral/Timers.cpp
-CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj: CMakeFiles/ecowatt.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\build\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj -MF CMakeFiles\ecowatt.dir\src\core\peripheral\Timers.cpp.obj.d -o CMakeFiles\ecowatt.dir\src\core\peripheral\Timers.cpp.obj -c "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\core\peripheral\Timers.cpp"
+CMakeFiles/ecowatt.dir/src/main.cpp.obj: CMakeFiles/ecowatt.dir/flags.make
+CMakeFiles/ecowatt.dir/src/main.cpp.obj: CMakeFiles/ecowatt.dir/includes_CXX.rsp
+CMakeFiles/ecowatt.dir/src/main.cpp.obj: D:/Work/Semester\ 7/Embedded\ Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/main.cpp
+CMakeFiles/ecowatt.dir/src/main.cpp.obj: CMakeFiles/ecowatt.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\build\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/ecowatt.dir/src/main.cpp.obj"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/ecowatt.dir/src/main.cpp.obj -MF CMakeFiles\ecowatt.dir\src\main.cpp.obj.d -o CMakeFiles\ecowatt.dir\src\main.cpp.obj -c "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\main.cpp"
 
-CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.i"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\core\peripheral\Timers.cpp" > CMakeFiles\ecowatt.dir\src\core\peripheral\Timers.cpp.i
+CMakeFiles/ecowatt.dir/src/main.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/ecowatt.dir/src/main.cpp.i"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\main.cpp" > CMakeFiles\ecowatt.dir\src\main.cpp.i
 
-CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.s"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\core\peripheral\Timers.cpp" -o CMakeFiles\ecowatt.dir\src\core\peripheral\Timers.cpp.s
-
-CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj: CMakeFiles/ecowatt.dir/flags.make
-CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj: CMakeFiles/ecowatt.dir/includes_CXX.rsp
-CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj: D:/Work/Semester\ 7/Embedded\ Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/sim/InverterSim.cpp
-CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj: CMakeFiles/ecowatt.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\build\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj -MF CMakeFiles\ecowatt.dir\src\sim\InverterSim.cpp.obj.d -o CMakeFiles\ecowatt.dir\src\sim\InverterSim.cpp.obj -c "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\sim\InverterSim.cpp"
-
-CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.i"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\sim\InverterSim.cpp" > CMakeFiles\ecowatt.dir\src\sim\InverterSim.cpp.i
-
-CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.s"
-	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\sim\InverterSim.cpp" -o CMakeFiles\ecowatt.dir\src\sim\InverterSim.cpp.s
+CMakeFiles/ecowatt.dir/src/main.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/ecowatt.dir/src/main.cpp.s"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\main.cpp" -o CMakeFiles\ecowatt.dir\src\main.cpp.s
 
 CMakeFiles/ecowatt.dir/src/sim/CloudStub.cpp.obj: CMakeFiles/ecowatt.dir/flags.make
 CMakeFiles/ecowatt.dir/src/sim/CloudStub.cpp.obj: CMakeFiles/ecowatt.dir/includes_CXX.rsp
 CMakeFiles/ecowatt.dir/src/sim/CloudStub.cpp.obj: D:/Work/Semester\ 7/Embedded\ Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/sim/CloudStub.cpp
 CMakeFiles/ecowatt.dir/src/sim/CloudStub.cpp.obj: CMakeFiles/ecowatt.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\build\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/ecowatt.dir/src/sim/CloudStub.cpp.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\build\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/ecowatt.dir/src/sim/CloudStub.cpp.obj"
 	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/ecowatt.dir/src/sim/CloudStub.cpp.obj -MF CMakeFiles\ecowatt.dir\src\sim\CloudStub.cpp.obj.d -o CMakeFiles\ecowatt.dir\src\sim\CloudStub.cpp.obj -c "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\sim\CloudStub.cpp"
 
 CMakeFiles/ecowatt.dir/src/sim/CloudStub.cpp.i: cmake_force
@@ -176,26 +161,41 @@ CMakeFiles/ecowatt.dir/src/sim/CloudStub.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/ecowatt.dir/src/sim/CloudStub.cpp.s"
 	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\sim\CloudStub.cpp" -o CMakeFiles\ecowatt.dir\src\sim\CloudStub.cpp.s
 
+CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj: CMakeFiles/ecowatt.dir/flags.make
+CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj: CMakeFiles/ecowatt.dir/includes_CXX.rsp
+CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj: D:/Work/Semester\ 7/Embedded\ Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/sim/InverterSim.cpp
+CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj: CMakeFiles/ecowatt.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir="D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\build\CMakeFiles" --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj -MF CMakeFiles\ecowatt.dir\src\sim\InverterSim.cpp.obj.d -o CMakeFiles\ecowatt.dir\src\sim\InverterSim.cpp.obj -c "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\sim\InverterSim.cpp"
+
+CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.i"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\sim\InverterSim.cpp" > CMakeFiles\ecowatt.dir\src\sim\InverterSim.cpp.i
+
+CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.s"
+	C:\msys64\ucrt64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "D:\Work\Semester 7\Embedded Systems\EcoWatt_TeamPowerPort\Milestone1\cpp\src\sim\InverterSim.cpp" -o CMakeFiles\ecowatt.dir\src\sim\InverterSim.cpp.s
+
 # Object files for target ecowatt
 ecowatt_OBJECTS = \
-"CMakeFiles/ecowatt.dir/src/main.cpp.obj" \
 "CMakeFiles/ecowatt.dir/src/core/application/Coordinator.cpp.obj" \
 "CMakeFiles/ecowatt.dir/src/core/peripheral/Acquisition.cpp.obj" \
-"CMakeFiles/ecowatt.dir/src/core/peripheral/Uploader.cpp.obj" \
 "CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj" \
-"CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj" \
-"CMakeFiles/ecowatt.dir/src/sim/CloudStub.cpp.obj"
+"CMakeFiles/ecowatt.dir/src/core/peripheral/Uploader.cpp.obj" \
+"CMakeFiles/ecowatt.dir/src/main.cpp.obj" \
+"CMakeFiles/ecowatt.dir/src/sim/CloudStub.cpp.obj" \
+"CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj"
 
 # External object files for target ecowatt
 ecowatt_EXTERNAL_OBJECTS =
 
-ecowatt.exe: CMakeFiles/ecowatt.dir/src/main.cpp.obj
 ecowatt.exe: CMakeFiles/ecowatt.dir/src/core/application/Coordinator.cpp.obj
 ecowatt.exe: CMakeFiles/ecowatt.dir/src/core/peripheral/Acquisition.cpp.obj
-ecowatt.exe: CMakeFiles/ecowatt.dir/src/core/peripheral/Uploader.cpp.obj
 ecowatt.exe: CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj
-ecowatt.exe: CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj
+ecowatt.exe: CMakeFiles/ecowatt.dir/src/core/peripheral/Uploader.cpp.obj
+ecowatt.exe: CMakeFiles/ecowatt.dir/src/main.cpp.obj
 ecowatt.exe: CMakeFiles/ecowatt.dir/src/sim/CloudStub.cpp.obj
+ecowatt.exe: CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj
 ecowatt.exe: CMakeFiles/ecowatt.dir/build.make
 ecowatt.exe: CMakeFiles/ecowatt.dir/linkLibs.rsp
 ecowatt.exe: CMakeFiles/ecowatt.dir/objects1.rsp

@@ -9,7 +9,7 @@
 					"jsonFile" : "directory-.-Debug-d0094a50bb2071803777.json",
 					"minimumCMakeVersion" : 
 					{
-						"string" : "3.12"
+						"string" : "3.10"
 					},
 					"projectIndex" : 0,
 					"source" : ".",
@@ -27,7 +27,7 @@
 					[
 						0
 					],
-					"name" : "ecowatt_cpp",
+					"name" : "InverterFirmware",
 					"targetIndexes" : 
 					[
 						0
@@ -39,7 +39,7 @@
 				{
 					"directoryIndex" : 0,
 					"id" : "ecowatt::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-ecowatt-Debug-8291e322764928aa08a2.json",
+					"jsonFile" : "target-ecowatt-Debug-181c62652dd706453342.json",
 					"name" : "ecowatt",
 					"projectIndex" : 0
 				}
