@@ -5,6 +5,7 @@
 
 ProtocolAdapter::ProtocolAdapter() {}
 
+//initialization wifi connection
 void ProtocolAdapter::begin() {
   Serial.begin(115200);
   WiFi.begin(ssid, password);
@@ -17,24 +18,29 @@ void ProtocolAdapter::begin() {
   Serial.println(" Connected!");
 }
 
+//write to register in server
 String ProtocolAdapter::writeRegister(String frame) {
   String response = sendRequest(writeURL, frame);
   parseResponse(response);
   return response;
 }
 
+//read from register in server
 String ProtocolAdapter::readRegister(String frame) {
   String response = sendRequest(readURL, frame);
   parseResponse(response);
   return response;
 }
 
+//send HTTP POST request to server
 String ProtocolAdapter::sendRequest(String url, String frame) {
+  //check WiFi connection status
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi not connected");
-    return "";
+    begin();
   }
 
+  //making payload and header structure
   HTTPClient http;
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
@@ -44,6 +50,7 @@ String ProtocolAdapter::sendRequest(String url, String frame) {
   String payload = "{\"frame\": \"" + frame + "\"}";
   Serial.println("Sending: " + payload);
 
+  //send request and get response
   int httpResponseCode = http.POST(payload);
   String response = "";
 
