@@ -9,12 +9,22 @@ class ProtocolAdapter {
   public:
     ProtocolAdapter();
     void begin();  // connect WiFi
-    String writeRegister(String frame);
-    String readRegister(String frame);
-    void parseResponse(String response);
+    String writeRegister(String frame); //write to register in server
+    String readRegister(String frame);  //read from register in server  
+    void parseResponse(String response); //parse JSON response from server
+
+    //setters
+    void setSSID(const char* newSSID);
+    void setPassword(const char* newPassword);
+    void setApiKey(String newApiKey);
+
+    // Getters
+    String getSSID();
+    String getPassword();
+    String getApiKey();
 
   private:
-    // keep WiFi & API key private
+    // keep  default WiFi & API key private
     const char* ssid     = "Wokwi-GUEST";
     const char* password = "";
     String apiKey        = "NjhhZWIwNDU1ZDdmMzg3MzNiMTQ5YTFmOjY4YWViMDQ1NWQ3ZjM4NzMzYjE0OWExNQ==";

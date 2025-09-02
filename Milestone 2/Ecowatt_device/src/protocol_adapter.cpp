@@ -5,6 +5,33 @@
 
 ProtocolAdapter::ProtocolAdapter() {}
 
+// ---------------- Setters ----------------
+void ProtocolAdapter::setSSID(const char* newSSID) {
+  ssid = newSSID;
+}
+
+void ProtocolAdapter::setPassword(const char* newPassword) {
+  password = newPassword;
+}
+
+void ProtocolAdapter::setApiKey(String newApiKey) {
+  apiKey = newApiKey;
+}
+
+// ---------------- Getters ----------------
+String ProtocolAdapter::getSSID() {
+  return String(ssid);
+}
+
+String ProtocolAdapter::getPassword() {
+  return String(password);
+}
+
+String ProtocolAdapter::getApiKey() {
+  return apiKey;
+}
+
+
 //initialization wifi connection
 void ProtocolAdapter::begin() {
   Serial.begin(115200);
