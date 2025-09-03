@@ -1,38 +1,11 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <Arduino.h>
 #include "protocol_adapter.h"
 
 ProtocolAdapter::ProtocolAdapter() {}
 
-// ---------------- Setters ----------------
-void ProtocolAdapter::setSSID(const char* newSSID) {
-  ssid = newSSID;
-}
-
-void ProtocolAdapter::setPassword(const char* newPassword) {
-  password = newPassword;
-}
-
-void ProtocolAdapter::setApiKey(String newApiKey) {
-  apiKey = newApiKey;
-}
-
-// ---------------- Getters ----------------
-String ProtocolAdapter::getSSID() {
-  return String(ssid);
-}
-
-String ProtocolAdapter::getPassword() {
-  return String(password);
-}
-
-String ProtocolAdapter::getApiKey() {
-  return apiKey;
-}
-
-
-//initialization wifi connection
 void ProtocolAdapter::begin() {
   Serial.begin(115200);
   WiFi.begin(ssid, password);
@@ -45,57 +18,76 @@ void ProtocolAdapter::begin() {
   Serial.println(" Connected!");
 }
 
-//write to register in server
 String ProtocolAdapter::writeRegister(String frame) {
   String response = sendRequest(writeURL, frame);
   parseResponse(response);
   return response;
 }
 
-//read from register in server
 String ProtocolAdapter::readRegister(String frame) {
   String response = sendRequest(readURL, frame);
   parseResponse(response);
   return response;
 }
 
-//send HTTP POST request to server
+// ---------------- Robust Send with Retry ----------------
 String ProtocolAdapter::sendRequest(String url, String frame) {
-  //check WiFi connection status
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi not connected");
-    begin();
+    return "";
   }
 
-  //making payload and header structure
   HTTPClient http;
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("accept", "*/*");
-  http.addHeader("Authorization", apiKey);
-
-  String payload = "{\"frame\": \"" + frame + "\"}";
-  Serial.println("Sending: " + payload);
-
-  //send request and get response
-  int httpResponseCode = http.POST(payload);
   String response = "";
+  int attempt = 0;
+  int backoffDelay = 500; // start with 500ms
 
-  if (httpResponseCode > 0) {
-    response = http.getString();
-    Serial.println("Response code: " + String(httpResponseCode));
-    Serial.println("Raw response: " + response);
-  } else {
-    Serial.println("Error in request: " + String(httpResponseCode));
+
+  //transmit and retry logic with exponential backoff time..
+  while (attempt < maxRetries) {
+    attempt++;
+    http.begin(url);
+    http.setTimeout(httpTimeout);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("accept", "*/*");
+    http.addHeader("Authorization", apiKey);
+
+    String payload = "{\"frame\": \"" + frame + "\"}";
+    Serial.printf("Attempt %d: Sending %s\n", attempt, payload.c_str());
+
+    int httpResponseCode = http.POST(payload);
+
+    if (httpResponseCode > 0) {
+      response = http.getString();
+      Serial.printf("Response code: %d\n", httpResponseCode);
+      Serial.println("Raw response: " + response);
+
+      if (response != "") {
+        http.end();
+        return response; // success
+      } else {
+        Serial.println("Empty response, retrying...");
+      }
+    } else {
+      Serial.printf("Request failed (code %d), retrying...\n", httpResponseCode);
+    }
+
+    http.end();
+
+    // exponential backoff
+    Serial.printf("Waiting %d ms before retry...\n", backoffDelay);
+    delay(backoffDelay);
+    backoffDelay *= 2; // double the delay
   }
 
-  http.end();
-  return response;
+  Serial.println("Failed after max retries.");
+  return "";
 }
 
+// ---------------- Parse & Error Handling ----------------
 void ProtocolAdapter::parseResponse(String response) {
   if (response == "") {
-    Serial.println("Empty response!");
+    Serial.println("No response (timeout or retries exhausted).");
     return;
   }
 
@@ -109,26 +101,38 @@ void ProtocolAdapter::parseResponse(String response) {
   }
 
   String frame = doc["frame"];
-  if (frame == "") {
-    Serial.println("Invalid or empty frame in response.");
+  if (!isFrameValid(frame)) {
+    Serial.println("Malformed or empty frame.");
     return;
   }
 
   Serial.println("Received frame: " + frame);
 
-  if (frame.length() >= 4) {
-    int funcCode = strtol(frame.substring(2,4).c_str(), NULL, 16);
-
-    if (funcCode & 0x80) {
-      int errorCode = strtol(frame.substring(4,6).c_str(), NULL, 16);
-      Serial.print("Modbus Exception: ");
-      printErrorCode(errorCode);
-    } else {
-      Serial.println("Valid Modbus frame.");
-    }
+  // Modbus function code check
+  int funcCode = strtol(frame.substring(2,4).c_str(), NULL, 16);
+  if (funcCode & 0x80) {
+    int errorCode = strtol(frame.substring(4,6).c_str(), NULL, 16);
+    Serial.print("Modbus Exception: ");
+    printErrorCode(errorCode);
+  } else {
+    Serial.println("Valid Modbus frame.");
   }
 }
 
+// ---------------- Frame Validation ----------------
+bool ProtocolAdapter::isFrameValid(String frame) {
+  // minimum valid Modbus RTU frame = 6 hex chars (3 bytes)
+  if (frame.length() < 6) return false;
+
+  // ensure only hex chars
+  for (int i = 0; i < frame.length(); i++) {
+    char c = frame.charAt(i);
+    if (!isxdigit(c)) return false;
+  }
+  return true;
+}
+
+// ---------------- Error Printer ----------------
 void ProtocolAdapter::printErrorCode(int code) {
   switch (code) {
     case 0x01: Serial.println("01 - Illegal Function"); break;
@@ -142,4 +146,26 @@ void ProtocolAdapter::printErrorCode(int code) {
     case 0x0B: Serial.println("0B - Gateway Target Device Failed to Respond"); break;
     default:   Serial.println("Unknown error code"); break;
   }
+}
+
+// ---------------- Setters ----------------
+void ProtocolAdapter::setSSID(const char* newSSID) { 
+  ssid = newSSID; 
+}
+void ProtocolAdapter::setPassword(const char* newPassword) { 
+  password = newPassword; 
+}
+void ProtocolAdapter::setApiKey(String newApiKey) { 
+  apiKey = newApiKey; 
+}
+
+// ---------------- Getters ----------------
+String ProtocolAdapter::getSSID() { 
+  return String(ssid); 
+}
+String ProtocolAdapter::getPassword() { 
+  return String(password); 
+}
+String ProtocolAdapter::getApiKey() { 
+  return apiKey; 
 }

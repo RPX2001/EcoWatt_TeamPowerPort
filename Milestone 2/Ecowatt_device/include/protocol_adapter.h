@@ -25,15 +25,20 @@ class ProtocolAdapter {
 
   private:
     // keep  default WiFi & API key private
-    const char* ssid     = "Wokwi-GUEST";
-    const char* password = "";
-    String apiKey        = "NjhhZWIwNDU1ZDdmMzg3MzNiMTQ5YTFmOjY4YWViMDQ1NWQ3ZjM4NzMzYjE0OWExNQ==";
+    const char* ssid;
+    const char* password;
+    String apiKey;
 
     String writeURL = "http://20.15.114.131:8080/api/inverter/write";
     String readURL  = "http://20.15.114.131:8080/api/inverter/read";
 
+    // retry & timeout
+    const int maxRetries = 3;
+    const int httpTimeout = 5000; // ms
+
     String sendRequest(String url, String frame);
     void printErrorCode(int code);
+    bool isFrameValid(String frame);
 };
 
 #endif
