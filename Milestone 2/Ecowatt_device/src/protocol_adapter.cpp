@@ -30,7 +30,7 @@ String ProtocolAdapter::readRegister(String frame) {
   return response;
 }
 
-// ---------------- Robust Send with Retry ----------------
+//  Robust Send with Retry 
 String ProtocolAdapter::sendRequest(String url, String frame) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi not connected");
@@ -84,7 +84,7 @@ String ProtocolAdapter::sendRequest(String url, String frame) {
   return "";
 }
 
-// ---------------- Parse & Error Handling ----------------
+//  Parse & Error Handling 
 void ProtocolAdapter::parseResponse(String response) {
   if (response == "") {
     Serial.println("No response (timeout or retries exhausted).");
@@ -119,7 +119,7 @@ void ProtocolAdapter::parseResponse(String response) {
   }
 }
 
-// ---------------- Frame Validation ----------------
+//  Frame Validation 
 bool ProtocolAdapter::isFrameValid(String frame) {
   // minimum valid Modbus RTU frame = 6 hex chars (3 bytes)
   if (frame.length() < 6) return false;
@@ -132,7 +132,7 @@ bool ProtocolAdapter::isFrameValid(String frame) {
   return true;
 }
 
-// ---------------- Error Printer ----------------
+//  Error Printer 
 void ProtocolAdapter::printErrorCode(int code) {
   switch (code) {
     case 0x01: Serial.println("01 - Illegal Function"); break;
@@ -148,7 +148,7 @@ void ProtocolAdapter::printErrorCode(int code) {
   }
 }
 
-// ---------------- Setters ----------------
+// Setters 
 void ProtocolAdapter::setSSID(const char* newSSID) { 
   ssid = newSSID; 
 }
@@ -159,7 +159,7 @@ void ProtocolAdapter::setApiKey(String newApiKey) {
   apiKey = newApiKey; 
 }
 
-// ---------------- Getters ----------------
+//  Getters 
 String ProtocolAdapter::getSSID() { 
   return String(ssid); 
 }
