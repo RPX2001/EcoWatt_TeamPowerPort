@@ -87,7 +87,7 @@ String ProtocolAdapter::sendRequest(String url, String frame) {
 //  Parse & Error Handling 
 void ProtocolAdapter::parseResponse(String response) {
   if (response == "") {
-    Serial.println("No response (timeout or retries exhausted).");
+    Serial.println("No response.");
     return;
   }
 
