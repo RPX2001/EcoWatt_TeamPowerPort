@@ -68,24 +68,22 @@ String buildReadFrame(uint8_t slave, const RegID* regs, size_t regCount,
 }
 
 // ---- Frame Decoder ----
-size_t decodeReadResponse(const String& frameHex,
-                          uint16_t startAddr,
-                          uint16_t count,
-                          const RegID* regs,
-                          size_t regCount,
-                          uint16_t* outValues) {
-  if (frameHex.length() < 10) return 0;
+DecodedValues decodeReadResponse(const String& frameHex,
+                                 uint16_t startAddr,
+                                 uint16_t count,
+                                 const RegID* regs,
+                                 size_t regCount) {
+  DecodedValues result;
+  result.count = 0;
 
-  // function code
+  if (frameHex.length() < 10) return result;
+
   uint8_t func = strtol(frameHex.substring(2,4).c_str(), NULL, 16);
-  if (func == 0x83) return 0; // exception
-  if (func != 0x03) return 0;
+  if (func != 0x03) return result;
 
-  // byte count
   uint8_t byteCount = strtol(frameHex.substring(4,6).c_str(), NULL, 16);
-  if (byteCount != count * 2) return 0;
+  if (byteCount != count * 2) return result;
 
-  // parse all returned registers into a temp array
   uint16_t allRegs[64];
   for (uint16_t i = 0; i < count; i++) {
     uint16_t hi = strtol(frameHex.substring(6 + i*4, 8 + i*4).c_str(), NULL, 16);
@@ -93,15 +91,14 @@ size_t decodeReadResponse(const String& frameHex,
     allRegs[i] = (hi << 8) | lo;
   }
 
-  // pick out only requested registers
   for (size_t i = 0; i < regCount; i++) {
     const RegisterDef* rd = findRegister(regs[i]);
-    if (!rd) { 
-      outValues[i] = 0; 
-      continue; 
+    if (!rd) {
+      result.values[result.count++] = 0;
+      continue;
     }
-    outValues[i] = allRegs[rd->addr - startAddr];
+    result.values[result.count++] = allRegs[rd->addr - startAddr];
   }
-  // return the number of registers decoded
-  return regCount;
+
+  return result;
 }
