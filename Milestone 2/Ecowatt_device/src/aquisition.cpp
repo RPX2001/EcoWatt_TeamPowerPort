@@ -2,6 +2,8 @@
 #include "protocol_adapter.h"
 #include "aquisition.h"
 
+ProtocolAdapter adapter;
+
 // ---- CRC16 Modbus ----
 static uint16_t calculateCRC(const uint8_t* data, int length) {
   uint16_t crc = 0xFFFF;
@@ -66,6 +68,42 @@ String buildReadFrame(uint8_t slave, const RegID* regs, size_t regCount,
 
   return toHex(frame, 8);
 }
+
+/*
+read request frame function to get the registers from user from main code and 
+make relevant read request frame and send to protocol adapter
+*/
+DecodedValues readRequest(const RegID* regs, size_t regCount) {
+  adapter.setSSID("Raveenpsp");
+  adapter.setPassword("raveen1234");
+  adapter.setApiKey("NjhhZWIwNDU1ZDdmMzg3MzNiMTQ5YTFmOjY4YWViMDQ1NWQ3ZjM4NzMzYjE0OWExNQ==");
+  adapter.begin();
+
+  DecodedValues result;
+  result.count = 0;
+
+  // build read frame
+  uint16_t startAddr, count;
+  String frame = buildReadFrame(0x11, regs, regCount, startAddr, count);
+  if (frame == "") {
+    Serial.println("Failed to build read frame.");
+    return result;
+  }
+
+  // send request
+  String response = adapter.readRegister(frame);
+
+  // decode response
+  result = decodeReadResponse(response, startAddr, count, regs, regCount);
+
+  return result;
+}
+
+
+const uint16_t* returnValues(const DecodedValues& decoded) {
+  return decoded.values;
+}
+
 
 // ---- Frame Decoder ----
 DecodedValues decodeReadResponse(const String& frameHex,

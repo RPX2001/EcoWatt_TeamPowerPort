@@ -82,4 +82,7 @@ DecodedValues decodeReadResponse(const String& frameHex,
                                  uint16_t count,
                                  const RegID* regs,
                                  size_t regCount);
+
+// Poll the inverter for a set of registers and return decoded results
+DecodedValues readRequest(const RegID* regs, size_t regCount);
 #endif
