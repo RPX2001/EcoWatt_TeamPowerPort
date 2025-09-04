@@ -26,7 +26,7 @@ struct RegisterDef {
 };
 
 struct DecodedValues {
-  uint16_t values[16];   // holds decoded register values
+  uint16_t values[10];   // holds decoded register values
   size_t count;          // number of valid values
 };
 
