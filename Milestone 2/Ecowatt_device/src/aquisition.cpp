@@ -2,7 +2,7 @@
 #include "protocol_adapter.h"
 #include "aquisition.h"
 
-// ---------------- CRC16 (Modbus, low byte first) ----------------
+// ---- CRC16 Modbus ----
 static uint16_t calculateCRC(const uint8_t* data, int length) {
   uint16_t crc = 0xFFFF;
   for (int i = 0; i < length; i++) {
@@ -29,41 +29,79 @@ static String toHex(const uint8_t* data, size_t len) {
   return out;
 }
 
-// ---------------- Register Lookup ----------------
+// ---- Register Lookup ----
 const RegisterDef* findRegister(RegID id) {
   for (size_t i = 0; i < REGISTER_COUNT; i++) {
-    if (REGISTER_MAP[i].id == id) return &REGISTER_MAP[i];  //now looking at id of register but can changee that to name
+    if (REGISTER_MAP[i].id == id) return &REGISTER_MAP[i];
   }
   return nullptr;
 }
 
-// ---------------- Frame Builders ----------------
-// Build Read Holding Registers frame
-String buildReadFrame(uint8_t slave, uint16_t startAddr, uint16_t count) {
-  uint8_t frame[8];
-  frame[0] = slave;
-  frame[1] = 0x03; // Function: read holding regs
-  frame[2] = (startAddr >> 8) & 0xFF;
-  frame[3] = startAddr & 0xFF;
-  frame[4] = (count >> 8) & 0xFF;
-  frame[5] = count & 0xFF;
-  uint16_t crc = calculateCRC(frame, 6);
-  frame[6] = crc & 0xFF;        // Low byte
-  frame[7] = (crc >> 8) & 0xFF; // High byte
-  return toHex(frame, 8);
-}
+// ---- Frame Builder ----
+String buildReadFrame(uint8_t slave, const RegID* regs, size_t regCount,
+                      uint16_t& outStart, uint16_t& outCount) {
+  // find min/max addresses
+  uint16_t start = 0xFFFF, end = 0;
+  for (size_t i = 0; i < regCount; i++) {
+    const RegisterDef* rd = findRegister(regs[i]);
+    if (!rd) continue;
+    if (rd->addr < start) start = rd->addr;
+    if (rd->addr > end)   end   = rd->addr;
+  }
+  outStart = start;
+  outCount = (end - start) + 1;
 
-// Build Write Single Register frame
-String buildWriteFrame(uint8_t slave, uint16_t addr, uint16_t val) {
+  // Build Modbus frame
   uint8_t frame[8];
   frame[0] = slave;
-  frame[1] = 0x06; // Function: write single reg
-  frame[2] = (addr >> 8) & 0xFF;
-  frame[3] = addr & 0xFF;
-  frame[4] = (val >> 8) & 0xFF;
-  frame[5] = val & 0xFF;
+  frame[1] = 0x03; // read holding regs
+  frame[2] = (start >> 8) & 0xFF;
+  frame[3] = start & 0xFF;
+  frame[4] = (outCount >> 8) & 0xFF;
+  frame[5] = outCount & 0xFF;
+
   uint16_t crc = calculateCRC(frame, 6);
   frame[6] = crc & 0xFF;
   frame[7] = (crc >> 8) & 0xFF;
+
   return toHex(frame, 8);
+}
+
+// ---- Frame Decoder ----
+size_t decodeReadResponse(const String& frameHex,
+                          uint16_t startAddr,
+                          uint16_t count,
+                          const RegID* regs,
+                          size_t regCount,
+                          uint16_t* outValues) {
+  if (frameHex.length() < 10) return 0;
+
+  // function code
+  uint8_t func = strtol(frameHex.substring(2,4).c_str(), NULL, 16);
+  if (func == 0x83) return 0; // exception
+  if (func != 0x03) return 0;
+
+  // byte count
+  uint8_t byteCount = strtol(frameHex.substring(4,6).c_str(), NULL, 16);
+  if (byteCount != count * 2) return 0;
+
+  // parse all returned registers into a temp array
+  uint16_t allRegs[64];
+  for (uint16_t i = 0; i < count; i++) {
+    uint16_t hi = strtol(frameHex.substring(6 + i*4, 8 + i*4).c_str(), NULL, 16);
+    uint16_t lo = strtol(frameHex.substring(8 + i*4, 10 + i*4).c_str(), NULL, 16);
+    allRegs[i] = (hi << 8) | lo;
+  }
+
+  // pick out only requested registers
+  for (size_t i = 0; i < regCount; i++) {
+    const RegisterDef* rd = findRegister(regs[i]);
+    if (!rd) { 
+      outValues[i] = 0; 
+      continue; 
+    }
+    outValues[i] = allRegs[rd->addr - startAddr];
+  }
+  // return the number of registers decoded
+  return regCount;
 }
