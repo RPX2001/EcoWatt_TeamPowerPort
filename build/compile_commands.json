@@ -1,0 +1,44 @@
+[
+{
+  "directory": "D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/build",
+  "command": "C:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/ecowatt.dir/includes_CXX.rsp -g -std=gnu++17 -o CMakeFiles\\ecowatt.dir\\src\\core\\application\\Coordinator.cpp.obj -c \"D:\\Work\\Semester 7\\Embedded Systems\\EcoWatt_TeamPowerPort\\Milestone1\\cpp\\src\\core\\application\\Coordinator.cpp\"",
+  "file": "D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/core/application/Coordinator.cpp",
+  "output": "CMakeFiles/ecowatt.dir/src/core/application/Coordinator.cpp.obj"
+},
+{
+  "directory": "D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/build",
+  "command": "C:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/ecowatt.dir/includes_CXX.rsp -g -std=gnu++17 -o CMakeFiles\\ecowatt.dir\\src\\core\\peripheral\\Acquisition.cpp.obj -c \"D:\\Work\\Semester 7\\Embedded Systems\\EcoWatt_TeamPowerPort\\Milestone1\\cpp\\src\\core\\peripheral\\Acquisition.cpp\"",
+  "file": "D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/core/peripheral/Acquisition.cpp",
+  "output": "CMakeFiles/ecowatt.dir/src/core/peripheral/Acquisition.cpp.obj"
+},
+{
+  "directory": "D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/build",
+  "command": "C:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/ecowatt.dir/includes_CXX.rsp -g -std=gnu++17 -o CMakeFiles\\ecowatt.dir\\src\\core\\peripheral\\Timers.cpp.obj -c \"D:\\Work\\Semester 7\\Embedded Systems\\EcoWatt_TeamPowerPort\\Milestone1\\cpp\\src\\core\\peripheral\\Timers.cpp\"",
+  "file": "D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/core/peripheral/Timers.cpp",
+  "output": "CMakeFiles/ecowatt.dir/src/core/peripheral/Timers.cpp.obj"
+},
+{
+  "directory": "D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/build",
+  "command": "C:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/ecowatt.dir/includes_CXX.rsp -g -std=gnu++17 -o CMakeFiles\\ecowatt.dir\\src\\core\\peripheral\\Uploader.cpp.obj -c \"D:\\Work\\Semester 7\\Embedded Systems\\EcoWatt_TeamPowerPort\\Milestone1\\cpp\\src\\core\\peripheral\\Uploader.cpp\"",
+  "file": "D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/core/peripheral/Uploader.cpp",
+  "output": "CMakeFiles/ecowatt.dir/src/core/peripheral/Uploader.cpp.obj"
+},
+{
+  "directory": "D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/build",
+  "command": "C:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/ecowatt.dir/includes_CXX.rsp -g -std=gnu++17 -o CMakeFiles\\ecowatt.dir\\src\\main.cpp.obj -c \"D:\\Work\\Semester 7\\Embedded Systems\\EcoWatt_TeamPowerPort\\Milestone1\\cpp\\src\\main.cpp\"",
+  "file": "D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/main.cpp",
+  "output": "CMakeFiles/ecowatt.dir/src/main.cpp.obj"
+},
+{
+  "directory": "D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/build",
+  "command": "C:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/ecowatt.dir/includes_CXX.rsp -g -std=gnu++17 -o CMakeFiles\\ecowatt.dir\\src\\sim\\CloudStub.cpp.obj -c \"D:\\Work\\Semester 7\\Embedded Systems\\EcoWatt_TeamPowerPort\\Milestone1\\cpp\\src\\sim\\CloudStub.cpp\"",
+  "file": "D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/sim/CloudStub.cpp",
+  "output": "CMakeFiles/ecowatt.dir/src/sim/CloudStub.cpp.obj"
+},
+{
+  "directory": "D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/build",
+  "command": "C:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/ecowatt.dir/includes_CXX.rsp -g -std=gnu++17 -o CMakeFiles\\ecowatt.dir\\src\\sim\\InverterSim.cpp.obj -c \"D:\\Work\\Semester 7\\Embedded Systems\\EcoWatt_TeamPowerPort\\Milestone1\\cpp\\src\\sim\\InverterSim.cpp\"",
+  "file": "D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/Milestone1/cpp/src/sim/InverterSim.cpp",
+  "output": "CMakeFiles/ecowatt.dir/src/sim/InverterSim.cpp.obj"
+}
+]
