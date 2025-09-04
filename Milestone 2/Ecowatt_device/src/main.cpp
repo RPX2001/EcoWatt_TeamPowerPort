@@ -2,9 +2,9 @@
 #include "aquisition.h"
 #include "protocol_adapter.h"
 
-ProtocolAdapter adapter;
 
 void setup() {
+  Serial.begin(115200);
   // adapter.setSSID("Raveenpsp");
   // adapter.setPassword("raveen1234");
   // adapter.setApiKey("NjhhZWIwNDU1ZDdmMzg3MzNiMTQ5YTFmOjY4YWViMDQ1NWQ3ZjM4NzMzYjE0OWExNQ==");
@@ -39,11 +39,7 @@ void loop() {
   // poll inverter
   DecodedValues values = readRequest(selection, 4);
 
-  // print results
-  for (size_t i = 0; i < values.count; i++) {
-    const RegisterDef* rd = findRegister(selection[i]);
-    Serial.printf("%s = %u\n", rd->name, values.values[i]);
-  }
-
-  delay(5000);
+  // print results from the inverter sim
+  Serial.printf("Decoded Values:", values.values);
+  delay(2000);
 }

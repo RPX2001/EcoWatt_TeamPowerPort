@@ -101,10 +101,10 @@ void ProtocolAdapter::parseResponse(String response) {
   }
 
   String frame = doc["frame"];
-  if (!isFrameValid(frame)) {
-    Serial.println("Malformed or empty frame.");
-    return;
-  }
+  // if (!isFrameValid(frame)) {
+  //   Serial.println("Malformed or empty frame.");
+  //   return;
+  // }
 
   Serial.println("Received frame: " + frame);
 
