@@ -33,7 +33,8 @@ void loop() {
   {REG_PAC,  9, "Pac"}
 
 */
-
+  
+  // Registers need to read from InverterSIM
   const RegID selection[] = {REG_VAC1, REG_IAC1, REG_IPV1, REG_IPV2};
 
   // poll inverter
@@ -42,4 +43,12 @@ void loop() {
   // print results from the inverter sim
   Serial.printf("Decoded Values:", values.values);
   delay(2000);
+
+
+  //set power to 50W out
+  bool ok = setPower(50); // set Pac = 50W
+  if (ok) {
+    Serial.println("Output power register updated!");
+  }
+
 }

@@ -18,13 +18,15 @@ enum RegID : uint8_t {
   REG_PAC
 };
 
-// One register definition
+// register definition
 struct RegisterDef {
   RegID id;
   uint16_t addr;       // Modbus register address
-  const char* name;    // For debug/logging
+  const char* name;    // identification name
 };
 
+
+//Save the decoded register values in this struct
 struct DecodedValues {
   uint16_t values[10];   // holds decoded register values
   size_t count;          // number of valid values
@@ -45,7 +47,11 @@ static const RegisterDef REGISTER_MAP[] = {
   {REG_PAC,  9, "Pac"}
 };
 
+
+
+// number of registers in the map
 static const size_t REGISTER_COUNT = sizeof(REGISTER_MAP)/sizeof(REGISTER_MAP[0]);
+
 
 // Helper to find register definition
 const RegisterDef* findRegister(RegID id);
@@ -66,6 +72,14 @@ Returns frame as HEX string (ready to send via protocol adapter).
 String buildReadFrame(uint8_t slave, const RegID* regs, size_t regCount,
                       uint16_t& outStart, uint16_t& outCount);
 
+
+// Build a Modbus write frame to set a single register                   
+String buildWriteFrame(uint8_t slave, uint16_t regAddr, uint16_t value);
+
+
+//Set the power output
+bool setPower(uint16_t powerValue);
+
 /*
 
 Decode a Modbus response frame.
@@ -83,6 +97,8 @@ DecodedValues decodeReadResponse(const String& frameHex,
                                  const RegID* regs,
                                  size_t regCount);
 
+
+                                 
 // Poll the inverter for a set of registers and return decoded results
 DecodedValues readRequest(const RegID* regs, size_t regCount);
 #endif
