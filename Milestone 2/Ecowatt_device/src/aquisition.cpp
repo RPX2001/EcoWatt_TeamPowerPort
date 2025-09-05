@@ -96,7 +96,7 @@ bool setPower(uint16_t powerValue) {
   // Build write frame for register 8 (Pac)
   String frame = buildWriteFrame(0x11, 8, powerValue);
 
-  Serial.println("📤 Sending write frame: " + frame);
+  Serial.println("Sending write frame: " + frame);
 
   // Call adapter to actually send (real implementation)
   String response = adapter.writeRegister(frame);
