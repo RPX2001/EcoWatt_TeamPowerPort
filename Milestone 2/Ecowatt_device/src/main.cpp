@@ -18,7 +18,6 @@ void setup() {
 }
 
 void loop() {
-  // Your main program logic
   // choose registers to poll
 /*
   {REG_VAC1, 0, "Vac1"},
