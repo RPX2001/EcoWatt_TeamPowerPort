@@ -40,8 +40,10 @@ void loop() {
   DecodedValues values = readRequest(selection, 4);
 
   // print results from the inverter sim
-  Serial.printf("Decoded Values:", values.values);
-  delay(2000);
+  Serial.println("Decoded Values:");
+  for (size_t i = 0; i < values.count; i++) {
+    Serial.printf("  [%d] = %u\n", i, values.values[i]);
+  }
 
 
   //set power to 50W out
