@@ -30,10 +30,6 @@ String ProtocolAdapter::readRegister(String frame) {
   return response;
 }
 
-String ProtocolAdapter::make_Payload(String frame){
-  return "{\"frame\": \"" + frame + "\"}";
-}
-
 //  Robust Send with Retry 
 String ProtocolAdapter::sendRequest(String url, String frame) {
   if (WiFi.status() != WL_CONNECTED) {
@@ -57,7 +53,7 @@ String ProtocolAdapter::sendRequest(String url, String frame) {
     http.addHeader("Authorization", apiKey);
 
     //String payload = "{\"frame\": \"" + frame + "\"}";
-    String payload = make_Payload(frame);
+    String payload = "{\"frame\": \"" + frame + "\"}";
     Serial.printf("Attempt %d: Sending %s\n", attempt, payload.c_str());
 
     int httpResponseCode = http.POST(payload);

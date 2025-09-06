@@ -12,7 +12,7 @@ class ProtocolAdapter {
     String writeRegister(String frame); //write to register in server
     String readRegister(String frame);  //read from register in server  
     void parseResponse(String response); //parse JSON response from server
-    String ProtocolAdapter::make_Payload(String frame); //create JSON payload from frame
+    
     
     //setters
     void setSSID(const char* newSSID);
