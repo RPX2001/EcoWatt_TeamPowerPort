@@ -100,8 +100,12 @@ bool setPower(uint16_t powerValue) {
 
   // Call adapter to actually send (real implementation)
   String response = adapter.writeRegister(frame);
+  int start = response.indexOf(":\"") + 2;
+  int end   = response.lastIndexOf("\"");
 
-  if (response == frame) {
+  String response_frame = response.substring(start, end);
+
+  if (response_frame == frame) {
     Serial.printf("Power set to %u successfully\n", powerValue);
     return true;
   } else {
@@ -139,8 +143,13 @@ DecodedValues readRequest(const RegID* regs, size_t regCount) {
   // send request
   String response = adapter.readRegister(frame);
 
+  int start = response.indexOf(":\"") + 2;
+  int end   = response.lastIndexOf("\"");
+
+  String response_frame = response.substring(start, end);
+
   // decode response
-  result = decodeReadResponse(response, startAddr, count, regs, regCount);
+  result = decodeReadResponse(response_frame, startAddr, count, regs, regCount);
 
   return result;
 }
