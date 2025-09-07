@@ -11,7 +11,7 @@ class ProtocolAdapter {
     void begin();  // connect WiFi
     String writeRegister(String frame); //write to register in server
     String readRegister(String frame);  //read from register in server  
-    void parseResponse(String response); //parse JSON response from server
+    bool parseResponse(String response); //parse JSON response from server
     
     
     //setters
