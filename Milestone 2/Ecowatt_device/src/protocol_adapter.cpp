@@ -20,13 +20,56 @@ void ProtocolAdapter::begin() {
 
 String ProtocolAdapter::writeRegister(String frame) {
   String response = sendRequest(writeURL, frame);
-  parseResponse(response);
+  bool state = parseResponse(response);
+  if (!state) {
+    Serial.println("Write operation failed. Then Retry");
+    int retry = 1;
+    while (retry <=3 && !state) {
+      Serial.printf("Retry attempt %d\n", retry);
+      response = sendRequest(writeURL, frame);
+      state = parseResponse(response);
+      if (!state){
+        retry++;
+      }
+      else{
+        Serial.println("Write operation successful on retry");
+        break;
+      }
+    }
+    {
+      return "error";
+    }
+    
+  }
+
   return response;
 }
 
 String ProtocolAdapter::readRegister(String frame) {
   String response = sendRequest(readURL, frame);
-  parseResponse(response);
+  bool state = parseResponse(response);
+  //check state and retry
+  if (!state) {
+    Serial.println("Read operation failed. Then Retry");
+    int retry = 1;
+    while (retry <=3 && !state) {
+      Serial.printf("Retry attempt %d\n", retry);
+      response = sendRequest(readURL, frame);
+      state = parseResponse(response);
+      if (!state){
+        retry++;
+      }
+      else{
+        Serial.println("Read operation successful on retry");
+        break;
+      }
+    }
+    {
+      return "error";
+    }
+    
+  }
+  
   return response;
 }
 
@@ -86,10 +129,10 @@ String ProtocolAdapter::sendRequest(String url, String frame) {
 }
 
 //  Parse & Error Handling 
-void ProtocolAdapter::parseResponse(String response) {
+bool ProtocolAdapter::parseResponse(String response) {
   if (response == "") {
     Serial.println("No response.");
-    return;
+    return false;
   }
 
   StaticJsonDocument<200> doc;
@@ -98,14 +141,11 @@ void ProtocolAdapter::parseResponse(String response) {
   if (error) {
     Serial.print("JSON parse failed: ");
     Serial.println(error.c_str());
-    return;
+    return false;
   }
 
   String frame = doc["frame"];
-  // if (!isFrameValid(frame)) {
-  //   Serial.println("Malformed or empty frame.");
-  //   return;
-  // }
+
 
   Serial.println("Received frame: " + frame);
 
@@ -115,8 +155,11 @@ void ProtocolAdapter::parseResponse(String response) {
     int errorCode = strtol(frame.substring(4,6).c_str(), NULL, 16);
     Serial.print("Modbus Exception: ");
     printErrorCode(errorCode);
+    return false;
+
   } else {
     Serial.println("Valid Modbus frame.");
+    return true;
   }
 }
 

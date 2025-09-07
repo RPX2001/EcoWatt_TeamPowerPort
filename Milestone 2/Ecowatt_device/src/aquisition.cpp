@@ -100,6 +100,12 @@ bool setPower(uint16_t powerValue) {
 
   // Call adapter to actually send (real implementation)
   String response = adapter.writeRegister(frame);
+
+  if (response == "error") {
+    Serial.println("Write request failed after retries.");
+    return false;
+  }
+
   int start = response.indexOf(":\"") + 2;
   int end   = response.lastIndexOf("\"");
 
@@ -137,11 +143,21 @@ DecodedValues readRequest(const RegID* regs, size_t regCount) {
   String frame = buildReadFrame(0x11, regs, regCount, startAddr, count);
   if (frame == "") {
     Serial.println("Failed to build read frame.");
+    result.values[0] = 0xFFFF; // Indicate error
+    result.count = 1;
     return result;
   }
 
   // send request
   String response = adapter.readRegister(frame);
+
+  //if response is error return error values to main code
+  if (response == "error") {
+    Serial.println("Read request failed after retries.");
+    result.values[0] = 0xFFFF; // Indicate error
+    result.count = 1;
+    return result;
+  }
 
   int start = response.indexOf(":\"") + 2;
   int end   = response.lastIndexOf("\"");
