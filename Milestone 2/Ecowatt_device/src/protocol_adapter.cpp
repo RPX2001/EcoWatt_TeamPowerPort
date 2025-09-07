@@ -83,14 +83,6 @@ String ProtocolAdapter::readRegister(String frame) {
 String ProtocolAdapter::sendRequest(String url, String frame) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi not connected");
-    //try to reconnect
-    WiFi.begin(ssid, password);
-    int wifiRetry = 0;
-    while (WiFi.status() != WL_CONNECTED && wifiRetry < 5) {
-      delay(1000);
-      Serial.print(".");
-      wifiRetry++;
-    }
     return "";
   }
 
