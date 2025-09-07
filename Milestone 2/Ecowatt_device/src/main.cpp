@@ -15,6 +15,24 @@ void setup() {
 
   // // Example read
   // adapter.readRegister("110300000002C69B");
+  // Registers need to read from InverterSIM
+  const RegID selection[] = {REG_VAC1, REG_IAC1, REG_IPV1, REG_PAC};
+
+  // poll inverter
+  DecodedValues values = readRequest(selection, 4);
+
+  // print results from the inverter sim
+  Serial.println("Decoded Values:");
+  for (size_t i = 0; i < values.count; i++) {
+    Serial.printf("  [%d] = %u\n", i, values.values[i]);
+  }
+
+
+  //set power to 50W out
+  bool ok = setPower(50); // set Pac = 50W
+  if (ok) {
+    Serial.println("Output power register updated!");
+  }
 }
 
 void loop() {
@@ -33,23 +51,6 @@ void loop() {
 
 */
   
-  // Registers need to read from InverterSIM
-  const RegID selection[] = {REG_VAC1, REG_IAC1, REG_IPV1, REG_IPV2};
-
-  // poll inverter
-  DecodedValues values = readRequest(selection, 4);
-
-  // print results from the inverter sim
-  Serial.println("Decoded Values:");
-  for (size_t i = 0; i < values.count; i++) {
-    Serial.printf("  [%d] = %u\n", i, values.values[i]);
-  }
-
-
-  //set power to 50W out
-  bool ok = setPower(50); // set Pac = 50W
-  if (ok) {
-    Serial.println("Output power register updated!");
-  }
+  
 
 }
