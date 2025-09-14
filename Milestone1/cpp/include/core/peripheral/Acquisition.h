@@ -21,7 +21,14 @@
 #pragma once
 
 #include <utility>
-#include "sim/InverterSim.h"
+#include "ProtocolAdapter.h"
+#include "Debug.h"
+
+//Save the decoded register values in this struct
+struct DecodedValues {
+  uint16_t values[10];   // holds decoded register values
+  size_t count;          // number of valid values
+};
 
 /**
  * @class AcquisitionScheduler
@@ -54,8 +61,9 @@ class AcquisitionScheduler
          *
          * @details Delegates the polling operation to the underlying InverterSIM instance.
          */
-        std::pair<bool, Sample> poll_once();
+        std::pair<bool, DecodedValues> poll_once(const RegID* regs, size_t regCount);
 
     private:
         InverterSIM& sim_;
+        DecodedValues decodeReadResponse(const String& frameHex, uint16_t startAddr, uint16_t count, const RegID* regs, size_t regCount);
 };

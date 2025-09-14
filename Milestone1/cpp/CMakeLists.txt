@@ -8,6 +8,8 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include/core/peripheral
     ${CMAKE_SOURCE_DIR}/include/core/application
+    ${CMAKE_SOURCE_DIR}/include/core/hal
+    ${CMAKE_SOURCE_DIR}/include/core/drivers
     ${CMAKE_SOURCE_DIR}/include/sim
 )
 

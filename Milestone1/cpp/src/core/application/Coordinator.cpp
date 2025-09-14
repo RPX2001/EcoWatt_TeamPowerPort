@@ -89,6 +89,9 @@ void Coordinator::request_stop()
     running_.store(false); 
 }
 
+// --- move this to appropriate place
+// const RegID selection[] = {REG_VAC1, REG_IAC1, REG_IPV1, REG_IPV2};
+
 /**
  * @fn Coordinator::drain_enabled_transitions
  * @brief Execute state transitions that are currently enabled.
@@ -99,6 +102,8 @@ void Coordinator::request_stop()
  */
 void Coordinator::drain_enabled_transitions() 
 {
+    const RegID regs[] = {REG_VAC1, REG_IAC1, REG_IPV1, REG_IPV2};
+
     bool progress = true;
     while (progress) 
     {
@@ -115,7 +120,7 @@ void Coordinator::drain_enabled_transitions()
         if (poll_ready_ && !uploading_ && !polling_) 
         {
             std::cout << "Not Uploading -> Polling\n";
-            do_polling();
+            do_polling(regs, 4);
             progress = true;
             continue;
         }
@@ -132,21 +137,24 @@ void Coordinator::drain_enabled_transitions()
  * - Handles buffer full condition.
  * - Updates internal state flags.
  */
-void Coordinator::do_polling() 
+void Coordinator::do_polling(const RegID* regs, size_t nregs) 
 {
     idle_ = false; polling_ = true;
 
-    auto [ok, s] = acq_.poll_once();
+    auto [ok, s] = acq_.poll_once(regs, nregs);
     if (!ok) 
     {
         std::cout << "Poll skipped (device unavailable)\n";
         polling_ = false; idle_ = true; return;
     }
 
+
+    // Display values
+    /*
     std::cout << "Sample Ready {"
               << "'t': " << s.t << ", 'voltage': " << s.voltage
               << ", 'current': " << s.current << ", 'power': " << s.power
-              << "}\n";
+              << "}\n";*/
 
     bool pushed = buffer_.push(s);
     if (pushed) 

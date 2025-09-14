@@ -121,7 +121,7 @@ class Coordinator
          * - Handles buffer full condition.
          * - Updates internal state flags.
          */
-        void do_polling();
+        void do_polling(const RegID* regs, size_t nregs);
 
         /**
          * @fn Coordinator::do_uploading
