@@ -1,7 +1,7 @@
 #include "RingBuffer.h"
 
 // Example specialization: String with size 64
-template class RingBuffer<String, 64>;
+//template class RingBuffer<String, 64>;
 
 template <typename T, size_t N>
 RingBuffer<T, N>::RingBuffer() : head(0), tail(0), full(false) {}

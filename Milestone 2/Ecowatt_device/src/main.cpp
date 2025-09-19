@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "aquisition.h"
 #include "protocol_adapter.h"
+#include "ringbuffer.h"
 /*
   Acquisition Module
   Handles Modbus RTU frame construction and parsing
@@ -20,10 +21,16 @@ choose registers to poll
 
 */
 
+// Global RingBuffer instance
+RingBuffer<String, 20> ringBuffer;  // Buffer for 100 strings
 
 void setup() {
   Serial.begin(115200);
   
+}
+
+void loop() {
+
   const RegID selection[] = {REG_VAC1, REG_IAC1, REG_IPV1, REG_PAC};
 
   // poll inverter
@@ -41,8 +48,22 @@ void setup() {
   if (ok) {
     Serial.println("Output power register updated!");
   }
+
+
+  // log + store in buffer
+for (size_t i = 0; i < values.count; i++) {
+  String entry = "REG[" + String(i) + "]=" + String(values.values[i]);
+  ringBuffer.push(entry);
 }
 
-void loop() {
+// test draining every 10 samples
+if (ringBuffer.size() >= 10) {
+  auto logs = ringBuffer.drain_all();
+  Serial.println("=== Batch Drain ===");
+  for (auto& s : logs) {
+    Serial.println(s);
+  }
+}
 
+  delay(1000);  // Wait 1 second before next iteration
 }
