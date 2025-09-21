@@ -67,21 +67,21 @@ void loop() {
   Serial.println("Compressed: " + compressedData);
   DataCompression::printCompressionStats("Delta", originalSize, compressedSize);
 
-// test draining every 5 samples
-if (ringBuffer.size() >= 5) {
-  auto logs = ringBuffer.drain_all();
-  Serial.println("=== Batch Drain & Decompress ===");
-  for (auto& entry : logs) {
-    // Decompress and display
-    auto decompressed = DataCompression::decompressRegisterData(entry.data, entry.isDelta);
-    Serial.print("Timestamp: " + String(entry.timestamp) + " | Original count: " + String(entry.originalCount) + " | Data: [");
-    for (size_t i = 0; i < decompressed.size(); i++) {
-      Serial.print(String(decompressed[i]));
-      if (i < decompressed.size() - 1) Serial.print(",");
-    }
-    Serial.println("]");
-  }
-}
+// // test draining every 5 samples
+// if (ringBuffer.size() >= 5) {
+//   auto logs = ringBuffer.drain_all();
+//   Serial.println("=== Batch Drain & Decompress ===");
+//   for (auto& entry : logs) {
+//     // Decompress and display
+//     auto decompressed = DataCompression::decompressRegisterData(entry.data, entry.isDelta);
+//     Serial.print("Timestamp: " + String(entry.timestamp) + " | Original count: " + String(entry.originalCount) + " | Data: [");
+//     for (size_t i = 0; i < decompressed.size(); i++) {
+//       Serial.print(String(decompressed[i]));
+//       if (i < decompressed.size() - 1) Serial.print(",");
+//     }
+//     Serial.println("]");
+//   }
+// }
 
   delay(2000);  // Wait 1 second before next iteration
 }
