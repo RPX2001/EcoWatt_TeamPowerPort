@@ -22,7 +22,7 @@ choose registers to poll
 */
 
 // Global RingBuffer instance
-RingBuffer<String, 20> ringBuffer;  // Buffer for 100 strings
+RingBuffer<String, 20> ringBuffer;  // Buffer for 20 strings
 
 void setup() {
   Serial.begin(115200);
@@ -49,12 +49,19 @@ void loop() {
     Serial.println("Output power register updated!");
   }
 
-
-  // log + store in buffer
-for (size_t i = 0; i < values.count; i++) {
-  String entry = "REG[" + String(i) + "]=" + String(values.values[i]);
-  ringBuffer.push(entry);
-}
+  // Create array of all register values as a single string entry
+  String registerArray = "[";
+  for (size_t i = 0; i < values.count; i++) {
+    registerArray += String(values.values[i]);
+    if (i < values.count - 1) {
+      registerArray += ",";  // Add comma between values
+    }
+  }
+  registerArray += "]";
+  
+  // Add the complete array as one entry to ring buffer
+  ringBuffer.push(registerArray);
+  Serial.println("Added to buffer: " + registerArray);
 
 // test draining every 10 samples
 if (ringBuffer.size() >= 10) {
@@ -65,5 +72,5 @@ if (ringBuffer.size() >= 10) {
   }
 }
 
-  delay(1000);  // Wait 1 second before next iteration
+  delay(2000);  // Wait 1 second before next iteration
 }
