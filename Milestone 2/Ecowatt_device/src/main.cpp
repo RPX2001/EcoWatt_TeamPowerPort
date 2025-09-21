@@ -2,6 +2,7 @@
 #include "aquisition.h"
 #include "protocol_adapter.h"
 #include "ringbuffer.h"
+#include "data_compression.h"
 /*
   Acquisition Module
   Handles Modbus RTU frame construction and parsing
@@ -21,8 +22,8 @@ choose registers to poll
 
 */
 
-// Global RingBuffer instance
-RingBuffer<String, 20> ringBuffer;  // Buffer for 20 strings
+// Global RingBuffer instance for compressed data
+RingBuffer<CompressedData, 20> ringBuffer;  // Buffer for 20 compressed data entries
 
 void setup() {
   Serial.begin(115200);
@@ -49,26 +50,36 @@ void loop() {
     Serial.println("Output power register updated!");
   }
 
-  // Create array of all register values as a single string entry
-  String registerArray = "[";
-  for (size_t i = 0; i < values.count; i++) {
-    registerArray += String(values.values[i]);
-    if (i < values.count - 1) {
-      registerArray += ",";  // Add comma between values
-    }
-  }
-  registerArray += "]";
+  // Compress register data using delta compression
+  String compressedData = DataCompression::compressRegisterData(values.values, values.count, true);
   
-  // Add the complete array as one entry to ring buffer
-  ringBuffer.push(registerArray);
-  Serial.println("Added to buffer: " + registerArray);
+  // Calculate compression stats
+  size_t originalSize = values.count * sizeof(uint16_t);
+  size_t compressedSize = compressedData.length();
+  
+  // Create compressed data entry
+  CompressedData entry(compressedData, true, values.count);
+  
+  // Add compressed data to ring buffer
+  ringBuffer.push(entry);
+  
+  Serial.println("Original values: [" + String(values.values[0]) + "," + String(values.values[1]) + "," + String(values.values[2]) + "," + String(values.values[3]) + "]");
+  Serial.println("Compressed: " + compressedData);
+  DataCompression::printCompressionStats("Delta", originalSize, compressedSize);
 
-// test draining every 10 samples
-if (ringBuffer.size() >= 10) {
+// test draining every 5 samples
+if (ringBuffer.size() >= 5) {
   auto logs = ringBuffer.drain_all();
-  Serial.println("=== Batch Drain ===");
-  for (auto& s : logs) {
-    Serial.println(s);
+  Serial.println("=== Batch Drain & Decompress ===");
+  for (auto& entry : logs) {
+    // Decompress and display
+    auto decompressed = DataCompression::decompressRegisterData(entry.data, entry.isDelta);
+    Serial.print("Timestamp: " + String(entry.timestamp) + " | Original count: " + String(entry.originalCount) + " | Data: [");
+    for (size_t i = 0; i < decompressed.size(); i++) {
+      Serial.print(String(decompressed[i]));
+      if (i < decompressed.size() - 1) Serial.print(",");
+    }
+    Serial.println("]");
   }
 }
 
