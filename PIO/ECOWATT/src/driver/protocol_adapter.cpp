@@ -1,0 +1,229 @@
+
+#include <ArduinoJson.h>
+#include <Arduino.h>
+#include "driver/protocol_adapter.h"
+
+ProtocolAdapter::ProtocolAdapter() {}
+
+bool ProtocolAdapter::writeRegister(const char* frameHex, char* outFrameHex, size_t outSize)
+{
+  char responseJson[256];
+  bool state = sendRequest(writeURL, frameHex, responseJson, sizeof(responseJson));
+  if (!state) return false;
+
+  state = parseResponse(responseJson, outFrameHex, outSize);
+  if (!state)
+  {
+    debug.log("Write operation failed. Then Retry\n");
+    int retry = 1;
+    while (retry <= 3 && !state)
+    {
+      debug.log("Retry attempt %d\n", retry);
+      state = sendRequest(writeURL, frameHex, responseJson, sizeof(responseJson));
+      if (state)
+      {
+        state = parseResponse(responseJson, outFrameHex, outSize);
+      }
+      if (!state)
+      {
+        retry++;
+      }
+      else
+      {
+        debug.log("Write operation successful on retry\n");
+        break;
+      }
+    }
+  }
+  return state;
+}
+
+bool ProtocolAdapter::readRegister(const char* frameHex, char* outFrameHex, size_t outSize)
+{
+  char responseJson[1024];
+  bool state = sendRequest(readURL, frameHex, responseJson, sizeof(responseJson));
+  if (!state) return false;
+
+  state = parseResponse(responseJson, outFrameHex, outSize);
+  if (!state)
+  {
+    debug.log("Read operation failed. Then Retry\n");
+    int retry = 1;
+    while (retry <= 3 && !state)
+    {
+      debug.log("Retry attempt %d\n", retry);
+      state = sendRequest(readURL, frameHex, responseJson, sizeof(responseJson));
+      if (state)
+      {
+        state = parseResponse(responseJson, outFrameHex, outSize);
+      }
+      if (!state)
+      {
+        retry++;
+      }
+      else
+      {
+        debug.log("Read operation successful on retry\n");
+        break;
+      }
+    }
+  }
+  return state;
+}
+
+//  Robust Send with Retry 
+bool ProtocolAdapter::sendRequest(const char* url, const char* frameHex, char* outResponseJson, size_t outSize)
+{
+  HTTPClient http;
+  int attempt = 0;
+  int backoffDelay = 500; // ms
+
+  while (attempt < maxRetries)
+  {
+    attempt++;
+    if (!http.begin(url)) 
+    {
+      debug.log("HTTP begin failed\n");
+      return false;
+    }
+    http.setTimeout(httpTimeout);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("accept", "*/*");
+    http.addHeader("Authorization", apiKey);
+
+    char payload[256];
+    snprintf(payload, sizeof(payload), "{\"frame\": \"%s\"}", frameHex);
+    debug.log("Attempt %d: Sending %s\n", attempt, payload);
+
+    // Use String for HTTP POST, but only for the call
+    String payloadStr(payload);
+    int httpResponseCode = http.POST((uint8_t*)payloadStr.c_str(), payloadStr.length());
+    bool ok = false;
+    if (httpResponseCode > 0) 
+    {
+      debug.log("Response code: %d\n", httpResponseCode);
+      String response = http.getString();
+      debug.log("HTTP response: %s\n", response.c_str());
+      // Convert String response to char array
+      if (outResponseJson && outSize > 0) {
+        size_t copyLen = (response.length() < (outSize-1)) ? response.length() : (outSize-1);
+        memcpy(outResponseJson, response.c_str(), copyLen);
+        outResponseJson[copyLen] = '\0';
+      }
+      ok = (response.length() > 0);
+      if (!ok) 
+      {
+        debug.log("Empty response, retrying...\n");
+      } 
+      else 
+      {
+        http.end();
+        return true;
+      }
+    } 
+    else 
+    {
+      debug.log("Request failed (code %d), retrying...\n", httpResponseCode);
+    }
+
+    http.end();
+    debug.log("Waiting %d ms before retry...\n", backoffDelay);
+    wait.ms(backoffDelay);
+    backoffDelay *= 2;
+  }
+
+  debug.log("Failed after max retries.\n");
+  return false;
+}
+
+//  Parse & Error Handling 
+bool ProtocolAdapter::parseResponse(const char* response, char* outFrameHex, size_t outSize) 
+{
+
+  size_t resp_len = response ? strlen(response) : 0;
+  debug.log("Raw HTTP response: %s\n", response ? response : "(null)");
+  debug.log("HTTP response length: %u\n", (unsigned)resp_len);
+  debug.log("HTTP response hex: ");
+  for (size_t i = 0; i < resp_len && i < 32; ++i) {
+    debug.log("%02X ", (unsigned char)response[i]);
+  }
+  debug.log("\n");
+  if (!response || response[0] == '\0') 
+  {
+    debug.log("No response.\n");
+    return false;
+  }
+
+  StaticJsonDocument<256> doc;
+  DeserializationError err = deserializeJson(doc, response);
+  if (err) {
+    debug.log("JSON parse failed\n");
+    return false;
+  }
+  const char* frame = doc["frame"] | "";
+  size_t len = strlen(frame);
+  if (len + 1 > outSize) {
+    debug.log("Frame too large for buffer\n");
+    return false;
+  }
+  memcpy(outFrameHex, frame, len + 1);
+  debug.log("Received frame: %s\n", frame);
+
+  // Modbus function code check
+  if (len < 6) return false;
+  char buf[3]; buf[2] = '\0';
+  memcpy(buf, frame + 2, 2);
+  int funcCode = (int)strtol(buf, NULL, 16);
+  if (funcCode & 0x80) {
+    memcpy(buf, frame + 4, 2);
+    int errorCode = (int)strtol(buf, NULL, 16);
+    debug.log("Modbus Exception: ");
+    printErrorCode(errorCode);
+    return false;
+  } else {
+    debug.log("Valid Modbus frame.\n");
+    return true;
+  }
+}
+
+//  Frame Validation 
+bool ProtocolAdapter::isFrameValid(const char* frame) 
+{
+  if (!frame) return false;
+  size_t len = strlen(frame);
+  if (len < 6) return false;
+  for (size_t i = 0; i < len; i++) 
+  {
+    char c = frame[i];
+    if (!isxdigit(c)) return false;
+  }
+  return true;
+}
+
+//  Error Printer 
+void ProtocolAdapter::printErrorCode(int code) 
+{
+  switch (code) 
+  {
+    case 0x01: debug.log("01 - Illegal Function\n"); break;
+    case 0x02: debug.log("02 - Illegal Data Address\n"); break;
+    case 0x03: debug.log("03 - Illegal Data Value\n"); break;
+    case 0x04: debug.log("04 - Slave Device Failure\n"); break;
+    case 0x05: debug.log("05 - Acknowledge (processing delayed)\n"); break;
+    case 0x06: debug.log("06 - Slave Device Busy\n"); break;
+    case 0x08: debug.log("08 - Memory Parity Error\n"); break;
+    case 0x0A: debug.log("0A - Gateway Path Unavailable\n"); break;
+    case 0x0B: debug.log("0B - Gateway Target Device Failed to Respond\n"); break;
+    default:   debug.log("Unknown error code\n"); break;
+  }
+}
+
+void ProtocolAdapter::setApiKey(const char* newApiKey)
+{
+  if (!newApiKey) { apiKey[0] = '\0'; return; }
+  strncpy(apiKey, newApiKey, sizeof(apiKey) - 1);
+  apiKey[sizeof(apiKey) - 1] = '\0';
+}
+
+//  Getters 
+const char* ProtocolAdapter::getApiKey() { return apiKey; }
