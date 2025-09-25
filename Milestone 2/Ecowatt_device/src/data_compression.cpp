@@ -62,7 +62,7 @@ String DataCompression::compressDelta(const uint16_t* values, size_t count) {
     
     for (size_t i = 1; i < count; i++) {
         int16_t delta = (int16_t)values[i] - (int16_t)values[i-1];
-        result += String(delta) + ",";
+        result += String(delta) + " ";
     }
     
     return result;
@@ -88,7 +88,7 @@ std::vector<uint16_t> DataCompression::decompressDelta(const String& compressed)
     int pos = 0;
     
     while (pos < deltas.length()) {
-        int commaPos = deltas.indexOf(',', pos);
+        int commaPos = deltas.indexOf(' ', pos);
         if (commaPos == -1) break;
         
         int16_t delta = deltas.substring(pos, commaPos).toInt();
