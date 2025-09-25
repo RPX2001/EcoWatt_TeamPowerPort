@@ -1,4 +1,7 @@
 #include <Arduino.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 #include "aquisition.h"
 #include "protocol_adapter.h"
 #include "ringbuffer.h"
@@ -22,12 +25,119 @@ choose registers to poll
 
 */
 
+// WiFi and Cloud Configuration
+const char* ssid = "HydroBK";
+const char* password = "Hydrolink123";
+const char* serverURL = "http://10.40.99.2:5001/process";
+
 // Global RingBuffer instance for compressed data
 RingBuffer<CompressedData, 20> ringBuffer;  // Buffer for 20 compressed data entries
+unsigned long lastUpload = 0;
+const unsigned long uploadInterval = 15000;  // Upload every 15 seconds
 
 void setup() {
   Serial.begin(115200);
   
+  // Connect to WiFi
+  WiFi.begin(ssid, password);
+  Serial.println("Connecting to WiFi...");
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  
+  Serial.println("");
+  Serial.print("Connected to WiFi. IP address: ");
+  Serial.println(WiFi.localIP());
+  Serial.print("Flask server URL: ");
+  Serial.println(serverURL);
+}
+
+void uploadRingBufferToCloud() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected. Cannot upload to cloud.");
+    return;
+  }
+
+  if (ringBuffer.empty()) {
+    Serial.println("Ring buffer is empty. Nothing to upload.");
+    return;
+  }
+
+  HTTPClient http;
+  http.begin(serverURL);
+  http.addHeader("Content-Type", "application/json");
+  
+  // Create JSON payload in required format: {id: {}, n: {}, data: {}, compression: {}, registers: {}}
+  JsonDocument doc;
+  
+  // Get all data from ring buffer
+  auto allData = ringBuffer.drain_all();
+  
+  // Format: {id: {}, n: {}, data: {}, compression: {}, registers: {}}
+  doc["id"] = "ESP32_EcoWatt_001";
+  doc["n"] = allData.size();  // Number of entries
+  
+  // Add register header information
+  JsonArray registersArray = doc["registers"].to<JsonArray>();
+  registersArray.add("REG_VAC1");  // AC Voltage
+  registersArray.add("REG_IAC1");  // AC Current  
+  registersArray.add("REG_IPV1");  // PV Current
+  registersArray.add("REG_PAC");   // AC Power
+  
+  // Create data array (compressed data)
+  JsonArray dataArray = doc["data"].to<JsonArray>();
+  JsonArray compressionArray = doc["compression"].to<JsonArray>();
+  
+  for (auto& entry : allData) {
+    // Add compressed data directly to data array
+    dataArray.add(entry.data);
+    
+    // Add compression metadata
+    JsonObject compressionEntry = compressionArray.add<JsonObject>();
+    compressionEntry["type"] = entry.compressionType;
+    compressionEntry["timestamp"] = entry.timestamp;
+    compressionEntry["original_count"] = entry.originalCount;
+  }
+  
+  String jsonString;
+  serializeJson(doc, jsonString);
+  
+  Serial.println("=== Uploading Ring Buffer to Cloud ===");
+  Serial.print("Entries to upload: ");
+  Serial.println(allData.size());
+  Serial.print("Payload size: ");
+  Serial.println(jsonString.length());
+  
+  // Print the JSON packet being sent
+  Serial.println("📤 JSON Packet to send:");
+  Serial.println("---JSON START---");
+  Serial.println(jsonString);
+  Serial.println("---JSON END---");
+  
+  // Send POST request
+  int httpResponseCode = http.POST(jsonString);
+  
+  if (httpResponseCode > 0) {
+    String response = http.getString();
+    Serial.print("HTTP Response code: ");
+    Serial.println(httpResponseCode);
+    Serial.print("Server response: ");
+    Serial.println(response);
+    Serial.println("Successfully uploaded to cloud!");
+  } else {
+    Serial.print(" Upload failed. Error code: ");
+    Serial.println(httpResponseCode);
+    Serial.println("Check if Flask server is running at " + String(serverURL));
+    
+    // Put data back into ring buffer if upload failed
+    for (auto& entry : allData) {
+      ringBuffer.push(entry);
+    }
+  }
+  
+  http.end();
 }
 
 void loop() {
@@ -50,38 +160,37 @@ void loop() {
     Serial.println("Output power register updated!");
   }
 
-  // Compress register data using delta compression
-  String compressedData = DataCompression::compressRegisterData(values.values, values.count, true);
+  // Use delta compression only
+  String compressedData = DataCompression::compressRegisterData(values.values, values.count);
   
   // Calculate compression stats
   size_t originalSize = values.count * sizeof(uint16_t);
   size_t compressedSize = compressedData.length();
   
   // Create compressed data entry
-  CompressedData entry(compressedData, true, values.count);
+  CompressedData entry(compressedData, values.count);
   
   // Add compressed data to ring buffer
   ringBuffer.push(entry);
   
   Serial.println("Original values: [" + String(values.values[0]) + "," + String(values.values[1]) + "," + String(values.values[2]) + "," + String(values.values[3]) + "]");
-  Serial.println("Compressed: " + compressedData);
+  Serial.println("Delta compressed: " + compressedData);
   DataCompression::printCompressionStats("Delta", originalSize, compressedSize);
 
-// // test draining every 5 samples
-// if (ringBuffer.size() >= 5) {
-//   auto logs = ringBuffer.drain_all();
-//   Serial.println("=== Batch Drain & Decompress ===");
-//   for (auto& entry : logs) {
-//     // Decompress and display
-//     auto decompressed = DataCompression::decompressRegisterData(entry.data, entry.isDelta);
-//     Serial.print("Timestamp: " + String(entry.timestamp) + " | Original count: " + String(entry.originalCount) + " | Data: [");
-//     for (size_t i = 0; i < decompressed.size(); i++) {
-//       Serial.print(String(decompressed[i]));
-//       if (i < decompressed.size() - 1) Serial.print(",");
-//     }
-//     Serial.println("]");
-//   }
-// }
+  // Check if it's time to upload to cloud or ring buffer is getting full
+  unsigned long currentTime = millis();
+  bool timeToUpload = (currentTime - lastUpload) >= uploadInterval;
+  bool bufferNearlyFull = ringBuffer.size() >= 15;  // Upload when 75% full
+  
+  Serial.println("Ring buffer size: " + String(ringBuffer.size()) + "/20 | Next upload in: " + String((uploadInterval - (currentTime - lastUpload))/1000) + "s");
+  
+  if (timeToUpload || bufferNearlyFull) {
+    if (timeToUpload) Serial.println("🕒 15-second timer triggered upload");
+    if (bufferNearlyFull) Serial.println("📦 Buffer nearly full triggered upload");
+    uploadRingBufferToCloud();
+    lastUpload = currentTime;
+  }
 
-  delay(2000);  // Wait 1 second before next iteration
+  delay(2000);  // Wait 2 seconds before next iteration
+
 }

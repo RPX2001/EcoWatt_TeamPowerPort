@@ -1,5 +1,15 @@
 #include "data_compression.h"
 
+// Delta compression only
+String DataCompression::compressRegisterData(const uint16_t* values, size_t count) {
+    return compressDelta(values, count);
+}
+
+// Delta decompression only
+std::vector<uint16_t> DataCompression::decompressRegisterData(const String& compressed) {
+    return decompressDelta(compressed);
+}
+
 // RLE Compression - encodes runs of identical values
 String DataCompression::compressRLE(const uint16_t* values, size_t count) {
     if (count == 0) return "";
@@ -62,7 +72,7 @@ String DataCompression::compressDelta(const uint16_t* values, size_t count) {
     
     for (size_t i = 1; i < count; i++) {
         int16_t delta = (int16_t)values[i] - (int16_t)values[i-1];
-        result += String(delta) + " ";
+        result += String(delta) + ",";
     }
     
     return result;
@@ -88,7 +98,7 @@ std::vector<uint16_t> DataCompression::decompressDelta(const String& compressed)
     int pos = 0;
     
     while (pos < deltas.length()) {
-        int commaPos = deltas.indexOf(' ', pos);
+        int commaPos = deltas.indexOf(',', pos);
         if (commaPos == -1) break;
         
         int16_t delta = deltas.substring(pos, commaPos).toInt();
@@ -99,25 +109,6 @@ std::vector<uint16_t> DataCompression::decompressDelta(const String& compressed)
     }
     
     return result;
-}
-
-// Smart compression - chooses best method
-String DataCompression::compressRegisterData(const uint16_t* values, size_t count, bool useDelta) {
-    if (useDelta) {
-        return compressDelta(values, count);
-    } else {
-        return compressRLE(values, count);
-    }
-}
-
-// Smart decompression
-std::vector<uint16_t> DataCompression::decompressRegisterData(const String& compressed, bool isDelta) {
-    if (compressed.startsWith("D:")) {
-        return decompressDelta(compressed);
-    } else if (compressed.startsWith("R:")) {
-        return decompressRLE(compressed);
-    }
-    return std::vector<uint16_t>();
 }
 
 // Calculate compression ratio

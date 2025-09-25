@@ -8,7 +8,7 @@
 class ProtocolAdapter {
   public:
     ProtocolAdapter();
-    void begin();  // connect WiFi
+    void begin();  // initialize protocol adapter (WiFi handled externally)
     String writeRegister(String frame); //write to register in server
     String readRegister(String frame);  //read from register in server  
     bool parseResponse(String response); //parse JSON response from server

@@ -19,8 +19,8 @@ public:
     static std::vector<uint16_t> decompressDelta(const String& compressed);
     
     // Utility Methods
-    static String compressRegisterData(const uint16_t* values, size_t count, bool useDelta = true);
-    static std::vector<uint16_t> decompressRegisterData(const String& compressed, bool isDelta = true);
+    static String compressRegisterData(const uint16_t* values, size_t count);
+    static std::vector<uint16_t> decompressRegisterData(const String& compressed);
     
     // Statistics
     static float getCompressionRatio(size_t originalSize, size_t compressedSize);
@@ -39,13 +39,13 @@ private:
  */
 struct CompressedData {
     String data;
-    bool isDelta;
+    String compressionType;  // Always "DELTA"
     size_t originalCount;
     uint32_t timestamp;
     
-    CompressedData() : isDelta(false), originalCount(0), timestamp(0) {}
-    CompressedData(const String& d, bool delta, size_t count) 
-        : data(d), isDelta(delta), originalCount(count), timestamp(millis()) {}
+    CompressedData() : compressionType("DELTA"), originalCount(0), timestamp(0) {}
+    CompressedData(const String& d, size_t count) 
+        : data(d), compressionType("DELTA"), originalCount(count), timestamp(millis()) {}
 };
 
 #endif // DATA_COMPRESSION_H
