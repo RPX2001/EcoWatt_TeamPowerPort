@@ -31,11 +31,14 @@ def on_message(client, userdata, msg):
         if 'batch_info' in data:
             batch_info = data['batch_info']
             print(f"Device ID: {data.get('device_id', 'unknown')}")
+            print(f"Registers: {data.get('registers', [])}")
             print(f"Batch Summary:")
             print(f"   Entries: {batch_info.get('entry_count', 0)}")
             print(f"   Total Power: {batch_info.get('total_power', 0)}W")
             print(f"   Average Power: {batch_info.get('average_power', 0)}W")
             print(f"   Collection Span: {batch_info.get('data_collection_span_seconds', 0)}s")
+            print(f"   Compression Method: {batch_info.get('compression_method', 'unknown')}")
+            print(f"   Decompression Success: {batch_info.get('decompression_successful', False)}")
             print(f"   Server Time: {batch_info.get('server_datetime', 'unknown')}")
             print("-" * 60)
         
@@ -46,15 +49,23 @@ def on_message(client, userdata, msg):
             
             for entry in entries[:3]:  # Show first 3 entries to avoid spam
                 register_data = entry.get('register_data', {})
-                compression = entry.get('compression', {})
+                register_mapping = entry.get('register_mapping', {})
+                compression_info = entry.get('compression_info', {})
                 
-                print(f"   Entry {entry.get('entry_id', '?')}:")
-                print(f"      AC Voltage: {register_data.get('ac_voltage', 0)}V")
-                print(f"      AC Current: {register_data.get('ac_current', 0)}A")
-                print(f"      PV Current: {register_data.get('pv_current', 0)}A")
-                print(f"      AC Power: {register_data.get('ac_power', 0)}W")
-                print(f"      Efficiency: {register_data.get('power_efficiency', 0)}%")
-                print(f"      Compression: {compression.get('type', 'unknown')} ({compression.get('compressed_size', 0)} bytes)")
+                print(f"   Entry {entry.get('entry_id', '?')} (Timestamp: {entry.get('timestamp', 0)}):")
+                print(f"      Compressed: {entry.get('compressed_string', '')}")
+                print(f"      Decompressed: {entry.get('decompressed_values', [])}")
+                print(f"      Register Mapping:")
+                for reg, value in register_mapping.items():
+                    readable_key = f"{reg.lower()}_readable"
+                    readable_value = register_data.get(readable_key, f"{value}")
+                    print(f"         {reg}: {value} ({readable_value})")
+                
+                if 'power_efficiency' in register_data:
+                    print(f"      Power Efficiency: {register_data.get('power_efficiency', 0)}%")
+                    
+                print(f"      Compression: {compression_info.get('type', 'unknown')} " +
+                      f"(Success: {compression_info.get('decompression_successful', False)})")
             
             if len(entries) > 3:
                 print(f"   ... and {len(entries) - 3} more entries")
