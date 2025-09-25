@@ -7,15 +7,9 @@
 ProtocolAdapter::ProtocolAdapter() {}
 
 void ProtocolAdapter::begin() {
-  Serial.begin(115200);
-  WiFi.begin(ssid, password);
-
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println(" Connected!");
+  // WiFi connection removed - handled in main.cpp
+  // This function is now reserved for any protocol adapter specific initialization
+  Serial.println("ProtocolAdapter initialized (WiFi handled externally)");
 }
 
 String ProtocolAdapter::writeRegister(String frame) {
