@@ -5,20 +5,12 @@
 #include <vector>
 
 /**
- * Data Compression Class for Register Values
- * Supports Run-Length Encoding (RLE) and Delta Compression
+ * Advanced Delta+RLE Compression for Register Values
+ * Optimized compression algorithm with better compression ratios
  */
 class DataCompression {
 public:
-    // RLE Compression Methods
-    static String compressRLE(const uint16_t* values, size_t count);
-    static std::vector<uint16_t> decompressRLE(const String& compressed);
-    
-    // Delta Compression Methods
-    static String compressDelta(const uint16_t* values, size_t count);
-    static std::vector<uint16_t> decompressDelta(const String& compressed);
-    
-    // Utility Methods
+    // Main compression methods
     static String compressRegisterData(const uint16_t* values, size_t count);
     static std::vector<uint16_t> decompressRegisterData(const String& compressed);
     
@@ -27,10 +19,22 @@ public:
     static void printCompressionStats(const String& method, size_t original, size_t compressed);
 
 private:
-    // Helper methods
-    static String encodeNumber(uint16_t value);
-    static uint16_t decodeNumber(const String& encoded, size_t& pos);
-    static bool isRepeating(const uint16_t* values, size_t start, size_t count, size_t& runLength);
+    // Core compression engine
+    static std::vector<uint8_t> compressAdvanced(const uint16_t* values, size_t count);
+    static std::vector<uint16_t> decompressAdvanced(const std::vector<uint8_t>& compressed);
+    
+    // Optimized delta compression
+    static void compressSampleOptimized(uint16_t prev, uint16_t curr, uint16_t commonValue, std::vector<uint8_t>& output);
+    static size_t decompressSampleOptimized(const std::vector<uint8_t>& data, size_t pos, uint16_t prev, uint16_t commonValue, uint16_t& result);
+    
+    // RLE compression
+    static std::vector<uint8_t> applyRLE(const std::vector<uint8_t>& data);
+    static std::vector<uint8_t> decompressRLE(const std::vector<uint8_t>& data, size_t startPos);
+    
+    // Utilities
+    static uint16_t findMostCommonValue(const uint16_t* values, size_t count);
+    static String bytesToBase64(const std::vector<uint8_t>& bytes);
+    static std::vector<uint8_t> base64ToBytes(const String& base64);
 };
 
 /**
