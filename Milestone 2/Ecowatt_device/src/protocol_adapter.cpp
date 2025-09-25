@@ -11,9 +11,15 @@ void ProtocolAdapter::begin() {
   WiFi.begin(ssid, password);
 
   Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
+  int wifiRetry = 0;
+  while (WiFi.status() != WL_CONNECTED && wifiRetry < 20) {
     delay(500);
+    wifiRetry++;
     Serial.print(".");
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println(" Failed to connect to WiFi");
+    return;
   }
   Serial.println(" Connected!");
 }
