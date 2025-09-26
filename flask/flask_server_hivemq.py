@@ -386,11 +386,11 @@ def decompress_dictionary_bitmask(binary_data):
     Handles both single samples (6 values) and batch samples (30 values = 5×6)
     """
     try:
-        print(f"🔍 Dictionary decompression input: {len(binary_data)} bytes")
+        print(f"Dictionary decompression input: {len(binary_data)} bytes")
         print(f"   Binary data: {[hex(b) for b in binary_data[:20]]}")
         
         if len(binary_data) < 5:
-            print(f"❌ Dictionary data too short: {len(binary_data)} bytes")
+            print(f"Dictionary data too short: {len(binary_data)} bytes")
             return []
         
         pattern_id = binary_data[1]
@@ -411,25 +411,25 @@ def decompress_dictionary_bitmask(binary_data):
         ]
         
         if pattern_id >= len(dictionary_patterns):
-            print(f"⚠️  Unknown pattern ID {pattern_id}, using pattern 0")
+            print(f"Unknown pattern ID {pattern_id}, using pattern 0")
             pattern_id = 0
         
         base_pattern = dictionary_patterns[pattern_id]
         
         # FIXED: Handle batch data (count = 30 for 5 samples × 6 registers)
         if count == 30:  # Batch of 5 samples
-            print("   📦 Batch compression detected (5 samples × 6 registers)")
+            print("   Batch compression detected (5 samples × 6 registers)")
             # Create base pattern repeated 5 times
             result = base_pattern * 5  # [pattern, pattern, pattern, pattern, pattern]
             registers_per_sample = 6
             samples = 5
         elif count == 6:  # Single sample
-            print("   📦 Single sample compression detected")
+            print("   Single sample compression detected")
             result = base_pattern[:]
             registers_per_sample = 6
             samples = 1
         else:
-            print(f"   📦 Custom count: {count} values")
+            print(f"   Custom count: {count} values")
             # Handle other counts gracefully
             registers_per_sample = min(6, count)
             samples = count // registers_per_sample if count >= 6 else 1
@@ -498,7 +498,7 @@ def decompress_dictionary_bitmask(binary_data):
                 else:
                     print(f"⚠️  Index {i} out of range for result array (len={len(result)})")
         
-        print(f"✅ Dictionary decompressed: {len(result)} values, {applied_deltas} deltas applied")
+        print(f"Dictionary decompressed: {len(result)} values, {applied_deltas} deltas applied")
         
         # Return structured data for batch processing
         if count == 30:  # Batch data
@@ -510,7 +510,7 @@ def decompress_dictionary_bitmask(binary_data):
                 sample = result[start_idx:end_idx]
                 samples.append(sample)
             
-            print(f"   📋 Batch samples:")
+            print(f"   Batch samples:")
             for i, sample in enumerate(samples):
                 print(f"      Sample {i+1}: {sample}")
             
@@ -532,7 +532,7 @@ def decompress_dictionary_bitmask(binary_data):
             }
         
     except Exception as e:
-        print(f"❌ Dictionary decompression error: {e}")
+        print(f"Dictionary decompression error: {e}")
         import traceback
         traceback.print_exc()
         return []
@@ -572,7 +572,7 @@ def decompress_bit_packed(binary_data):
             return result
         
     except Exception as e:
-        print(f"❌ Bit-packed error: {e}")
+        print(f"Bit-packed error: {e}")
         return []
 
 def unpack_bits_from_buffer(buffer, bit_offset, num_bits):
@@ -602,7 +602,7 @@ def decompress_smart_binary_data(base64_data):
     Main decompression function with enhanced debugging
     """
     try:
-        print(f"\n🔍 DECOMPRESSION DEBUG:")
+        print(f"\nDECOMPRESSION DEBUG:")
         print(f"   Base64 input length: {len(base64_data)}")
         print(f"   Base64 sample: {base64_data[:100]}")
         
@@ -611,7 +611,7 @@ def decompress_smart_binary_data(base64_data):
         print(f"   Binary length: {len(binary_data)}")
         
         if len(binary_data) == 0:
-            print("❌ Empty binary data")
+            print("Empty binary data")
             return []
         
         method_id = binary_data[0]
@@ -619,17 +619,17 @@ def decompress_smart_binary_data(base64_data):
         
         # Try Dictionary first (most common from your logs)
         if method_id == 0xD0:
-            print("   → Dictionary + Bitmask compression detected")
+            print("   Dictionary + Bitmask compression detected")
             return decompress_dictionary_bitmask(binary_data)
         
         # Try other methods
         elif method_id == 0x01:  # Bit-packed
-            print("   → Bit-packed compression detected")
+            print("   Bit-packed compression detected")
             return decompress_bit_packed(binary_data)
         
         # Try raw binary (no header)
         elif len(binary_data) % 2 == 0 and len(binary_data) <= 20:
-            print("   → Raw binary format detected")
+            print("   Raw binary format detected")
             result = []
             for i in range(0, len(binary_data), 2):
                 if i + 1 < len(binary_data):
@@ -650,11 +650,11 @@ def decompress_smart_binary_data(base64_data):
                 return result
         
         else:
-            print(f"   → Unknown format, method_id=0x{method_id:02X}")
+            print(f"   Unknown format, method_id=0x{method_id:02X}")
             return []
             
     except Exception as e:
-        print(f"❌ Decompression error: {e}")
+        print(f"Decompression error: {e}")
         return []
 
 def process_register_data(registers, decompressed_values):
@@ -711,13 +711,13 @@ def process_compressed_data():
         data = request.get_json()
         
         print("="*80)
-        print("🔍 ESP32 PAYLOAD ANALYSIS")
+        print("ESP32 PAYLOAD ANALYSIS")
         print("="*80)
         
         # Debug the incoming data structure
         for key, value in data.items():
             if isinstance(value, list):
-                print(f"📋 {key}: [list with {len(value)} items]")
+                print(f"{key}: [list with {len(value)} items]")
                 if len(value) > 0:
                     print(f"   First item type: {type(value[0])}")
                     if isinstance(value[0], dict):
@@ -731,7 +731,7 @@ def process_compressed_data():
                     elif isinstance(value[0], str):
                         print(f"   First item sample: {value[0][:50]}...")
             else:
-                print(f"📋 {key}: {value}")
+                print(f"{key}: {value}")
         
         print("="*80)
         
@@ -747,10 +747,10 @@ def process_compressed_data():
         )
         
         if not compressed_data_list:
-            print("❌ No compressed data found!")
+            print("No compressed data found!")
             return jsonify({'error': 'No compressed data found in payload'}), 400
         
-        print(f"✅ Found {len(compressed_data_list)} compressed data items")
+        print(f"Found {len(compressed_data_list)} compressed data items")
         
         # Standard register order
         registers = ["REG_VAC1", "REG_IAC1", "REG_IPV1", "REG_PAC", "REG_IPV2", "REG_TEMP"]
@@ -892,7 +892,7 @@ def process_compressed_data():
         avg_power = total_power / total_samples_processed if total_samples_processed > 0 else 0
         success_rate = decompression_successes / entry_count if entry_count > 0 else 0
         
-        print(f"\n📊 PROCESSING SUMMARY:")
+        print(f"\nPROCESSING SUMMARY:")
         print(f"   Total entries: {entry_count}")
         print(f"   Total samples processed: {total_samples_processed}")
         print(f"   Successful decompressions: {decompression_successes}")
@@ -948,7 +948,7 @@ def process_compressed_data():
         }), 200
         
     except Exception as e:
-        print(f"❌ Processing error: {e}")
+        print(f"Processing error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -980,21 +980,21 @@ def health_check():
     }), 200
 
 if __name__ == '__main__':
-    print("🚀 Starting EcoWatt Smart Selection Batch Server v3.1")
+    print("Starting EcoWatt Smart Selection Batch Server v3.1")
     print("="*60)
-    print("🔍 Enhanced debugging enabled for ESP32 batch compression")
-    print("📦 Supports Dictionary+Bitmask batch decompression")
-    print("🧠 Handles 5 samples × 6 registers = 30 values per batch")
-    print("📊 Academic ratio tracking: 0.500 (50% compression)")
+    print("Enhanced debugging enabled for ESP32 batch compression")
+    print("Supports Dictionary+Bitmask batch decompression")
+    print("Handles 5 samples × 6 registers = 30 values per batch")
+    print("Academic ratio tracking: 0.500 (50% compression)")
     print("="*60)
     
     if init_mqtt():
-        print("✅ MQTT client initialized successfully")
+        print("MQTT client initialized successfully")
     else:
-        print("⚠️  Warning: MQTT client failed to initialize")
+        print("Warning: MQTT client failed to initialize")
     
-    print(f"📡 MQTT: {MQTT_BROKER}:{MQTT_PORT} → {MQTT_TOPIC}")
-    print("🌐 Starting Flask server with comprehensive batch logging...")
+    print(f"MQTT: {MQTT_BROKER}:{MQTT_PORT} → {MQTT_TOPIC}")
+    print("Starting Flask server with comprehensive batch logging...")
     print("="*60)
     
     app.run(host='0.0.0.0', port=5001, debug=True)
