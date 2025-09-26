@@ -4,6 +4,21 @@
 #include <Arduino.h>
 #include <vector>
 
+// Structure to hold compressed data with metadata
+struct CompressedData {
+    String data;                // The actual compressed data string
+    unsigned long timestamp;    // When the data was compressed
+    String compressionType;     // Type of compression used (DELTA, RLE, HYBRID)
+    size_t originalCount;       // Number of original data points
+
+    // Default constructor
+    CompressedData() : timestamp(0), originalCount(0) {}
+    
+    // Constructor with compressed data and count
+    CompressedData(const String& compressedData, size_t count) 
+        : data(compressedData), timestamp(millis()), originalCount(count) {}
+};
+
 // Template class with inline implementations
 template <typename T, size_t N>
 class RingBuffer {

@@ -7,21 +7,9 @@
 ProtocolAdapter::ProtocolAdapter() {}
 
 void ProtocolAdapter::begin() {
-  Serial.begin(115200);
-  WiFi.begin(ssid, password);
-
-  Serial.print("Connecting to WiFi");
-  int wifiRetry = 0;
-  while (WiFi.status() != WL_CONNECTED && wifiRetry < 20) {
-    delay(500);
-    wifiRetry++;
-    Serial.print(".");
-  }
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println(" Failed to connect to WiFi");
-    return;
-  }
-  Serial.println(" Connected!");
+  // WiFi connection removed - handled in main.cpp
+  // This function is now reserved for any protocol adapter specific initialization
+  Serial.println("ProtocolAdapter initialized (WiFi handled externally)");
 }
 
 String ProtocolAdapter::writeRegister(String frame) {

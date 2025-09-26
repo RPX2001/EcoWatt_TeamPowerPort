@@ -1,0 +1,783 @@
+#include "DataCompression.h"
+#include <algorithm>
+
+// ==================== STATIC MEMBER INITIALIZATION ====================
+
+String DataCompression::lastErrorMessage = "";
+DataCompression::ErrorType DataCompression::lastErrorType = ERROR_NONE;
+bool DataCompression::debugMode = false;
+size_t DataCompression::maxMemoryUsage = DEFAULT_MAX_MEMORY;
+float DataCompression::compressionPreference = DEFAULT_PREFERENCE;
+uint16_t DataCompression::largeDeltaThreshold = DEFAULT_LARGE_DELTA_THRESHOLD;
+uint8_t DataCompression::bitPackingThreshold = DEFAULT_BIT_PACKING_THRESHOLD;
+float DataCompression::dictionaryLearningRate = DEFAULT_DICTIONARY_LEARNING_RATE;
+uint8_t DataCompression::temporalWindowSize = DEFAULT_TEMPORAL_WINDOW_SIZE;
+
+// Working memory buffer variables
+uint8_t* DataCompression::workingBuffer = nullptr;
+size_t DataCompression::workingBufferSize = 0;
+bool DataCompression::workingBufferAllocated = false;
+
+// Performance tracking variables
+unsigned long DataCompression::totalCompressions = 0;
+unsigned long DataCompression::totalDecompressions = 0;
+float DataCompression::cumulativeCompressionRatio = 0.0f;
+unsigned long DataCompression::cumulativeCompressionTime = 0;
+
+// Smart Selection variables
+DataCompression::SensorPattern DataCompression::sensorDictionary[16] = {};
+uint8_t DataCompression::dictionarySize = 0;
+uint32_t DataCompression::smartTotalCompressions = 0;
+DataCompression::TemporalContext DataCompression::temporalBuffer = {};
+DataCompression::MethodPerformance DataCompression::methodStats[4] = {
+    {"DICTIONARY", 0, 0.0f, 0, 0.0f, 0.0f},
+    {"TEMPORAL", 0, 0.0f, 0, 0.0f, 0.0f},
+    {"SEMANTIC", 0, 0.0f, 0, 0.0f, 0.0f},
+    {"BITPACK", 0, 0.0f, 0, 0.0f, 0.0f}
+};
+
+// Method identifiers
+const char* DataCompression::METHOD_BINARY_PACKED = "BINPACK";
+const char* DataCompression::METHOD_BINARY_DELTA = "BINDELTA";
+const char* DataCompression::METHOD_BINARY_RLE = "BINRLE";
+const char* DataCompression::METHOD_BINARY_HYBRID = "BINHYBRID";
+const char* DataCompression::METHOD_RAW_BINARY = "RAWBIN";
+
+// ==================== ADAPTIVE SMART SELECTION METHODS ====================
+
+std::vector<uint8_t> DataCompression::compressWithSmartSelection(uint16_t* data, const RegID* selection, size_t count) {
+    if (count == 0 || data == nullptr || selection == nullptr) {
+        setError("Invalid input for smart selection", ERROR_INVALID_INPUT);
+        return std::vector<uint8_t>();
+    }
+    
+    unsigned long startTime = micros();
+    
+    // Initialize dictionary if needed
+    if (dictionarySize == 0) {
+        initializeSensorDictionary();
+    }
+    
+    // Test all compression methods
+    auto dictionaryResult = testCompressionMethod("DICTIONARY", data, selection, count);
+    auto temporalResult = testCompressionMethod("TEMPORAL", data, selection, count);
+    auto semanticResult = testCompressionMethod("SEMANTIC", data, selection, count);
+    auto bitpackResult = testCompressionMethod("BITPACK", data, selection, count);
+    
+    // Find the best result (lowest compression ratio = best compression)
+    std::vector<CompressionResult> results = {dictionaryResult, temporalResult, semanticResult, bitpackResult};
+    
+    CompressionResult bestResult = results[0];
+    for (const auto& result : results) {
+        if (result.academicRatio < bestResult.academicRatio && result.academicRatio > 0) {
+            bestResult = result;
+        }
+    }
+    
+    // Update adaptive learning
+    updateMethodPerformance(bestResult.method, bestResult.academicRatio, bestResult.timeUs);
+    
+    unsigned long totalTime = micros() - startTime;
+    
+    // Print original vs compressed data clearly
+    size_t originalBytes = count * sizeof(uint16_t);
+    size_t compressedBytes = bestResult.data.size();
+    float savingsPercent = (1.0f - bestResult.academicRatio) * 100.0f;
+    
+    Serial.printf("COMPRESSION RESULT: %s method\n", bestResult.method.c_str());
+    Serial.printf("Original: %zu bytes -> Compressed: %zu bytes (%.1f%% savings)\n", 
+                  originalBytes, compressedBytes, savingsPercent);
+    Serial.printf("Academic Ratio: %.3f | Time: %lu μs\n", bestResult.academicRatio, totalTime);
+    
+    // Update dictionary with new data for future improvements
+    updateDictionary(data, selection, count);
+    
+    return bestResult.data;
+}
+
+DataCompression::CompressionResult DataCompression::testCompressionMethod(const String& method, uint16_t* data, const RegID* selection, size_t count) {
+    CompressionResult result;
+    unsigned long startTime = micros();
+    
+    if (method == "DICTIONARY") {
+        result.data = compressWithDictionary(data, selection, count);
+    } else if (method == "TEMPORAL") {
+        result.data = compressWithTemporalDelta(data, selection, count);
+    } else if (method == "SEMANTIC") {
+        result.data = compressWithSemanticRLE(data, selection, count);
+    } else if (method == "BITPACK") {
+        result.data = compressBinary(data, count);
+    }
+    
+    result.timeUs = micros() - startTime;
+    result.method = method;
+    
+    // Calculate academic compression ratio (compressed/original)
+    size_t originalBits = count * 16;  // 16 bits per uint16_t
+    size_t compressedBits = result.data.size() * 8;  // 8 bits per byte
+    
+    result.academicRatio = result.data.empty() ? 1.0f : (float)compressedBits / (float)originalBits;
+    result.traditionalRatio = result.data.empty() ? 0.0f : (float)originalBits / (float)compressedBits;
+    result.efficiency = result.academicRatio > 0 ? (1.0f / result.academicRatio) / (result.timeUs / 1000.0f) : 0.0f;
+    
+    return result;
+}
+
+// ==================== DICTIONARY-BASED BITMASK COMPRESSION ====================
+
+std::vector<uint8_t> DataCompression::compressWithDictionary(uint16_t* data, const RegID* selection, size_t count) {
+    std::vector<uint8_t> result;
+    
+    // Find closest dictionary pattern
+    int bestMatch = findClosestDictionaryPattern(data, selection, count);
+    
+    if (bestMatch >= 0) {
+        // Bitmask compression with dictionary
+        result.push_back(0xD0);  // Dictionary compression marker
+        result.push_back(bestMatch);  // Dictionary index
+        result.push_back(count);  // Number of values
+        
+        // Create bitmask for differences and collect deltas
+        uint16_t differencesMask = 0;
+        std::vector<int16_t> deltas;
+        uint8_t deltaBits = 0;
+        
+        for (size_t i = 0; i < count; i++) {
+            int16_t delta = (int16_t)data[i] - (int16_t)sensorDictionary[bestMatch].values[selection[i]];
+            if (delta != 0) {
+                differencesMask |= (1 << i);
+                deltas.push_back(delta);
+            }
+        }
+        
+        // Store bitmask (up to 16 bits for max 16 registers)
+        result.push_back(differencesMask & 0xFF);
+        result.push_back((differencesMask >> 8) & 0xFF);
+        
+        // Encode deltas using variable-length encoding
+        for (int16_t delta : deltas) {
+            if (delta >= -127 && delta <= 127) {
+                // 8-bit signed delta
+                result.push_back(0x80 | ((uint8_t)delta & 0x7F));
+                if (delta < 0) result[result.size()-1] |= 0x40;  // Sign bit
+            } else {
+                // 16-bit delta with escape marker
+                result.push_back(0x00);  // 16-bit marker
+                result.push_back(delta & 0xFF);
+                result.push_back((delta >> 8) & 0xFF);
+            }
+        }
+    } else {
+        // No good dictionary match, fall back to bit-packing
+        return compressBinary(data, count);
+    }
+    
+    return result;
+}
+
+// ==================== TEMPORAL DELTA COMPRESSION ====================
+
+std::vector<uint8_t> DataCompression::compressWithTemporalDelta(uint16_t* data, const RegID* selection, size_t count) {
+    std::vector<uint8_t> result;
+    
+    // Check if we have temporal context and matching register layout
+    bool hasCompatibleHistory = temporalBuffer.bufferFull && 
+                               temporalBuffer.lastRegisterCount == count &&
+                               memcmp(temporalBuffer.lastRegisters, selection, count * sizeof(RegID)) == 0;
+    
+    if (!hasCompatibleHistory) {
+        // Store as base sample
+        result.push_back(0x70);  // Temporal base marker
+        result.push_back(count);
+        
+        // Store register layout
+        for (size_t i = 0; i < count; i++) {
+            result.push_back(selection[i]);
+        }
+        
+        // Store values
+        for (size_t i = 0; i < count; i++) {
+            result.push_back(data[i] & 0xFF);
+            result.push_back((data[i] >> 8) & 0xFF);
+        }
+    } else {
+        // Use temporal prediction with trend analysis
+        result.push_back(0x71);  // Temporal delta marker
+        result.push_back(count);
+        
+        uint8_t prevIndex = (temporalBuffer.writeIndex - 1 + 8) % 8;
+        uint8_t prev2Index = (temporalBuffer.writeIndex - 2 + 8) % 8;
+        
+        for (size_t i = 0; i < count; i++) {
+            // Linear prediction: predict[i] = 2*prev[i] - prev2[i]
+            int32_t prev1 = temporalBuffer.recentSamples[prevIndex][selection[i]];
+            int32_t prev2 = temporalBuffer.recentSamples[prev2Index][selection[i]];
+            int32_t predicted = 2 * prev1 - prev2;
+            
+            // Clamp prediction to reasonable range
+            if (predicted < 0) predicted = prev1;
+            if (predicted > 65535) predicted = prev1;
+            
+            int16_t delta = (int16_t)data[i] - (int16_t)predicted;
+            
+            // Variable-length delta encoding
+            if (delta >= -63 && delta <= 63) {
+                // 7-bit delta with sign
+                uint8_t encoded = (abs(delta) & 0x3F) | 0x80;
+                if (delta < 0) encoded |= 0x40;
+                result.push_back(encoded);
+            } else if (delta >= -127 && delta <= 127) {
+                // 8-bit delta  
+                result.push_back(0x00);  // 8-bit marker
+                result.push_back((uint8_t)delta);
+            } else {
+                // 16-bit delta
+                result.push_back(0x01);  // 16-bit marker
+                result.push_back(delta & 0xFF);
+                result.push_back((delta >> 8) & 0xFF);
+            }
+        }
+    }
+    
+    // Update temporal buffer
+    for (size_t i = 0; i < count; i++) {
+        temporalBuffer.recentSamples[temporalBuffer.writeIndex][selection[i]] = data[i];
+    }
+    memcpy(temporalBuffer.lastRegisters, selection, count * sizeof(RegID));
+    temporalBuffer.lastRegisterCount = count;
+    temporalBuffer.writeIndex = (temporalBuffer.writeIndex + 1) % 8;
+    if (temporalBuffer.writeIndex == 0) temporalBuffer.bufferFull = true;
+    
+    return result;
+}
+
+// ==================== SEMANTIC RLE COMPRESSION ====================
+
+std::vector<uint8_t> DataCompression::compressWithSemanticRLE(uint16_t* data, const RegID* selection, size_t count) {
+    std::vector<uint8_t> result;
+    result.push_back(0x50);  // Semantic RLE marker
+    result.push_back(count);
+    
+    // Group registers by semantic type
+    struct RegisterGroup {
+        std::vector<uint16_t> values;
+        std::vector<uint8_t> positions;
+        String type;
+        uint8_t typeId;
+    };
+    
+    std::vector<RegisterGroup> groups;
+    
+    // Classify and group registers
+    for (size_t i = 0; i < count; i++) {
+        String regType = getRegisterType(selection[i]);
+        uint8_t typeId = getRegisterTypeId(selection[i]);
+        
+        // Find existing group or create new one
+        bool found = false;
+        for (auto& group : groups) {
+            if (group.typeId == typeId) {
+                group.values.push_back(data[i]);
+                group.positions.push_back(i);
+                found = true;
+                break;
+            }
+        }
+        
+        if (!found) {
+            RegisterGroup newGroup;
+            newGroup.type = regType;
+            newGroup.typeId = typeId;
+            newGroup.values.push_back(data[i]);
+            newGroup.positions.push_back(i);
+            groups.push_back(newGroup);
+        }
+    }
+    
+    result.push_back(groups.size());  // Number of semantic groups
+    
+    // Compress each group with type-specific RLE
+    for (const auto& group : groups) {
+        result.push_back(group.typeId);  // Type identifier
+        result.push_back(group.values.size());  // Group size
+        
+        // Store positions
+        for (uint8_t pos : group.positions) {
+            result.push_back(pos);
+        }
+        
+        // Apply RLE with type-aware encoding
+        size_t i = 0;
+        while (i < group.values.size()) {
+            uint16_t currentValue = group.values[i];
+            uint8_t runLength = 1;
+            
+            // Count consecutive similar values (with tolerance for same type)
+            uint16_t tolerance = getTypeTolerances(group.typeId);
+            
+            while (i + runLength < group.values.size() && runLength < 255) {
+                if (abs((int32_t)group.values[i + runLength] - (int32_t)currentValue) <= tolerance) {
+                    runLength++;
+                } else {
+                    break;
+                }
+            }
+            
+            // Store run with type-specific bit packing
+            uint8_t bitsNeeded = getBitsForType(group.typeId);
+            if (bitsNeeded <= 8) {
+                result.push_back(currentValue & 0xFF);
+                result.push_back(runLength);
+            } else {
+                result.push_back(currentValue & 0xFF);
+                result.push_back((currentValue >> 8) & 0xFF);
+                result.push_back(runLength);
+            }
+            
+            i += runLength;
+        }
+    }
+    
+    return result;
+}
+
+// ==================== HELPER FUNCTIONS ====================
+
+String DataCompression::getRegisterType(RegID regId) {
+    switch (regId) {
+        case REG_VAC1: return "voltage";
+        case REG_IAC1: return "current";
+        case REG_FAC1: return "frequency";
+        case REG_VPV1:
+        case REG_VPV2: return "pv_voltage";
+        case REG_IPV1:
+        case REG_IPV2: return "pv_current";
+        case REG_TEMP: return "temperature";
+        case REG_POW:
+        case REG_PAC: return "power";
+        default: return "unknown";
+    }
+}
+
+uint8_t DataCompression::getRegisterTypeId(RegID regId) {
+    switch (regId) {
+        case REG_VAC1: return 1;  // AC voltage
+        case REG_IAC1: return 2;  // AC current
+        case REG_FAC1: return 3;  // Frequency
+        case REG_VPV1:
+        case REG_VPV2: return 4;  // PV voltage
+        case REG_IPV1:
+        case REG_IPV2: return 5;  // PV current
+        case REG_TEMP: return 6;  // Temperature
+        case REG_POW:
+        case REG_PAC: return 7;   // Power
+        default: return 0;        // Unknown
+    }
+}
+
+uint16_t DataCompression::getTypeTolerances(uint8_t typeId) {
+    switch (typeId) {
+        case 1: return 10;  // AC voltage ±10V
+        case 2: return 5;   // AC current ±5A
+        case 3: return 1;   // Frequency ±1Hz
+        case 4: return 15;  // PV voltage ±15V
+        case 5: return 3;   // PV current ±3A
+        case 6: return 5;   // Temperature ±5°C
+        case 7: return 50;  // Power ±50W
+        default: return 0;
+    }
+}
+
+uint8_t DataCompression::getBitsForType(uint8_t typeId) {
+    switch (typeId) {
+        case 1: return 12;  // AC voltage (0-4095V)
+        case 2: return 8;   // AC current (0-255A)
+        case 3: return 6;   // Frequency (0-63Hz)
+        case 4: return 9;   // PV voltage (0-511V)
+        case 5: return 7;   // PV current (0-127A)
+        case 6: return 10;  // Temperature (0-1023°C)
+        case 7: return 13;  // Power (0-8191W)
+        default: return 16;
+    }
+}
+
+void DataCompression::initializeSensorDictionary() {
+    // Pattern 0: Typical daytime operation
+    uint16_t pattern0[] = {2400, 170, 50, 400, 380, 70, 65, 550, 4000, 4200};
+    memcpy(sensorDictionary[0].values, pattern0, sizeof(pattern0));
+    sensorDictionary[0].frequency = 1;
+    
+    // Pattern 1: Low power operation
+    uint16_t pattern1[] = {2380, 100, 50, 200, 180, 30, 25, 520, 2000, 2500};
+    memcpy(sensorDictionary[1].values, pattern1, sizeof(pattern1));
+    sensorDictionary[1].frequency = 1;
+    
+    // Pattern 2: High power operation  
+    uint16_t pattern2[] = {2450, 200, 50, 450, 420, 90, 85, 580, 5000, 5200};
+    memcpy(sensorDictionary[2].values, pattern2, sizeof(pattern2));
+    sensorDictionary[2].frequency = 1;
+    
+    // Pattern 3: Your typical current readings (learned from data)
+    uint16_t pattern3[] = {2430, 165, 50, 350, 350, 70, 65, 545, 4100, 4150};
+    memcpy(sensorDictionary[3].values, pattern3, sizeof(pattern3));
+    sensorDictionary[3].frequency = 1;
+    
+    dictionarySize = 4;
+}
+
+int DataCompression::findClosestDictionaryPattern(uint16_t* data, const RegID* selection, size_t count) {
+    if (dictionarySize == 0) return -1;
+    
+    int bestMatch = -1;
+    uint32_t minDistance = UINT32_MAX;
+    
+    for (uint8_t i = 0; i < dictionarySize; i++) {
+        uint32_t distance = 0;
+        
+        for (size_t j = 0; j < count; j++) {
+            int32_t diff = (int32_t)data[j] - (int32_t)sensorDictionary[i].values[selection[j]];
+            distance += abs(diff);
+        }
+        
+        if (distance < minDistance) {
+            minDistance = distance;
+            bestMatch = i;
+        }
+    }
+    
+    // Use dictionary if average error per value is reasonable
+    uint32_t avgError = minDistance / count;
+    if (avgError < 200) {  // Threshold for acceptable match
+        return bestMatch;
+    }
+    
+    return -1;  // No good match
+}
+
+void DataCompression::updateDictionary(uint16_t* data, const RegID* selection, size_t count) {
+    // Simple dictionary learning: if we have space and this pattern is unique enough
+    if (dictionarySize < 15) {  // Leave room for one more pattern
+        int closestMatch = findClosestDictionaryPattern(data, selection, count);
+        if (closestMatch < 0) {  // No close match found
+            // Add this as a new pattern
+            for (size_t i = 0; i < count; i++) {
+                sensorDictionary[dictionarySize].values[selection[i]] = data[i];
+            }
+            sensorDictionary[dictionarySize].frequency = 1;
+            dictionarySize++;
+        } else {
+            // Update frequency of existing pattern
+            sensorDictionary[closestMatch].frequency++;
+        }
+    }
+}
+
+void DataCompression::updateMethodPerformance(const String& method, float academicRatio, unsigned long timeUs) {
+    for (auto& stat : methodStats) {
+        if (stat.methodName == method) {
+            stat.useCount++;
+            stat.avgCompressionRatio = (stat.avgCompressionRatio * (stat.useCount - 1) + academicRatio) / stat.useCount;
+            stat.avgTimeUs = (stat.avgTimeUs * (stat.useCount - 1) + timeUs) / stat.useCount;
+            
+            // Success rate: compression ratio < 0.8 is considered successful
+            if (academicRatio < 0.8f) {
+                stat.successRate = (stat.successRate * (stat.useCount - 1) + 1.0f) / stat.useCount;
+            } else {
+                stat.successRate = (stat.successRate * (stat.useCount - 1) + 0.0f) / stat.useCount;
+            }
+            
+            // Calculate adaptive score (lower is better for academic ratio)
+            stat.adaptiveScore = stat.successRate / (stat.avgCompressionRatio + 0.1f);
+            break;
+        }
+    }
+}
+
+// ==================== EXISTING BINARY COMPRESSION METHODS ====================
+
+std::vector<uint8_t> DataCompression::compressBinary(uint16_t* data, size_t count) {
+    if (count == 0 || data == nullptr) {
+        setError("Invalid input data");
+        return std::vector<uint8_t>();
+    }
+
+    DataCharacteristics characteristics = analyzeData(data, count);
+    
+    std::vector<uint8_t> bestResult;
+    String bestMethod = "RAW_BINARY";
+    size_t originalSize = count * 2;
+    
+    // Try bit-packing if it can save significant space
+    if (characteristics.optimalBits < 16 && characteristics.optimalBits >= 8) {
+        std::vector<uint8_t> bitPacked = compressBinaryBitPacked(data, count, characteristics.optimalBits);
+        
+        if (bitPacked.size() < originalSize) {
+            bestResult = bitPacked;
+            bestMethod = "BIT_PACKED";
+        }
+    }
+    
+    // If no compression helped, use raw binary
+    if (bestResult.empty() || bestResult.size() >= originalSize) {
+        return storeAsRawBinary(data, count);
+    }
+    
+    return bestResult;
+}
+
+std::vector<uint8_t> DataCompression::compressBinaryBitPacked(uint16_t* data, size_t count, uint8_t bitsPerValue) {
+    std::vector<uint8_t> result;
+    
+    if (bitsPerValue == 0 || bitsPerValue > 16) {
+        setError("Invalid bits per value");
+        return result;
+    }
+    
+    size_t totalBits = count * bitsPerValue;
+    size_t packedBytes = (totalBits + 7) / 8;
+    size_t originalBytes = count * 2;
+    
+    // For small datasets, skip header if it negates compression benefit
+    bool useHeader = (count > 8) || (packedBytes + 3 < originalBytes);
+    
+    if (useHeader) {
+        result.push_back(0x01);  // Binary bit-packed method ID
+        result.push_back(bitsPerValue);
+        result.push_back(count);
+    }
+    
+    std::vector<uint8_t> packedData(packedBytes, 0);
+    
+    size_t bitOffset = 0;
+    for (size_t i = 0; i < count; i++) {
+        packBitsIntoBuffer(data[i], packedData.data(), bitOffset, bitsPerValue);
+        bitOffset += bitsPerValue;
+    }
+    
+    result.insert(result.end(), packedData.begin(), packedData.end());
+    return result;
+}
+
+std::vector<uint8_t> DataCompression::storeAsRawBinary(uint16_t* data, size_t count) {
+    std::vector<uint8_t> result;
+    
+    // For small datasets (≤8 values), skip header overhead
+    if (count <= 8) {
+        result.reserve(count * 2);
+        for (size_t i = 0; i < count; i++) {
+            result.push_back(data[i] & 0xFF);
+            result.push_back((data[i] >> 8) & 0xFF);
+        }
+        return result;
+    }
+    
+    // For larger datasets, use header
+    result.push_back(0x00);  // METHOD_ID
+    result.push_back(count); // COUNT
+    for (size_t i = 0; i < count; i++) {
+        result.push_back(data[i] & 0xFF);
+        result.push_back((data[i] >> 8) & 0xFF);
+    }
+    return result;
+}
+
+// ==================== UTILITY FUNCTIONS ====================
+
+void DataCompression::packBitsIntoBuffer(uint16_t value, uint8_t* buffer, size_t bitOffset, uint8_t numBits) {
+    uint16_t mask = (1 << numBits) - 1;
+    value &= mask;
+    
+    size_t byteOffset = bitOffset / 8;
+    uint8_t bitPos = bitOffset % 8;
+    
+    if (bitPos + numBits <= 8) {
+        buffer[byteOffset] |= (value << (8 - bitPos - numBits));
+    } else {
+        uint8_t firstBits = 8 - bitPos;
+        uint8_t remainingBits = numBits - firstBits;
+        
+        buffer[byteOffset] |= (value >> remainingBits);
+        buffer[byteOffset + 1] |= ((value & ((1 << remainingBits) - 1)) << (8 - remainingBits));
+    }
+}
+
+DataCompression::DataCharacteristics DataCompression::analyzeData(uint16_t* data, size_t count) {
+    DataCharacteristics characteristics = {0};
+    
+    if (count == 0 || data == nullptr) return characteristics;
+    
+    uint16_t minVal = data[0], maxVal = data[0];
+    uint32_t sum = 0;
+    size_t repeatedPairs = 0;
+    int32_t totalDeltaMagnitude = 0;
+    size_t largeDeltas = 0;
+    
+    for (size_t i = 0; i < count; i++) {
+        if (data[i] < minVal) minVal = data[i];
+        if (data[i] > maxVal) maxVal = data[i];
+        sum += data[i];
+        
+        if (i > 0) {
+            if (data[i] == data[i-1]) repeatedPairs++;
+            
+            int32_t delta = abs((int32_t)data[i] - (int32_t)data[i-1]);
+            totalDeltaMagnitude += delta;
+            
+            if (delta > largeDeltaThreshold) largeDeltas++;
+        }
+    }
+    
+    characteristics.minValue = minVal;
+    characteristics.maxValue = maxVal;
+    characteristics.valueRange = maxVal - minVal;
+    characteristics.repeatRatio = (count > 1) ? (float)repeatedPairs / (count - 1) : 0.0f;
+    characteristics.avgDeltaMagnitude = (count > 1) ? (float)totalDeltaMagnitude / (count - 1) : 0.0f;
+    characteristics.largeDeltaRatio = (count > 1) ? (float)largeDeltas / (count - 1) : 0.0f;
+    
+    // Calculate optimal bits needed
+    characteristics.optimalBits = 1;
+    while ((1 << characteristics.optimalBits) <= maxVal) {
+        characteristics.optimalBits++;
+    }
+    
+    characteristics.suitableForBitPack = (characteristics.optimalBits < 16);
+    characteristics.suitableForDelta = (characteristics.avgDeltaMagnitude < 200);
+    characteristics.suitableForRLE = (characteristics.repeatRatio > 0.3f);
+    
+    return characteristics;
+}
+
+// ==================== STATISTICS AND REPORTING ====================
+
+void DataCompression::printCompressionStats(const String& method, size_t originalSize, size_t compressedSize) {
+    if (originalSize == 0) {
+        Serial.println("Error: Original size is zero");
+        return;
+    }
+    
+    // Calculate both academic and traditional ratios
+    float academicRatio = (float)compressedSize / (float)originalSize;
+    float traditionalRatio = (float)originalSize / (float)compressedSize;
+    float savings = (1.0f - academicRatio) * 100.0f;
+    
+    Serial.println("COMPRESSION STATISTICS (Academic Format)");
+    Serial.printf("Method: %s\n", method.c_str());
+    Serial.printf("Original: %zu bytes -> Compressed: %zu bytes\n", originalSize, compressedSize);
+    Serial.printf("Academic Compression Ratio: %.3f (%.1f%% of original)\n", academicRatio, academicRatio * 100);
+    Serial.printf("Traditional Ratio: %.2f:1\n", traditionalRatio);
+    Serial.printf("Storage Savings: %.1f%%\n", savings);
+    
+    String efficiency = (academicRatio < EXCELLENT_RATIO_THRESHOLD) ? "Excellent" :
+                       (academicRatio < GOOD_RATIO_THRESHOLD) ? "Good" :
+                       (academicRatio < POOR_RATIO_THRESHOLD) ? "Fair" : "Poor";
+    Serial.printf("Efficiency Rating: %s\n", efficiency.c_str());
+    Serial.println("================================");
+}
+
+void DataCompression::printMemoryUsage() {
+    Serial.println("ESP32 MEMORY STATUS");
+    Serial.printf("Free Heap: %u bytes\n", ESP.getFreeHeap());
+    Serial.printf("Heap Size: %u bytes\n", ESP.getHeapSize());
+    Serial.printf("Max Alloc: %u bytes\n", ESP.getMaxAllocHeap());
+    Serial.printf("PSRAM Free: %u bytes\n", ESP.getFreePsram());
+    Serial.printf("Flash Size: %u bytes\n", ESP.getFlashChipSize());
+    Serial.println("==========================");
+}
+
+// ==================== ERROR HANDLING ====================
+
+void DataCompression::setError(const String& errorMsg, ErrorType errorType) {
+    lastErrorMessage = errorMsg;
+    lastErrorType = errorType;
+    if (debugMode) {
+        Serial.println("DataCompression Error: " + errorMsg);
+    }
+}
+
+String DataCompression::getLastError() {
+    return lastErrorMessage;
+}
+
+void DataCompression::clearError() {
+    lastErrorMessage = "";
+    lastErrorType = ERROR_NONE;
+}
+
+bool DataCompression::hasError() {
+    return lastErrorType != ERROR_NONE;
+}
+
+// ==================== LEGACY COMPATIBILITY ====================
+
+String DataCompression::compressRegisterData(uint16_t* data, size_t count) {
+    std::vector<uint8_t> binaryCompressed = compressBinary(data, count);
+    
+    if (binaryCompressed.empty()) {
+        return "ERROR:" + getLastError();
+    }
+    
+    return "BINARY:" + base64Encode(binaryCompressed);
+}
+
+String DataCompression::base64Encode(const std::vector<uint8_t>& data) {
+    const char* chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    String result = "";
+    
+    for (size_t i = 0; i < data.size(); i += 3) {
+        uint32_t value = data[i] << 16;
+        if (i + 1 < data.size()) value |= data[i + 1] << 8;
+        if (i + 2 < data.size()) value |= data[i + 2];
+        
+        result += chars[(value >> 18) & 0x3F];
+        result += chars[(value >> 12) & 0x3F];
+        result += chars[(value >> 6) & 0x3F];
+        result += chars[value & 0x3F];
+    }
+    
+    while (result.length() % 4) result += "=";
+    return result;
+}
+
+// ==================== CONFIGURATION MANAGEMENT IMPLEMENTATIONS ====================
+
+void DataCompression::setMaxMemoryUsage(size_t maxBytes) {
+    maxMemoryUsage = maxBytes;
+}
+
+void DataCompression::setCompressionPreference(float preference) {
+    compressionPreference = constrain(preference, 0.0f, 1.0f);
+}
+
+void DataCompression::setLargeDeltaThreshold(uint16_t threshold) {
+    largeDeltaThreshold = threshold;
+}
+
+void DataCompression::setBitPackingThreshold(uint8_t minBitsSaved) {
+    bitPackingThreshold = minBitsSaved;
+}
+
+void DataCompression::setDictionaryLearningRate(float rate) {
+    dictionaryLearningRate = constrain(rate, 0.0f, 1.0f);
+}
+
+// ==================== MISSING REPORTING FUNCTION ====================
+
+void DataCompression::printMethodPerformanceStats() {
+    Serial.println("\nMETHOD PERFORMANCE STATISTICS");
+    Serial.println("═══════════════════════════════════════");
+    
+    for (const auto& stat : methodStats) {
+        if (stat.useCount > 0) {
+            Serial.printf("Method: %s\n", stat.methodName.c_str());
+            Serial.printf("   Uses: %lu times\n", stat.useCount);
+            Serial.printf("   Avg Ratio: %.3f\n", stat.avgCompressionRatio);
+            Serial.printf("   Avg Time: %lu μs\n", stat.avgTimeUs);
+            Serial.printf("   Success Rate: %.1f%%\n", stat.successRate * 100);
+            Serial.printf("   Adaptive Score: %.3f\n", stat.adaptiveScore);
+            Serial.printf("   Total Savings: %lu bytes\n", stat.totalSavings);
+            Serial.println("   ───────────────────────");
+        }
+    }
+    
+    Serial.println("═══════════════════════════════════════");
+}
