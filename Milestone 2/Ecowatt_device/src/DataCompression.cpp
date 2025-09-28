@@ -581,6 +581,166 @@ std::vector<uint8_t> DataCompression::storeAsRawBinary(uint16_t* data, size_t co
     return result;
 }
 
+std::vector<uint16_t> DataCompression::decompressBinary(const std::vector<uint8_t>& compressed) {
+    std::vector<uint16_t> result;
+    
+    if (compressed.empty()) {
+        setError("Empty compressed data", ERROR_INVALID_INPUT);
+        return result;
+    }
+    
+    uint8_t methodId = compressed[0];
+    
+    switch (methodId) {
+        case 0x00:  // Raw binary
+            result = decompressRawBinary(compressed);
+            break;
+        case 0x01:  // Bit-packed
+            result = decompressBinaryBitPacked(compressed);
+            break;
+        case 0x02:  // RLE
+            result = decompressBinaryRLE(compressed);
+            break;
+        case 0x03:  // Delta
+            result = decompressBinaryDelta(compressed);
+            break;
+        default:
+            // For small datasets without headers, treat as raw binary
+            if (compressed.size() % 2 == 0) {
+                for (size_t i = 0; i < compressed.size(); i += 2) {
+                    uint16_t value = compressed[i] | (compressed[i+1] << 8);
+                    result.push_back(value);
+                }
+            } else {
+                setError("Unknown compression method: " + String(methodId), ERROR_UNSUPPORTED_METHOD);
+            }
+            break;
+    }
+    
+    return result;
+}
+
+std::vector<uint16_t> DataCompression::decompressRawBinary(const std::vector<uint8_t>& compressed) {
+    std::vector<uint16_t> result;
+    
+    if (compressed.size() < 2) {
+        setError("Invalid raw binary data", ERROR_INVALID_INPUT);
+        return result;
+    }
+    
+    // Check if it has header (method ID 0x00 + count)
+    if (compressed[0] == 0x00 && compressed.size() >= 4) {
+        size_t count = compressed[1];
+        size_t expectedSize = 2 + (count * 2);
+        
+        if (compressed.size() != expectedSize) {
+            setError("Raw binary size mismatch", ERROR_INVALID_INPUT);
+            return result;
+        }
+        
+        result.reserve(count);
+        for (size_t i = 2; i < compressed.size(); i += 2) {
+            uint16_t value = compressed[i] | (compressed[i+1] << 8);
+            result.push_back(value);
+        }
+    } else {
+        // No header, treat entire data as raw values
+        if (compressed.size() % 2 != 0) {
+            setError("Odd number of bytes in raw binary data", ERROR_INVALID_INPUT);
+            return result;
+        }
+        
+        for (size_t i = 0; i < compressed.size(); i += 2) {
+            uint16_t value = compressed[i] | (compressed[i+1] << 8);
+            result.push_back(value);
+        }
+    }
+    
+    return result;
+}
+
+std::vector<uint16_t> DataCompression::decompressBinaryBitPacked(const std::vector<uint8_t>& compressed) {
+    std::vector<uint16_t> result;
+    
+    if (compressed.size() < 3) {
+        setError("Invalid bit-packed data", ERROR_INVALID_INPUT);
+        return result;
+    }
+    
+    if (compressed[0] != 0x01) {
+        setError("Not bit-packed data", ERROR_INVALID_INPUT);
+        return result;
+    }
+    
+    uint8_t bitsPerValue = compressed[1];
+    size_t count = compressed[2];
+    
+    if (bitsPerValue == 0 || bitsPerValue > 16) {
+        setError("Invalid bits per value", ERROR_INVALID_INPUT);
+        return result;
+    }
+    
+    result.reserve(count);
+    
+    size_t bitOffset = 0;
+    for (size_t i = 0; i < count; i++) {
+        uint16_t value = unpackBitsFromBuffer(compressed.data() + 3, bitOffset, bitsPerValue);
+        result.push_back(value);
+        bitOffset += bitsPerValue;
+    }
+    
+    return result;
+}
+
+std::vector<uint16_t> DataCompression::decompressBinaryDelta(const std::vector<uint8_t>& compressed) {
+    std::vector<uint16_t> result;
+    
+    if (compressed.size() < 4) {
+        setError("Invalid delta compressed data", ERROR_INVALID_INPUT);
+        return result;
+    }
+    
+    if (compressed[0] != 0x03) {
+        setError("Not delta compressed data", ERROR_INVALID_INPUT);
+        return result;
+    }
+    
+    size_t count = compressed[1];
+    uint16_t baseValue = compressed[2] | (compressed[3] << 8);
+    
+    result.reserve(count);
+    result.push_back(baseValue);
+    
+    size_t pos = 4;
+    uint16_t currentValue = baseValue;
+    
+    while (pos < compressed.size() && result.size() < count) {
+        if (compressed[pos] & 0x80) {
+            // 8-bit delta
+            int16_t delta = compressed[pos] & 0x3F;
+            if (compressed[pos] & 0x40) delta = -delta;  // Sign bit
+            currentValue += delta;
+            pos++;
+        } else if (compressed[pos] == 0x00) {
+            // 16-bit delta marker
+            if (pos + 2 < compressed.size()) {
+                int16_t delta = (int16_t)(compressed[pos + 1] | (compressed[pos + 2] << 8));
+                currentValue += delta;
+                pos += 3;
+            } else {
+                break;
+            }
+        } else {
+            // Unknown format
+            break;
+        }
+        
+        result.push_back(currentValue);
+    }
+    
+    return result;
+}
+
 // ==================== UTILITY FUNCTIONS ====================
 
 void DataCompression::packBitsIntoBuffer(uint16_t value, uint8_t* buffer, size_t bitOffset, uint8_t numBits) {
@@ -598,6 +758,25 @@ void DataCompression::packBitsIntoBuffer(uint16_t value, uint8_t* buffer, size_t
         
         buffer[byteOffset] |= (value >> remainingBits);
         buffer[byteOffset + 1] |= ((value & ((1 << remainingBits) - 1)) << (8 - remainingBits));
+    }
+}
+
+uint16_t DataCompression::unpackBitsFromBuffer(const uint8_t* buffer, size_t bitOffset, uint8_t numBits) {
+    size_t byteOffset = bitOffset / 8;
+    uint8_t bitPos = bitOffset % 8;
+    
+    if (bitPos + numBits <= 8) {
+        // All bits in one byte
+        return (buffer[byteOffset] >> (8 - bitPos - numBits)) & ((1 << numBits) - 1);
+    } else {
+        // Bits span two bytes
+        uint8_t firstBits = 8 - bitPos;
+        uint8_t remainingBits = numBits - firstBits;
+        
+        uint16_t result = (buffer[byteOffset] & ((1 << firstBits) - 1)) << remainingBits;
+        result |= buffer[byteOffset + 1] >> (8 - remainingBits);
+        
+        return result;
     }
 }
 
@@ -717,6 +896,155 @@ String DataCompression::compressRegisterData(uint16_t* data, size_t count) {
     }
     
     return "BINARY:" + base64Encode(binaryCompressed);
+}
+
+std::vector<uint16_t> DataCompression::decompressRegisterData(const String& compressed) {
+    std::vector<uint16_t> result;
+    
+    if (compressed.startsWith("ERROR:")) {
+        setError("Cannot decompress error string", ERROR_INVALID_INPUT);
+        return result;
+    }
+    
+    if (compressed.startsWith("BINARY:")) {
+        String base64Data = compressed.substring(7);  // Remove "BINARY:" prefix
+        std::vector<uint8_t> binaryData = base64Decode(base64Data);
+        if (!binaryData.empty()) {
+            result = decompressBinary(binaryData);
+        }
+    } else {
+        setError("Unsupported compression format", ERROR_INVALID_INPUT);
+    }
+    
+    return result;
+}
+
+std::vector<uint8_t> DataCompression::compressBinaryRLE(uint16_t* data, size_t count) {
+    std::vector<uint8_t> result;
+    
+    if (count == 0 || data == nullptr) {
+        setError("Invalid input for RLE compression", ERROR_INVALID_INPUT);
+        return result;
+    }
+    
+    result.push_back(0x02);  // RLE method marker
+    result.push_back(count); // Count of values
+    
+    size_t i = 0;
+    while (i < count) {
+        uint16_t currentValue = data[i];
+        uint8_t runLength = 1;
+        
+        // Count consecutive identical values (max 255)
+        while (i + runLength < count && runLength < 255 && data[i + runLength] == currentValue) {
+            runLength++;
+        }
+        
+        // Store value (little-endian) and run length
+        result.push_back(currentValue & 0xFF);
+        result.push_back((currentValue >> 8) & 0xFF);
+        result.push_back(runLength);
+        
+        i += runLength;
+    }
+    
+    return result;
+}
+
+std::vector<uint16_t> DataCompression::decompressBinaryRLE(const std::vector<uint8_t>& compressed) {
+    std::vector<uint16_t> result;
+    
+    if (compressed.size() < 2) {
+        setError("Invalid RLE compressed data", ERROR_INVALID_INPUT);
+        return result;
+    }
+    
+    if (compressed[0] != 0x02) {
+        setError("Not RLE compressed data", ERROR_INVALID_INPUT);
+        return result;
+    }
+    
+    size_t expectedCount = compressed[1];
+    result.reserve(expectedCount);
+    
+    size_t pos = 2;
+    while (pos + 2 < compressed.size() && result.size() < expectedCount) {
+        uint16_t value = compressed[pos] | (compressed[pos + 1] << 8);
+        uint8_t runLength = compressed[pos + 2];
+        
+        for (uint8_t i = 0; i < runLength && result.size() < expectedCount; i++) {
+            result.push_back(value);
+        }
+        
+        pos += 3;
+    }
+    
+    return result;
+}
+
+std::vector<uint8_t> DataCompression::compressBinaryDelta(uint16_t* data, size_t count) {
+    std::vector<uint8_t> result;
+    
+    if (count == 0 || data == nullptr) {
+        setError("Invalid input for delta compression", ERROR_INVALID_INPUT);
+        return result;
+    }
+    
+    result.push_back(0x03);  // Delta compression marker
+    result.push_back(count); // Count of values
+    
+    // Store first value as base
+    result.push_back(data[0] & 0xFF);
+    result.push_back((data[0] >> 8) & 0xFF);
+    
+    // Store deltas with variable-length encoding
+    for (size_t i = 1; i < count; i++) {
+        int32_t delta = (int32_t)data[i] - (int32_t)data[i-1];
+        
+        if (delta >= -127 && delta <= 127) {
+            // 8-bit signed delta
+            result.push_back(0x80 | (abs(delta) & 0x7F));
+            if (delta < 0) result[result.size()-1] |= 0x40;  // Sign bit
+        } else {
+            // 16-bit delta with escape marker
+            result.push_back(0x00);  // 16-bit marker
+            result.push_back(delta & 0xFF);
+            result.push_back((delta >> 8) & 0xFF);
+        }
+    }
+    
+    return result;
+}
+
+std::vector<uint8_t> DataCompression::base64Decode(const String& input) {
+    std::vector<uint8_t> result;
+    const char* chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    
+    String cleanInput = input;
+    cleanInput.replace("=", "");  // Remove padding
+    
+    for (size_t i = 0; i < cleanInput.length(); i += 4) {
+        uint32_t value = 0;
+        
+        for (int j = 0; j < 4 && i + j < cleanInput.length(); j++) {
+            char c = cleanInput[i + j];
+            uint8_t val = 0;
+            
+            if (c >= 'A' && c <= 'Z') val = c - 'A';
+            else if (c >= 'a' && c <= 'z') val = c - 'a' + 26;
+            else if (c >= '0' && c <= '9') val = c - '0' + 52;
+            else if (c == '+') val = 62;
+            else if (c == '/') val = 63;
+            
+            value |= (val << (18 - j * 6));
+        }
+        
+        result.push_back((value >> 16) & 0xFF);
+        if (i + 1 < cleanInput.length()) result.push_back((value >> 8) & 0xFF);
+        if (i + 2 < cleanInput.length()) result.push_back(value & 0xFF);
+    }
+    
+    return result;
 }
 
 String DataCompression::base64Encode(const std::vector<uint8_t>& data) {

@@ -1,0 +1,949 @@
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+Buffer empty. Nothing to upload.
+
+SMART COMPRESSION PERFORMANCE SUMMARY
+=====================================
+Total Compressions: 0
+Average Academic Ratio: 0.000
+Best Ratio Achieved: 1.000
+Optimal Method: DICTIONARY
+Average Time: 0 μs
+
+Quality Distribution:
+  Excellent (≤50%): 0
+  Good (≤67%): 0
+  Fair (≤91%): 0
+  Poor (>91%): 0
+
+Method Usage:
+  Dictionary: 0
+  Temporal: 0
+  Semantic: 0
+  BitPack: 0
+=====================================
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ORIGINAL SENSOR VALUES:
+Sample 1: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 2: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 3: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 4: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 5: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+COMPRESSION RESULT: DICTIONARY method
+Original: 60 bytes -> Compressed: 48 bytes (20.0% savings)
+Academic Ratio: 0.800 | Time: 3504 μs
+Batch compressed and stored successfully!
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+UPLOADING COMPRESSED DATA TO FLASK SERVER
+Packets: 1 | JSON Size: 925 bytes
+Compression Summary: 12 -> 48 bytes (-300.0% savings)
+Upload successful to Flask server!
+Server response: {
+  "average_power_watts": 0.0,
+  "compression_system": "Smart Selection v3.1 - Batch Support",
+  "decompression_successes": 1,
+  "device_id": "ESP32_EcoWatt_Smart",
+  "message": "Successfully processed 1 entries (1 samples) with 100.0% success rate",
+  "mqtt_published": true,
+  "mqtt_topic": "esp32/ecowatt_data",
+  "processed_entries": 1,
+  "registers": [
+    "REG_VAC1",
+    "REG_IAC1",
+    "REG_IPV1",
+    "REG_PAC",
+    "REG_IPV2",
+    "REG_TEMP"
+  ],
+  "status": "success",
+  "success_rate_percent": 100.0,
+  "total_power_watts": 0,
+  "total_samples_processed": 1
+}
+
+
+SMART COMPRESSION PERFORMANCE SUMMARY
+=====================================
+Total Compressions: 0
+Average Academic Ratio: 0.000
+Best Ratio Achieved: 1.000
+Optimal Method: DICTIONARY
+Average Time: 0 μs
+
+Quality Distribution:
+  Excellent (≤50%): 0
+  Good (≤67%): 0
+  Fair (≤91%): 0
+  Poor (>91%): 0
+
+Method Usage:
+  Dictionary: 0
+  Temporal: 0
+  Semantic: 0
+  BitPack: 1
+=====================================
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ORIGINAL SENSOR VALUES:
+Sample 1: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 2: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 3: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 4: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 5: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+COMPRESSION RESULT: DICTIONARY method
+Original: 60 bytes -> Compressed: 5 bytes (91.7% savings)
+Academic Ratio: 0.083 | Time: 3444 μs
+Batch compressed and stored successfully!
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+UPLOADING COMPRESSED DATA TO FLASK SERVER
+Packets: 1 | JSON Size: 890 bytes
+Compression Summary: 12 -> 5 bytes (58.3% savings)
+Upload successful to Flask server!
+Server response: {
+  "average_power_watts": 4000.0,
+  "compression_system": "Smart Selection v3.1 - Batch Support",
+  "decompression_successes": 1,
+  "device_id": "ESP32_EcoWatt_Smart",
+  "message": "Successfully processed 1 entries (5 samples) with 100.0% success rate",
+  "mqtt_published": true,
+  "mqtt_topic": "esp32/ecowatt_data",
+  "processed_entries": 1,
+  "registers": [
+    "REG_VAC1",
+    "REG_IAC1",
+    "REG_IPV1",
+    "REG_PAC",
+    "REG_IPV2",
+    "REG_TEMP"
+  ],
+  "status": "success",
+  "success_rate_percent": 100.0,
+  "total_power_watts": 20000,
+  "total_samples_processed": 5
+}
+
+
+SMART COMPRESSION PERFORMANCE SUMMARY
+=====================================
+Total Compressions: 0
+Average Academic Ratio: 0.000
+Best Ratio Achieved: 1.000
+Optimal Method: DICTIONARY
+Average Time: 0 μs
+
+Quality Distribution:
+  Excellent (≤50%): 0
+  Good (≤67%): 0
+  Fair (≤91%): 0
+  Poor (>91%): 0
+
+Method Usage:
+  Dictionary: 1
+  Temporal: 0
+  Semantic: 0
+  BitPack: 1
+=====================================
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ORIGINAL SENSOR VALUES:
+Sample 1: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 2: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 3: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 4: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 5: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+COMPRESSION RESULT: DICTIONARY method
+Original: 60 bytes -> Compressed: 5 bytes (91.7% savings)
+Academic Ratio: 0.083 | Time: 3436 μs
+Batch compressed and stored successfully!
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+UPLOADING COMPRESSED DATA TO FLASK SERVER
+Packets: 1 | JSON Size: 890 bytes
+Compression Summary: 12 -> 5 bytes (58.3% savings)
+Upload successful to Flask server!
+Server response: {
+  "average_power_watts": 4000.0,
+  "compression_system": "Smart Selection v3.1 - Batch Support",
+  "decompression_successes": 1,
+  "device_id": "ESP32_EcoWatt_Smart",
+  "message": "Successfully processed 1 entries (5 samples) with 100.0% success rate",
+  "mqtt_published": true,
+  "mqtt_topic": "esp32/ecowatt_data",
+  "processed_entries": 1,
+  "registers": [
+    "REG_VAC1",
+    "REG_IAC1",
+    "REG_IPV1",
+    "REG_PAC",
+    "REG_IPV2",
+    "REG_TEMP"
+  ],
+  "status": "success",
+  "success_rate_percent": 100.0,
+  "total_power_watts": 20000,
+  "total_samples_processed": 5
+}
+
+
+SMART COMPRESSION PERFORMANCE SUMMARY
+=====================================
+Total Compressions: 0
+Average Academic Ratio: 0.000
+Best Ratio Achieved: 1.000
+Optimal Method: DICTIONARY
+Average Time: 0 μs
+
+Quality Distribution:
+  Excellent (≤50%): 0
+  Good (≤67%): 0
+  Fair (≤91%): 0
+  Poor (>91%): 0
+
+Method Usage:
+  Dictionary: 2
+  Temporal: 0
+  Semantic: 0
+  BitPack: 1
+=====================================
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ORIGINAL SENSOR VALUES:
+Sample 1: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 2: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 3: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 4: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 5: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+COMPRESSION RESULT: DICTIONARY method
+Original: 60 bytes -> Compressed: 5 bytes (91.7% savings)
+Academic Ratio: 0.083 | Time: 3461 μs
+Batch compressed and stored successfully!
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+UPLOADING COMPRESSED DATA TO FLASK SERVER
+Packets: 1 | JSON Size: 890 bytes
+Compression Summary: 12 -> 5 bytes (58.3% savings)
+Upload successful to Flask server!
+Server response: {
+  "average_power_watts": 4000.0,
+  "compression_system": "Smart Selection v3.1 - Batch Support",
+  "decompression_successes": 1,
+  "device_id": "ESP32_EcoWatt_Smart",
+  "message": "Successfully processed 1 entries (5 samples) with 100.0% success rate",
+  "mqtt_published": true,
+  "mqtt_topic": "esp32/ecowatt_data",
+  "processed_entries": 1,
+  "registers": [
+    "REG_VAC1",
+    "REG_IAC1",
+    "REG_IPV1",
+    "REG_PAC",
+    "REG_IPV2",
+    "REG_TEMP"
+  ],
+  "status": "success",
+  "success_rate_percent": 100.0,
+  "total_power_watts": 20000,
+  "total_samples_processed": 5
+}
+
+
+SMART COMPRESSION PERFORMANCE SUMMARY
+=====================================
+Total Compressions: 0
+Average Academic Ratio: 0.000
+Best Ratio Achieved: 1.000
+Optimal Method: DICTIONARY
+Average Time: 0 μs
+
+Quality Distribution:
+  Excellent (≤50%): 0
+  Good (≤67%): 0
+  Fair (≤91%): 0
+  Poor (>91%): 0
+
+Method Usage:
+  Dictionary: 3
+  Temporal: 0
+  Semantic: 0
+  BitPack: 1
+=====================================
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ORIGINAL SENSOR VALUES:
+Sample 1: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 2: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 3: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 4: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 5: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+COMPRESSION RESULT: DICTIONARY method
+Original: 60 bytes -> Compressed: 5 bytes (91.7% savings)
+Academic Ratio: 0.083 | Time: 3433 μs
+Batch compressed and stored successfully!
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+UPLOADING COMPRESSED DATA TO FLASK SERVER
+Packets: 1 | JSON Size: 890 bytes
+Compression Summary: 12 -> 5 bytes (58.3% savings)
+Upload successful to Flask server!
+Server response: {
+  "average_power_watts": 4000.0,
+  "compression_system": "Smart Selection v3.1 - Batch Support",
+  "decompression_successes": 1,
+  "device_id": "ESP32_EcoWatt_Smart",
+  "message": "Successfully processed 1 entries (5 samples) with 100.0% success rate",
+  "mqtt_published": true,
+  "mqtt_topic": "esp32/ecowatt_data",
+  "processed_entries": 1,
+  "registers": [
+    "REG_VAC1",
+    "REG_IAC1",
+    "REG_IPV1",
+    "REG_PAC",
+    "REG_IPV2",
+    "REG_TEMP"
+  ],
+  "status": "success",
+  "success_rate_percent": 100.0,
+  "total_power_watts": 20000,
+  "total_samples_processed": 5
+}
+
+
+SMART COMPRESSION PERFORMANCE SUMMARY
+=====================================
+Total Compressions: 0
+Average Academic Ratio: 0.000
+Best Ratio Achieved: 1.000
+Optimal Method: DICTIONARY
+Average Time: 0 μs
+
+Quality Distribution:
+  Excellent (≤50%): 0
+  Good (≤67%): 0
+  Fair (≤91%): 0
+  Poor (>91%): 0
+
+Method Usage:
+  Dictionary: 4
+  Temporal: 0
+  Semantic: 0
+  BitPack: 1
+=====================================
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ORIGINAL SENSOR VALUES:
+Sample 1: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 2: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 3: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 4: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 5: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+COMPRESSION RESULT: DICTIONARY method
+Original: 60 bytes -> Compressed: 5 bytes (91.7% savings)
+Academic Ratio: 0.083 | Time: 3435 μs
+Batch compressed and stored successfully!
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+UPLOADING COMPRESSED DATA TO FLASK SERVER
+Packets: 1 | JSON Size: 891 bytes
+Compression Summary: 12 -> 5 bytes (58.3% savings)
+Upload successful to Flask server!
+Server response: {
+  "average_power_watts": 4000.0,
+  "compression_system": "Smart Selection v3.1 - Batch Support",
+  "decompression_successes": 1,
+  "device_id": "ESP32_EcoWatt_Smart",
+  "message": "Successfully processed 1 entries (5 samples) with 100.0% success rate",
+  "mqtt_published": true,
+  "mqtt_topic": "esp32/ecowatt_data",
+  "processed_entries": 1,
+  "registers": [
+    "REG_VAC1",
+    "REG_IAC1",
+    "REG_IPV1",
+    "REG_PAC",
+    "REG_IPV2",
+    "REG_TEMP"
+  ],
+  "status": "success",
+  "success_rate_percent": 100.0,
+  "total_power_watts": 20000,
+  "total_samples_processed": 5
+}
+
+
+SMART COMPRESSION PERFORMANCE SUMMARY
+=====================================
+Total Compressions: 0
+Average Academic Ratio: 0.000
+Best Ratio Achieved: 1.000
+Optimal Method: DICTIONARY
+Average Time: 0 μs
+
+Quality Distribution:
+  Excellent (≤50%): 0
+  Good (≤67%): 0
+  Fair (≤91%): 0
+  Poor (>91%): 0
+
+Method Usage:
+  Dictionary: 5
+  Temporal: 0
+  Semantic: 0
+  BitPack: 1
+=====================================
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ORIGINAL SENSOR VALUES:
+Sample 1: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 2: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 3: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 4: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 5: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+COMPRESSION RESULT: DICTIONARY method
+Original: 60 bytes -> Compressed: 5 bytes (91.7% savings)
+Academic Ratio: 0.083 | Time: 3431 μs
+Batch compressed and stored successfully!
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+UPLOADING COMPRESSED DATA TO FLASK SERVER
+Packets: 1 | JSON Size: 892 bytes
+Compression Summary: 12 -> 5 bytes (58.3% savings)
+Upload successful to Flask server!
+Server response: {
+  "average_power_watts": 4000.0,
+  "compression_system": "Smart Selection v3.1 - Batch Support",
+  "decompression_successes": 1,
+  "device_id": "ESP32_EcoWatt_Smart",
+  "message": "Successfully processed 1 entries (5 samples) with 100.0% success rate",
+  "mqtt_published": true,
+  "mqtt_topic": "esp32/ecowatt_data",
+  "processed_entries": 1,
+  "registers": [
+    "REG_VAC1",
+    "REG_IAC1",
+    "REG_IPV1",
+    "REG_PAC",
+    "REG_IPV2",
+    "REG_TEMP"
+  ],
+  "status": "success",
+  "success_rate_percent": 100.0,
+  "total_power_watts": 20000,
+  "total_samples_processed": 5
+}
+
+
+SMART COMPRESSION PERFORMANCE SUMMARY
+=====================================
+Total Compressions: 0
+Average Academic Ratio: 0.000
+Best Ratio Achieved: 1.000
+Optimal Method: DICTIONARY
+Average Time: 0 μs
+
+Quality Distribution:
+  Excellent (≤50%): 0
+  Good (≤67%): 0
+  Fair (≤91%): 0
+  Poor (>91%): 0
+
+Method Usage:
+  Dictionary: 6
+  Temporal: 0
+  Semantic: 0
+  BitPack: 1
+=====================================
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ORIGINAL SENSOR VALUES:
+Sample 1: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 2: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 3: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 4: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 5: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+COMPRESSION RESULT: DICTIONARY method
+Original: 60 bytes -> Compressed: 5 bytes (91.7% savings)
+Academic Ratio: 0.083 | Time: 3440 μs
+Batch compressed and stored successfully!
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+UPLOADING COMPRESSED DATA TO FLASK SERVER
+Packets: 1 | JSON Size: 892 bytes
+Compression Summary: 12 -> 5 bytes (58.3% savings)
+Upload successful to Flask server!
+Server response: {
+  "average_power_watts": 4000.0,
+  "compression_system": "Smart Selection v3.1 - Batch Support",
+  "decompression_successes": 1,
+  "device_id": "ESP32_EcoWatt_Smart",
+  "message": "Successfully processed 1 entries (5 samples) with 100.0% success rate",
+  "mqtt_published": true,
+  "mqtt_topic": "esp32/ecowatt_data",
+  "processed_entries": 1,
+  "registers": [
+    "REG_VAC1",
+    "REG_IAC1",
+    "REG_IPV1",
+    "REG_PAC",
+    "REG_IPV2",
+    "REG_TEMP"
+  ],
+  "status": "success",
+  "success_rate_percent": 100.0,
+  "total_power_watts": 20000,
+  "total_samples_processed": 5
+}
+
+
+SMART COMPRESSION PERFORMANCE SUMMARY
+=====================================
+Total Compressions: 0
+Average Academic Ratio: 0.000
+Best Ratio Achieved: 1.000
+Optimal Method: DICTIONARY
+Average Time: 0 μs
+
+Quality Distribution:
+  Excellent (≤50%): 0
+  Good (≤67%): 0
+  Fair (≤91%): 0
+  Poor (>91%): 0
+
+Method Usage:
+  Dictionary: 7
+  Temporal: 0
+  Semantic: 0
+  BitPack: 1
+=====================================
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ORIGINAL SENSOR VALUES:
+Sample 1: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 2: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 3: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 4: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 5: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+COMPRESSION RESULT: DICTIONARY method
+Original: 60 bytes -> Compressed: 5 bytes (91.7% savings)
+Academic Ratio: 0.083 | Time: 3425 μs
+Batch compressed and stored successfully!
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+UPLOADING COMPRESSED DATA TO FLASK SERVER
+Packets: 1 | JSON Size: 892 bytes
+Compression Summary: 12 -> 5 bytes (58.3% savings)
+Upload successful to Flask server!
+Server response: {
+  "average_power_watts": 4000.0,
+  "compression_system": "Smart Selection v3.1 - Batch Support",
+  "decompression_successes": 1,
+  "device_id": "ESP32_EcoWatt_Smart",
+  "message": "Successfully processed 1 entries (5 samples) with 100.0% success rate",
+  "mqtt_published": true,
+  "mqtt_topic": "esp32/ecowatt_data",
+  "processed_entries": 1,
+  "registers": [
+    "REG_VAC1",
+    "REG_IAC1",
+    "REG_IPV1",
+    "REG_PAC",
+    "REG_IPV2",
+    "REG_TEMP"
+  ],
+  "status": "success",
+  "success_rate_percent": 100.0,
+  "total_power_watts": 20000,
+  "total_samples_processed": 5
+}
+
+
+SMART COMPRESSION PERFORMANCE SUMMARY
+=====================================
+Total Compressions: 0
+Average Academic Ratio: 0.000
+Best Ratio Achieved: 1.000
+Optimal Method: DICTIONARY
+Average Time: 0 μs
+
+Quality Distribution:
+  Excellent (≤50%): 0
+  Good (≤67%): 0
+  Fair (≤91%): 0
+  Poor (>91%): 0
+
+Method Usage:
+  Dictionary: 8
+  Temporal: 0
+  Semantic: 0
+  BitPack: 1
+=====================================
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ORIGINAL SENSOR VALUES:
+Sample 1: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 2: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 3: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 4: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 5: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+COMPRESSION RESULT: DICTIONARY method
+Original: 60 bytes -> Compressed: 5 bytes (91.7% savings)
+Academic Ratio: 0.083 | Time: 3436 μs
+Batch compressed and stored successfully!
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+UPLOADING COMPRESSED DATA TO FLASK SERVER
+Packets: 1 | JSON Size: 892 bytes
+Compression Summary: 12 -> 5 bytes (58.3% savings)
+Upload successful to Flask server!
+Server response: {
+  "average_power_watts": 4000.0,
+  "compression_system": "Smart Selection v3.1 - Batch Support",
+  "decompression_successes": 1,
+  "device_id": "ESP32_EcoWatt_Smart",
+  "message": "Successfully processed 1 entries (5 samples) with 100.0% success rate",
+  "mqtt_published": true,
+  "mqtt_topic": "esp32/ecowatt_data",
+  "processed_entries": 1,
+  "registers": [
+    "REG_VAC1",
+    "REG_IAC1",
+    "REG_IPV1",
+    "REG_PAC",
+    "REG_IPV2",
+    "REG_TEMP"
+  ],
+  "status": "success",
+  "success_rate_percent": 100.0,
+  "total_power_watts": 20000,
+  "total_samples_processed": 5
+}
+
+
+SMART COMPRESSION PERFORMANCE SUMMARY
+=====================================
+Total Compressions: 0
+Average Academic Ratio: 0.000
+Best Ratio Achieved: 1.000
+Optimal Method: DICTIONARY
+Average Time: 0 μs
+
+Quality Distribution:
+  Excellent (≤50%): 0
+  Good (≤67%): 0
+  Fair (≤91%): 0
+  Poor (>91%): 0
+
+Method Usage:
+  Dictionary: 9
+  Temporal: 0
+  Semantic: 0
+  BitPack: 1
+=====================================
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ORIGINAL SENSOR VALUES:
+Sample 1: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 2: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 3: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 4: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+Sample 5: VAC1=2308, IAC1=0, IPV1=0, PAC=0, IPV2=0, TEMP=353
+COMPRESSION RESULT: DICTIONARY method
+Original: 60 bytes -> Compressed: 5 bytes (91.7% savings)
+Academic Ratio: 0.083 | Time: 3432 μs
+Batch compressed and stored successfully!
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
+Raw response: {"frame":"11031409040000138F066A066300000000016100320000BAAD"}
+Received frame: 11031409040000138F066A066300000000016100320000BAAD
+Valid Modbus frame.
+ProtocolAdapter initialized (WiFi handled externally)
+Attempt 1: Sending {"frame": "11030000000AC75D"}
+Response code: 200
