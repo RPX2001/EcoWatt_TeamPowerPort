@@ -253,7 +253,7 @@ void testOptimizedCompressionScenario(const String& scenarioName, uint16_t* data
     else if (savings >= 30.0f) rating = "GOOD";
     else if (savings >= 10.0f) rating = "FAIR";
     
-    Serial.println("📊 RESULTS:");
+    Serial.println("RESULTS:");
     Serial.println("  Best Method: " + bestMethod);
     Serial.println("  Compressed: " + String(bestSize) + " bytes");
     Serial.println("  Ratio: " + String(ratio, 2) + ":1");
@@ -263,7 +263,7 @@ void testOptimizedCompressionScenario(const String& scenarioName, uint16_t* data
     Serial.println("  Rating: " + rating);
     
     if (savings >= 50.0f) {
-        Serial.println("  🎯 EXCELLENT COMPRESSION ACHIEVED!");
+        Serial.println("  EXCELLENT COMPRESSION ACHIEVED!");
     }
 }
 
@@ -337,32 +337,32 @@ void testCompressionScenario(uint16_t* data, size_t count, String scenario) {
 
 void runCompressionBenchmarks() {
     Serial.println("\n" + String('=', 60));
-    Serial.println("         🚀 OPTIMIZED COMPRESSION BENCHMARKS 🚀");
+    Serial.println("         OPTIMIZED COMPRESSION BENCHMARKS");
     Serial.println(String('=', 60));
     
     // Test 1: Highly repetitive data (optimized for maximum RLE compression)
-    Serial.println("\n🔸 TEST 1: HIGHLY REPETITIVE DATA (RLE OPTIMIZED)");
+    Serial.println("\nTEST 1: HIGHLY REPETITIVE DATA (RLE OPTIMIZED)");
     Serial.println("Scenario: Stable overnight readings - identical values");
     testOptimizedCompressionScenario("STABLE_OVERNIGHT", generateStableData(), 100);
     
     // Test 2: Smooth gradual changes (optimized for Delta compression)
-    Serial.println("\n🔸 TEST 2: SMOOTH GRADUAL RAMP (DELTA OPTIMIZED)");  
+    Serial.println("\nTEST 2: SMOOTH GRADUAL RAMP (DELTA OPTIMIZED)");  
     Serial.println("Scenario: Dawn solar panel startup - predictable increases");
     testOptimizedCompressionScenario("DAWN_RAMP", generateSmoothRampData(), 80);
     
     // Test 3: Pattern-based data (optimized for Dictionary compression)
-    Serial.println("\n🔸 TEST 3: CYCLIC PATTERNS (DICTIONARY OPTIMIZED)");
+    Serial.println("\nTEST 3: CYCLIC PATTERNS (DICTIONARY OPTIMIZED)");
     Serial.println("Scenario: Daily power cycles - repeating patterns");
     testOptimizedCompressionScenario("DAILY_CYCLES", generateCyclicData(), 120);
     
     // Test 4: Mixed optimization test  
-    Serial.println("\n🔸 TEST 4: MULTI-ALGORITHM FUSION");
+    Serial.println("\nTEST 4: MULTI-ALGORITHM FUSION");
     Serial.println("Scenario: Advanced hybrid compression test");
     testMultiAlgorithmFusion();
     
     Serial.println("\n" + String('=', 60));
-    Serial.println("         ✅ OPTIMIZED BENCHMARKS COMPLETE ✅");  
-    Serial.println("🎯 TARGET ACHIEVED: >50% compression savings demonstrated!");
+    Serial.println("         OPTIMIZED BENCHMARKS COMPLETE");  
+    Serial.println("TARGET ACHIEVED: >50% compression savings demonstrated!");
     Serial.println(String('=', 60));
 }
 
