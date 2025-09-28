@@ -4,6 +4,42 @@
 #include <Arduino.h>
 #include <vector>
 
+struct SmartCompressedData {
+    std::vector<uint8_t> binaryData;
+    RegID registers[16];            // Register selection used
+    size_t registerCount;           // Number of registers
+    char compressionMethod[32];     // Method used by smart selection
+    unsigned long timestamp;        // Sample timestamp
+    size_t originalSize;            // Original data size in bytes
+    float academicRatio;            // Academic compression ratio (compressed/original)
+    float traditionalRatio;         // Traditional compression ratio (original/compressed)
+    unsigned long compressionTime;  // Time taken to compress (μs)
+    bool losslessVerified;          // Whether lossless compression was verified
+    
+    // Constructor
+    SmartCompressedData(const std::vector<uint8_t>& data, const RegID* regSelection, size_t regCount, const char* method) 
+        : binaryData(data), registerCount(regCount), timestamp(millis()) {
+        strncpy(compressionMethod, method, sizeof(compressionMethod) - 1);
+        compressionMethod[sizeof(compressionMethod) - 1] = '\0';
+        
+        // Copy register selection
+        memcpy(registers, regSelection, regCount * sizeof(RegID));
+        
+        // Calculate metrics
+        originalSize = regCount * sizeof(uint16_t);
+        academicRatio = (binaryData.size() > 0) ? (float)binaryData.size() / (float)originalSize : 1.0f;
+        traditionalRatio = (binaryData.size() > 0) ? (float)originalSize / (float)binaryData.size() : 0.0f;
+        losslessVerified = false;
+    }
+    
+    // Default constructor
+    SmartCompressedData() : registerCount(0), timestamp(0), originalSize(0), 
+                           academicRatio(1.0f), traditionalRatio(0.0f), 
+                           compressionTime(0), losslessVerified(false) {
+        compressionMethod[0] = '\0';
+    }
+};
+
 // Template class with inline implementations
 template <typename T, size_t N>
 class RingBuffer {
