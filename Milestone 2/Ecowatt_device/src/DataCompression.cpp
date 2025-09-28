@@ -842,7 +842,7 @@ void DataCompression::printCompressionStats(const String& method, size_t origina
     Serial.println("COMPRESSION STATISTICS (Academic Format)");
     Serial.printf("Method: %s\n", method.c_str());
     Serial.printf("Original: %zu bytes -> Compressed: %zu bytes\n", originalSize, compressedSize);
-    Serial.printf("Academic Compression Ratio: %.3f (%.1f%% of original)\n", academicRatio, academicRatio * 100);
+    Serial.printf("Academic Compression Ratio: %.3f (1 ÷ %.2f = %.3f, lower = better compression)\n", academicRatio, traditionalRatio, academicRatio);
     Serial.printf("Traditional Ratio: %.2f:1\n", traditionalRatio);
     Serial.printf("Storage Savings: %.1f%%\n", savings);
     
