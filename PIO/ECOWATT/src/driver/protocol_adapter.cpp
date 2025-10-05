@@ -5,6 +5,16 @@
 
 ProtocolAdapter::ProtocolAdapter() {}
 
+/**
+ * @fn bool ProtocolAdapter::writeRegister(const char* frameHex, char* outFrameHex, size_t outSize)
+ * 
+ * @brief Write a register value to the device.
+ * 
+ * @param frameHex Hexadecimal frame data to send.
+ * @param outFrameHex Buffer to store the response frame.
+ * @param outSize Size of the response buffer.
+ * @return true if successful, false otherwise.
+ */
 bool ProtocolAdapter::writeRegister(const char* frameHex, char* outFrameHex, size_t outSize)
 {
   char responseJson[256];
@@ -38,6 +48,17 @@ bool ProtocolAdapter::writeRegister(const char* frameHex, char* outFrameHex, siz
   return state;
 }
 
+
+/** 
+ * @fn bool ProtocolAdapter::readRegister(const char* frameHex, char* outFrameHex, size_t outSize)
+ * 
+ * @brief Read a register value from the device.
+ * 
+ * @param frameHex Hexadecimal frame data to send.
+ * @param outFrameHex Buffer to store the response frame.
+ * @param outSize Size of the response buffer.
+ * @return true if successful, false otherwise.
+ */
 bool ProtocolAdapter::readRegister(const char* frameHex, char* outFrameHex, size_t outSize)
 {
   char responseJson[1024];
@@ -71,7 +92,18 @@ bool ProtocolAdapter::readRegister(const char* frameHex, char* outFrameHex, size
   return state;
 }
 
-//  Robust Send with Retry 
+//  Robust Send with Retry
+/**
+ * @fn bool ProtocolAdapter::sendRequest(const char* url, const char* frameHex, char* outResponseJson, size_t outSize)
+ * 
+ * @brief Send a JSON request to the specified URL with retry logic.
+ * 
+ * @param url The URL to send the request to.
+ * @param frameHex The hexadecimal frame data to include in the request.
+ * @param outResponseJson Buffer to store the JSON response.
+ * @param outSize Size of the response buffer.
+ * @return true if the request was successful, false otherwise.
+ */
 bool ProtocolAdapter::sendRequest(const char* url, const char* frameHex, char* outResponseJson, size_t outSize)
 {
   HTTPClient http;
@@ -136,7 +168,17 @@ bool ProtocolAdapter::sendRequest(const char* url, const char* frameHex, char* o
   return false;
 }
 
-//  Parse & Error Handling 
+//  Parse & Error Handling
+/**
+ * @fn bool ProtocolAdapter::parseResponse(const char* response, char* outFrameHex, size_t outSize)
+ * 
+ * @brief Parse the JSON response from the device.
+ * 
+ * @param response The JSON response string.
+ * @param outFrameHex Buffer to store the extracted frame data.
+ * @param outSize Size of the output buffer.
+ * @return true if parsing was successful, false otherwise.
+ */
 bool ProtocolAdapter::parseResponse(const char* response, char* outFrameHex, size_t outSize) 
 {
 
@@ -186,7 +228,16 @@ bool ProtocolAdapter::parseResponse(const char* response, char* outFrameHex, siz
   }
 }
 
-//  Frame Validation 
+//  Frame Validation
+/** 
+ * @fn bool ProtocolAdapter::isFrameValid(const char* frame)
+ * 
+ * @brief Check if the given frame is valid.
+ * 
+ * @param frame The frame to check.
+ * 
+ * @return true if valid, false otherwise.
+ */
 bool ProtocolAdapter::isFrameValid(const char* frame) 
 {
   if (!frame) return false;
@@ -201,6 +252,13 @@ bool ProtocolAdapter::isFrameValid(const char* frame)
 }
 
 //  Error Printer 
+/**
+ * @fn void ProtocolAdapter::printErrorCode(int code)
+ * 
+ * @brief Print a human-readable Modbus error message.
+ * 
+ * @param code The Modbus error code.
+ */
 void ProtocolAdapter::printErrorCode(int code) 
 {
   switch (code) 
@@ -218,6 +276,14 @@ void ProtocolAdapter::printErrorCode(int code)
   }
 }
 
+
+/**
+ * @fn void ProtocolAdapter::setApiKey(const char* newApiKey)
+ * 
+ * @brief Set a new API key for authentication.
+ * 
+ * @param newApiKey The new API key string.
+ */
 void ProtocolAdapter::setApiKey(const char* newApiKey)
 {
   if (!newApiKey) { apiKey[0] = '\0'; return; }
@@ -226,4 +292,14 @@ void ProtocolAdapter::setApiKey(const char* newApiKey)
 }
 
 //  Getters 
-const char* ProtocolAdapter::getApiKey() { return apiKey; }
+/** 
+ * @fn const char* ProtocolAdapter::getApiKey()
+ * 
+ * @brief Get the current API key.
+ * 
+ * @return The API key string.
+ */
+const char* ProtocolAdapter::getApiKey() 
+{ 
+  return apiKey; 
+}

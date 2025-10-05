@@ -2,7 +2,16 @@
 
 ProtocolAdapter adapter;
 
-// CRC calculator
+/**
+ * @fn uint16_t calculateCRC(const uint8_t* data, int length)
+ * 
+ * @brief Calculate Modbus CRC16 checksum.
+ * 
+ * @param data Pointer to data bytes.
+ * @param length Number of bytes in data.
+ * 
+ * @return Calculated CRC16 value.
+ */
 static uint16_t calculateCRC(const uint8_t* data, int length) 
 {
   uint16_t crc = 0xFFFF;
@@ -26,7 +35,18 @@ static uint16_t calculateCRC(const uint8_t* data, int length)
 }
 
 
-//Convert in to hexdecimal value
+/**
+ * @fn bool toHex(const uint8_t* data, size_t len, char* out, size_t outSize)
+ * 
+ * @brief Convert binary data to hexadecimal string.
+ * 
+ * @param data Pointer to binary data.
+ * @param len Length of binary data in bytes.
+ * @param out Output buffer to receive hex string.
+ * @param outSize Size of the output buffer.
+ * 
+ * @return true if conversion successful, false if output buffer too small.
+ */
 static bool toHex(const uint8_t* data, size_t len, char* out, size_t outSize) 
 {
   if (outSize < (len * 2 + 1)) return false;
@@ -38,7 +58,16 @@ static bool toHex(const uint8_t* data, size_t len, char* out, size_t outSize)
   return true;
 }
 
-// ---- Register Lookup ----
+
+/**
+ * @fn const RegisterDef* findRegister(RegID id)
+ * 
+ * @brief Find register definition by RegID.
+ * 
+ * @param id The RegID to look up.
+ * 
+ * @return Pointer to RegisterDef if found, nullptr if not found.
+ */
 const RegisterDef* findRegister(RegID id) 
 {
   for (size_t i = 0; i < REGISTER_COUNT; i++) 
@@ -49,7 +78,21 @@ const RegisterDef* findRegister(RegID id)
 }
 
 
-// Read Request frame builder
+/**
+ * @fn bool buildReadFrame(uint8_t slave, const RegID* regs, size_t regCount, uint16_t& outStart, uint16_t& outCount, char* outHex, size_t outHexSize)
+ * 
+ * @brief Build a Modbus read frame for a given selection of registers.
+ * 
+ * @param slave Inverter address (usually 0x11).
+ * @param regs Array of requested RegIDs.
+ * @param regCount Number of registers requested.
+ * @param outStart Output parameter to receive start address of contiguous block.
+ * @param outCount Output parameter to receive number of registers in block.
+ * @param outHex Output buffer to receive the frame as HEX C-string (null-terminated)
+ * @param outHexSize Size of the output buffer.
+ * 
+ * @return true if frame built successfully, false if error.
+ */
 bool buildReadFrame(uint8_t slave, const RegID* regs, size_t regCount, uint16_t& outStart, uint16_t& outCount, char* outHex, size_t outHexSize) 
 {
   // find min/max addresses
@@ -81,7 +124,19 @@ bool buildReadFrame(uint8_t slave, const RegID* regs, size_t regCount, uint16_t&
 }
 
 
-//Write Request Frame builder
+/**
+ * @fn bool buildWriteFrame(uint8_t slave, uint16_t regAddr, uint16_t value, char* outHex, size_t outHexSize)
+ * 
+ * @brief Build a Modbus write frame to set a single register.
+ * 
+ * @param slave Inverter address (usually 0x11).
+ * @param regAddr Register address to write.
+ * @param value Value to write to the register.
+ * @param outHex Output buffer to receive the frame as HEX C-string (null-terminated).
+ * @param outHexSize Size of the output buffer.
+ * 
+ * @return true if frame built successfully, false if error.
+ */
 bool buildWriteFrame(uint8_t slave, uint16_t regAddr, uint16_t value, char* outHex, size_t outHexSize) 
 {
   uint8_t frame[8];
@@ -100,7 +155,15 @@ bool buildWriteFrame(uint8_t slave, uint16_t regAddr, uint16_t value, char* outH
 }
 
 
-//Set the output power 
+/**
+ * @fn bool setPower(uint16_t powerValue)
+ * 
+ * @brief Set the power output.
+ * 
+ * @param powerValue Power value to set.
+ * 
+ * @return true if power set successfully, false if error.
+ */
 bool setPower(uint16_t powerValue) 
 {
   char frame[32];
@@ -145,14 +208,17 @@ bool setPower(uint16_t powerValue)
   }
 }
 
-/*
 
-
-read request frame function to get the registers from user from main code and make relevant read request frame
-and send to protocol adapter
-
-
-*/
+/**
+ * @fn DecodedValues readRequest(const RegID* regs, size_t regCount)
+ * 
+ * @brief Read specified registers from the inverter.
+ * 
+ * @param regs Array of RegIDs to read.
+ * @param regCount Number of registers to read.
+ * 
+ * @return DecodedValues struct containing the read values or error indication.
+ */
 DecodedValues readRequest(const RegID* regs, size_t regCount) 
 {
   adapter.setApiKey("NjhhZWIwNDU1ZDdmMzg3MzNiMTQ5YTFmOjY4YWViMDQ1NWQ3ZjM4NzMzYjE0OWExNQ==");
@@ -201,18 +267,34 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
   return result;
 }
 
-
-
-
-//Return decoded register values as an array to main code
+/**
+ * @fn const uint16_t* returnValues(const DecodedValues& decoded)
+ * 
+ * @brief Return pointer to decoded register values array.
+ * 
+ * @param decoded DecodedValues struct containing the values.
+ * 
+ * @return Pointer to the array of decoded register values.
+ */
 const uint16_t* returnValues(const DecodedValues& decoded) 
 {
   return decoded.values;
 }
 
 
-
-// Response Frame Decoder 
+/**
+ * @fn DecodedValues decodeReadResponse(const char* frameHex, uint16_t startAddr, uint16_t count, const RegID* regs, size_t regCount)
+ * 
+ * @brief Decode a Modbus read response frame.
+ * 
+ * @param frameHex Inverter response (HEX C-string).
+ * @param startAddr Start of requested block.
+ * @param count Number of registers read in block.
+ * @param regs Array of requested RegIDs.
+ * @param regCount Number of registers requested.
+ * 
+ * @return DecodedValues struct containing only the requested registers.
+ */
 DecodedValues decodeReadResponse(const char* frameHex, uint16_t startAddr, uint16_t count, const RegID* regs, size_t regCount) 
 {
   DecodedValues result;
