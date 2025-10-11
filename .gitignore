@@ -3,3 +3,7 @@ Milestone1/cpp/.vscode/
 .DS_Store
 Milestone1/.DS_Store
 Milestone1/cpp/.DS_Store
+node_modules/
+package.json
+package-lock.json
+flask/flaskvenv/
