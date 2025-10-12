@@ -1,4 +1,4 @@
-#include <Arduino.h>
+﻿#include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -7,6 +7,7 @@
 #include "ringbuffer.h"
 #include "DataCompression.h"
 #include "CompressionBenchmark.h"
+#include "simple_security.h"
 
 /*
   ESP32 EcoWatt - Adaptive Smart Selection Compression System
@@ -73,6 +74,9 @@ struct SmartCompressedData {
 RingBuffer<SmartCompressedData, 20> smartRingBuffer;
 unsigned long lastUpload = 0;
 const unsigned long uploadInterval = 15000;  // Upload every 15 seconds
+
+// Security layer for cloud communication
+SimpleSecurity security;
 
 // Enhanced performance tracking for smart selection
 struct SmartPerformanceStats {
@@ -401,6 +405,18 @@ void setupSystem() {
     // Print initial memory status
     DataCompression::printMemoryUsage();
     
+    // Initialize security layer for cloud communication
+    Serial.println(">>> INITIALIZING SECURITY LAYER <<<");
+    if (!security.begin("4A6F486E20446F652041455336342D536563726574204B65792D323536626974")) {
+        Serial.println("ERROR: Failed to initialize security layer!");
+        Serial.println("Cloud uploads will not be secured!");
+    } else {
+        Serial.println("Security layer initialized successfully");
+        Serial.println("- HMAC-SHA256 authentication enabled");
+        Serial.println("- Anti-replay protection active");
+        Serial.println("- Persistent nonce management enabled");
+    }
+    
     Serial.println("Smart Selection System Ready");
     Serial.println("===============================================================");
 }
@@ -649,13 +665,28 @@ void uploadSmartCompressedDataToCloud() {
     String jsonString;
     serializeJson(doc, jsonString);
     
-    Serial.println("UPLOADING COMPRESSED DATA TO FLASK SERVER");
-    Serial.printf("Packets: %zu | JSON Size: %zu bytes\n", allData.size(), jsonString.length());
+    // Secure the payload using security layer
+    String securedPayload;
+    if (security.isInitialized()) {
+        securedPayload = security.secureMessage(jsonString);
+        if (securedPayload.isEmpty()) {
+            Serial.println("ERROR: Failed to secure payload - aborting upload");
+            return;
+        }
+        Serial.println("Payload secured with HMAC-SHA256 authentication");
+    } else {
+        Serial.println("WARNING: Security layer not initialized - sending unsecured data");
+        securedPayload = jsonString;
+    }
+    
+    Serial.println("UPLOADING SECURED DATA TO FLASK SERVER");
+    Serial.printf("Packets: %zu | Original JSON: %zu bytes | Secured: %zu bytes\n", 
+        allData.size(), jsonString.length(), securedPayload.length());
     Serial.printf("Compression Summary: %zu -> %zu bytes (%.1f%% savings)\n", 
         totalOriginalBytes, totalCompressedBytes,
         (totalOriginalBytes > 0) ? (1.0f - (float)totalCompressedBytes / (float)totalOriginalBytes) * 100.0f : 0.0f);
     
-    int httpResponseCode = http.POST(jsonString);
+    int httpResponseCode = http.POST(securedPayload);
     
     if (httpResponseCode == 200) {
         String response = http.getString();
