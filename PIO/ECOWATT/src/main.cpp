@@ -10,8 +10,8 @@
 Arduino_Wifi Wifi;
 RingBuffer<SmartCompressedData, 20> smartRingBuffer;
 
-const char* dataPostURL = "http://192.168.8.152:5001/process";
-const char* fetchChangesURL = "http://192.168.8.152:5001/changes";
+const char* dataPostURL = "http://10.243.4.129:5001/process";     // Your PC's actual IP address
+const char* fetchChangesURL = "http://10.243.4.129:5001/changes";  // Your PC's actual IP address
 
 void Wifi_init();
 void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* sensorData);
@@ -96,8 +96,8 @@ void setup()
   timerAlarmWrite(upload_timer, uploadFreq, true);
   timerAlarmEnable(upload_timer); // Enable the alarm
 
-  // Set up the upload timer
-  changes_timer = timerBegin(1, 80, true); // Timer 1, prescaler 80 (1us per tick)
+  // Set up the changes check timer
+  changes_timer = timerBegin(2, 80, true); // Timer 2, prescaler 80 (1us per tick)
   timerAttachInterrupt(changes_timer,  &set_changes_token, true);
   timerAlarmWrite(changes_timer, checkChangesFreq, true);
   timerAlarmEnable(changes_timer); // Enable the alarm
@@ -171,13 +171,9 @@ void loop() {}
 
 void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploadFreq_uptodate)
 {
+    print("Checking for changes from cloud...\n");
     if (WiFi.status() != WL_CONNECTED) {
-        print("WiFi not connected. Cannot upload.\n");
-        return;
-    }
-
-    if (smartRingBuffer.empty()) {
-        print("Buffer empty. Nothing to upload.\n");
+        print("WiFi not connected. Cannot check changes.\n");
         return;
     }
 
@@ -215,7 +211,7 @@ void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploa
             }
         }
         responseBuffer[index] = '\0'; // null terminate
-        print("Response:");
+        print("ChangedResponse:");
         print(responseBuffer);
 
         StaticJsonDocument<1024> responsedoc;
