@@ -6,12 +6,13 @@
 #include "application/compression.h"
 #include "application/compression_benchmark.h"
 #include "application/nvs.h"
+#include "application/OTAManager.h"
 
 Arduino_Wifi Wifi;
 RingBuffer<SmartCompressedData, 20> smartRingBuffer;
 
-const char* dataPostURL = "http://10.243.4.129:5001/process";     // Your PC's actual IP address
-const char* fetchChangesURL = "http://10.243.4.129:5001/changes";  // Your PC's actual IP address
+const char* dataPostURL = "http://10.78.228.2:5001/process";     // Your PC's actual IP address
+const char* fetchChangesURL = "http://10.78.228.2:5001/changes";  // Your PC's actual IP address
 
 void Wifi_init();
 void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* sensorData);
@@ -59,8 +60,52 @@ void IRAM_ATTR set_changes_token()
   changes_token = true;
 }
 
+// OTA Manager and Timer 3
+OTAManager* otaManager = nullptr;
+hw_timer_t* ota_timer = NULL;
+volatile bool ota_token = false;
+
+// #define OTA_CHECK_INTERVAL 21600000000ULL  // 6 hours in microseconds
+#define OTA_CHECK_INTERVAL 60000000ULL  // 1 min in microseconds
+
+#define FIRMWARE_VERSION "1.0.3"
+
+void IRAM_ATTR onOTATimer() {
+    ota_token = true;
+}
+
 // Define registers to read
 // const RegID selection[] = {REG_VAC1, REG_IAC1, REG_IPV1, REG_PAC, REG_IPV2, REG_TEMP};
+
+void performOTAUpdate()
+{
+    print("=== OTA UPDATE CHECK INITIATED ===\n");
+    
+    if (otaManager->checkForUpdate()) {
+        print("Firmware update available!\n");
+        print("Pausing normal operations...\n");
+        
+        // Disable other timers
+        timerAlarmDisable(poll_timer);
+        timerAlarmDisable(upload_timer);
+        timerAlarmDisable(changes_timer);
+        
+        if (otaManager->downloadAndApplyFirmware()) {
+            // This will reboot if successful, so code below won't execute
+            otaManager->verifyAndReboot();
+        } else {
+            print("OTA download/apply failed\n");
+            print("Will retry on next check\n");
+            
+            // Re-enable timers
+            timerAlarmEnable(poll_timer);
+            timerAlarmEnable(upload_timer);
+            timerAlarmEnable(changes_timer);
+        }
+    } else {
+        print("No firmware updates available\n");
+    }
+}
 
 void setup() 
 {
@@ -68,6 +113,25 @@ void setup()
   print("Starting ECOWATT\n");
 
   Wifi_init();
+
+  // Initialize OTA Manager
+  print("Initializing OTA Manager...\n");
+  otaManager = new OTAManager(
+      "http://10.78.228.2:5001",    // Flask server URL
+      "ESP32_EcoWatt_Smart",         // Device ID
+      FIRMWARE_VERSION               // Current version
+  );
+
+  // Check for rollback (MUST be early in setup)
+  otaManager->handleRollback();
+
+  // Setup Timer 3 for OTA checks
+  ota_timer = timerBegin(3, 80, true);
+  timerAttachInterrupt(ota_timer, &onOTATimer, true);
+  timerAlarmWrite(ota_timer, OTA_CHECK_INTERVAL, true);
+  timerAlarmEnable(ota_timer);
+  
+  print("OTA timer configured (6-hour interval)\n");
 
   // Reading values from the nvs
   size_t registerCount = nvs::getReadRegCount();
@@ -162,6 +226,12 @@ void setup()
     {
         changes_token = false;
         checkChanges(&registers_uptodate, &pollFreq_uptodate, &uploadFreq_uptodate);
+    }
+
+    // Handle OTA check
+    if (ota_token) {
+        ota_token = false;
+        performOTAUpdate();
     }
   }
 }
@@ -298,8 +368,8 @@ void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploa
  */
 void Wifi_init()
 {
-  Wifi.setSSID("YasithsRedmi");
-  Wifi.setPassword("xnbr2615");
+  Wifi.setSSID("HydroBK");
+  Wifi.setPassword("Hydrolink123");
   Wifi.begin();
 }
 
@@ -554,7 +624,7 @@ void uploadSmartCompressedDataToCloud() {
     http.addHeader("Content-Type", "application/json");
     
     // New JSON structure with compressed data and decompression metadata
-    JsonDocument doc;
+    DynamicJsonDocument doc(8192);
     auto allData = smartRingBuffer.drain_all();
     
     doc["device_id"] = "ESP32_EcoWatt_Smart";
@@ -578,7 +648,7 @@ void uploadSmartCompressedDataToCloud() {
     size_t totalCompressedBytes = 0;
     
     for (const auto& entry : allData) {
-        JsonObject packet = compressedPackets.add<JsonObject>();
+        JsonObject packet = compressedPackets.createNestedObject();
         
         // Compressed binary data (Base64 encoded)
         char base64Buffer[256];

@@ -1,0 +1,15 @@
+# Flask OTA Server Requirements
+# Install with: pip install -r requirements.txt
+
+# Core web framework
+Flask==2.3.3
+Werkzeug==2.3.7
+
+# Rate limiting
+Flask-Limiter==3.5.0
+
+# SSL certificate generation
+cryptography==41.0.7
+
+# Additional security and utilities
+pathlib

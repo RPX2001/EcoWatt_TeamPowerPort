@@ -330,6 +330,9 @@ from datetime import datetime
 import logging
 import threading
 
+# Import firmware manager for OTA functionality
+from firmware_manager import FirmwareManager
+
 app = Flask(__name__)
 
 # Configure logging
@@ -358,6 +361,12 @@ settings_state = {
     'regs': ""
 }
 settings_lock = threading.Lock()
+
+# OTA Configuration and State
+LATEST_FIRMWARE_VERSION = "1.0.4"
+firmware_manager = None
+ota_sessions = {}  # Track active OTA sessions by device_id
+ota_lock = threading.Lock()
 
 def on_connect(client, userdata, flags, rc):
     global mqtt_connected
@@ -445,6 +454,26 @@ def init_mqtt():
         return mqtt_connected
     except Exception as e:
         logger.error(f"MQTT connection error: {e}")
+        return False
+
+def init_firmware_manager():
+    """Initialize the firmware manager for OTA functionality."""
+    global firmware_manager
+    
+    try:
+        firmware_manager = FirmwareManager()
+        logger.info("OTA firmware manager initialized successfully")
+        
+        # Log available firmware versions
+        versions = firmware_manager.list_versions()
+        if versions:
+            logger.info(f"Available firmware versions: {versions}")
+        else:
+            logger.warning("No firmware versions available for OTA")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Failed to initialize OTA firmware manager: {e}")
         return False
 
 def decompress_dictionary_bitmask(binary_data):
@@ -1027,6 +1056,230 @@ def changes():
     """Alias for /device_settings - ESP32 posts here to get settings changes."""
     return device_settings()
 
+# OTA ENDPOINTS
+# =============
+
+@app.route('/ota/check', methods=['POST'])
+def ota_check():
+    """Check if firmware update is available for device."""
+    try:
+        data = request.get_json()
+        
+        if not data or 'device_id' not in data or 'current_version' not in data:
+            return jsonify({'error': 'Invalid request format'}), 400
+        
+        device_id = data['device_id']
+        current_version = data['current_version']
+        
+        logger.info(f"OTA check from device {device_id}, current version: {current_version}")
+        
+        if not firmware_manager:
+            return jsonify({
+                'update_available': False,
+                'error': 'Firmware manager not initialized'
+            }), 500
+        
+        # Check if newer version is available
+        available_versions = firmware_manager.list_versions()
+        if not available_versions:
+            return jsonify({
+                'update_available': False,
+                'message': 'No firmware versions available'
+            })
+        
+        # For now, use simple string comparison. In production, use proper version parsing
+        latest_version = available_versions[0]  # Already sorted, latest first
+        update_available = latest_version != current_version
+        
+        if update_available:
+            # Get manifest for latest version
+            manifest = firmware_manager.get_manifest(latest_version)
+            if not manifest:
+                return jsonify({
+                    'update_available': False,
+                    'error': 'Manifest not found for latest version'
+                }), 500
+            
+            # Initialize OTA session
+            with ota_lock:
+                ota_sessions[device_id] = {
+                    'version': latest_version,
+                    'total_chunks': manifest['total_chunks'],
+                    'chunks_downloaded': 0,
+                    'start_time': time.time(),
+                    'last_chunk_time': time.time()
+                }
+            
+            logger.info(f"OTA update available for {device_id}: {current_version} -> {latest_version}")
+            
+            return jsonify({
+                'update_available': True,
+                'version': latest_version,
+                'original_size': manifest['original_size'],
+                'encrypted_size': manifest['encrypted_size'],
+                'total_chunks': manifest['total_chunks'],
+                'chunk_size': manifest['chunk_size'],
+                'sha256_hash': manifest['sha256_hash'],
+                'signature': manifest['signature'],
+                'iv': manifest['iv']
+            })
+        else:
+            logger.info(f"No OTA update available for {device_id}")
+            return jsonify({
+                'update_available': False,
+                'message': f'Device already has latest version: {current_version}'
+            })
+    
+    except Exception as e:
+        logger.error(f"Error in /ota/check: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/ota/chunk', methods=['POST'])
+def ota_chunk():
+    """Download a specific firmware chunk."""
+    try:
+        data = request.get_json()
+        
+        if not data or 'device_id' not in data or 'version' not in data or 'chunk_number' not in data:
+            return jsonify({'error': 'Invalid request format'}), 400
+        
+        device_id = data['device_id']
+        version = data['version']
+        chunk_number = data['chunk_number']
+        
+        if not firmware_manager:
+            return jsonify({'error': 'Firmware manager not initialized'}), 500
+        
+        # Validate OTA session
+        with ota_lock:
+            if device_id not in ota_sessions:
+                return jsonify({'error': 'No active OTA session'}), 400
+            
+            session = ota_sessions[device_id]
+            if session['version'] != version:
+                return jsonify({'error': 'Version mismatch with active session'}), 400
+        
+        # Anti-replay protection: ensure sequential chunk requests
+        expected_chunk = session['chunks_downloaded']
+        if chunk_number != expected_chunk:
+            logger.warning(f"Non-sequential chunk request from {device_id}: got {chunk_number}, expected {expected_chunk}")
+            # Allow small deviation for resume functionality
+            if chunk_number < expected_chunk - 5 or chunk_number > expected_chunk + 1:
+                return jsonify({'error': 'Invalid chunk sequence'}), 400
+        
+        # Get chunk from firmware manager
+        chunk_data = firmware_manager.get_chunk(version, chunk_number)
+        if not chunk_data:
+            return jsonify({'error': 'Chunk not found'}), 404
+        
+        # Update session
+        with ota_lock:
+            session['chunks_downloaded'] = max(session['chunks_downloaded'], chunk_number + 1)
+            session['last_chunk_time'] = time.time()
+        
+        # Calculate progress
+        progress = {
+            'chunks_received': chunk_number + 1,
+            'total_chunks': chunk_data['total_chunks'],
+            'percentage': round((chunk_number + 1) * 100.0 / chunk_data['total_chunks'], 1)
+        }
+        
+        logger.info(f"Serving chunk {chunk_number}/{chunk_data['total_chunks']} to {device_id} ({progress['percentage']}%)")
+        
+        return jsonify({
+            'chunk': chunk_data,
+            'progress': progress
+        })
+    
+    except Exception as e:
+        logger.error(f"Error in /ota/chunk: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/ota/verify', methods=['POST'])
+def ota_verify():
+    """Device reports verification result."""
+    try:
+        data = request.get_json()
+        
+        if not data or 'device_id' not in data or 'verified' not in data:
+            return jsonify({'error': 'Invalid request format'}), 400
+        
+        device_id = data['device_id']
+        verified = data['verified']
+        version = data.get('version', 'unknown')
+        
+        logger.info(f"OTA verification result from {device_id}: {verified} (version: {version})")
+        
+        # Update session
+        with ota_lock:
+            if device_id in ota_sessions:
+                session = ota_sessions[device_id]
+                session['verified'] = verified
+                session['verify_time'] = time.time()
+        
+        return jsonify({
+            'status': 'acknowledged',
+            'verified': verified
+        })
+    
+    except Exception as e:
+        logger.error(f"Error in /ota/verify: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/ota/complete', methods=['POST'])
+def ota_complete():
+    """Device reports successful boot with new firmware."""
+    try:
+        data = request.get_json()
+        
+        if not data or 'device_id' not in data:
+            return jsonify({'error': 'Invalid request format'}), 400
+        
+        device_id = data['device_id']
+        new_version = data.get('version', 'unknown')
+        boot_status = data.get('boot_status', 'unknown')
+        
+        logger.info(f"OTA completion report from {device_id}: version={new_version}, status={boot_status}")
+        
+        # Mark session as complete
+        with ota_lock:
+            if device_id in ota_sessions:
+                session = ota_sessions[device_id]
+                session['completed'] = True
+                session['new_version'] = new_version
+                session['boot_status'] = boot_status
+                session['complete_time'] = time.time()
+                
+                # Calculate total time
+                total_time = session['complete_time'] - session['start_time']
+                logger.info(f"OTA update completed for {device_id} in {total_time:.1f} seconds")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'OTA update completed successfully for {device_id}'
+        })
+    
+    except Exception as e:
+        logger.error(f"Error in /ota/complete: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/ota/status', methods=['GET'])
+def ota_status():
+    """Get status of all OTA sessions."""
+    try:
+        with ota_lock:
+            sessions_copy = dict(ota_sessions)  # Create a copy to avoid lock issues
+        
+        return jsonify({
+            'active_sessions': len(sessions_copy),
+            'sessions': sessions_copy,
+            'available_versions': firmware_manager.list_versions() if firmware_manager else []
+        })
+    
+    except Exception as e:
+        logger.error(f"Error in /ota/status: {e}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     print("Starting EcoWatt Smart Selection Batch Server v3.1")
     print("="*60)
@@ -1041,8 +1294,15 @@ if __name__ == '__main__':
     else:
         print("Warning: MQTT client failed to initialize")
     
+    # Initialize OTA firmware manager
+    if init_firmware_manager():
+        print("OTA firmware manager initialized successfully")
+    else:
+        print("Warning: OTA firmware manager failed to initialize")
+    
     print(f"MQTT: {MQTT_BROKER}:{MQTT_PORT} → {MQTT_TOPIC}")
     print("Starting Flask server with comprehensive batch logging...")
+    print("OTA endpoints available: /ota/check, /ota/chunk, /ota/verify, /ota/complete, /ota/status")
     print("="*60)
     
     app.run(host='0.0.0.0', port=5001, debug=True)
