@@ -19,7 +19,8 @@ enum RegID : uint8_t
   REG_IPV2,
   REG_TEMP,
   REG_POW,
-  REG_PAC
+  REG_PAC,
+  REG_MAX
 };
 
 // register definition

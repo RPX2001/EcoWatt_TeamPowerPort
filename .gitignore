@@ -6,4 +6,4 @@ Milestone1/cpp/.DS_Store
 node_modules/
 package.json
 package-lock.json
-flask/flaskvenv/
+flask/.venv/

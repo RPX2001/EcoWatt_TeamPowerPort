@@ -320,7 +320,7 @@
 #     print("Flask server starting on http://10.40.99.2:5001")
     
 #     app.run(host='0.0.0.0', port=5001, debug=False)
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 import paho.mqtt.client as mqtt
 import json
 import time
@@ -328,6 +328,7 @@ import base64
 import struct
 from datetime import datetime
 import logging
+import threading
 
 app = Flask(__name__)
 
@@ -344,6 +345,19 @@ MQTT_CLIENT_ID = f"flask_ecowatt_smart_server_{int(time.time())}"
 # Global MQTT client
 mqtt_client = None
 mqtt_connected = False
+
+# Settings state (thread-safe)
+settings_state = {
+    'Changed': False,
+    'pollFreqChanged': False,
+    'newPollTimer': 0,
+    'uploadFreqChanged': False,
+    'newUploadTimer': 0,
+    'regsChanged': False,
+    'regsCount': 0,
+    'regs': ""
+}
+settings_lock = threading.Lock()
 
 def on_connect(client, userdata, flags, rc):
     global mqtt_connected
@@ -362,6 +376,52 @@ def on_disconnect(client, userdata, rc):
     mqtt_connected = False
     logger.warning(f"Disconnected from MQTT broker. Return code: {rc}")
 
+def on_message(client, userdata, msg):
+    """Handle incoming MQTT messages for settings topic 'esp32/ecowatt_settings'.
+    Expected payload (JSON): {"Changed":true,"pollFreqChanged":true,"newPollTimer":9,"uploadFreqChanged":false,"newUploadTimer":11}
+    Behavior: update settings_state under lock; boolean flags are ORed with existing values; timers replaced with newest values.
+    """
+    try:
+        topic = msg.topic
+        payload = msg.payload.decode('utf-8')
+        logger.info(f"MQTT message received on {topic}: {payload}")
+
+        if topic.rstrip('/') != 'esp32/ecowatt_settings' and not topic.endswith('/ecowatt_settings'):
+            # ignore other topics here
+            return
+
+        data = json.loads(payload)
+
+        with settings_lock:
+            # OR boolean flags
+            if 'Changed' in data:
+                settings_state['Changed'] = bool(settings_state.get('Changed', False)) or bool(data.get('Changed', False))
+            if 'pollFreqChanged' in data:
+                settings_state['pollFreqChanged'] = bool(settings_state.get('pollFreqChanged', False)) or bool(data.get('pollFreqChanged', False))
+            if 'uploadFreqChanged' in data:
+                settings_state['uploadFreqChanged'] = bool(settings_state.get('uploadFreqChanged', False)) or bool(data.get('uploadFreqChanged', False))
+
+            # Timers: save latest numeric values if present
+            if 'newPollTimer' in data and isinstance(data.get('newPollTimer'), (int, float)):
+                settings_state['newPollTimer'] = int(data.get('newPollTimer'))
+            if 'newUploadTimer' in data and isinstance(data.get('newUploadTimer'), (int, float)):
+                settings_state['newUploadTimer'] = int(data.get('newUploadTimer'))
+
+            # Optionally handle regs fields if present
+            if 'regsChanged' in data:
+                settings_state['regsChanged'] = bool(settings_state.get('regsChanged', False)) or bool(data.get('regsChanged', False))
+            if 'regsCount' in data and isinstance(data.get('regsCount'), int):
+                settings_state['regsCount'] = int(data.get('regsCount'))
+            if 'regs' in data and isinstance(data.get('regs'), str):
+                settings_state['regs'] = data.get('regs')
+
+        logger.info(f"Updated settings_state: {settings_state}")
+        # Also print to stdout for immediate visibility (ESP32 debugging)
+        print(f"Updated settings_state: {settings_state}")
+
+    except Exception as e:
+        logger.error(f"Error in on_message settings handler: {e}")
+
 def init_mqtt():
     global mqtt_client, mqtt_connected
     
@@ -373,7 +433,14 @@ def init_mqtt():
     try:
         logger.info(f"Connecting to MQTT broker: {MQTT_BROKER}:{MQTT_PORT}")
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
+        mqtt_client.on_message = on_message
         mqtt_client.loop_start()
+        # subscribe to settings topic
+        try:
+            mqtt_client.subscribe('esp32/ecowatt_settings', qos=0)
+            logger.info("Subscribed to topic 'esp32/ecowatt_settings'")
+        except Exception:
+            logger.warning("Failed to subscribe to 'esp32/ecowatt_settings' immediately; will rely on on_connect subscriptions if needed")
         time.sleep(2)
         return mqtt_connected
     except Exception as e:
@@ -901,6 +968,64 @@ def health_check():
         'debug_enabled': True,
         'dictionary_patterns': 5
     }), 200
+
+
+@app.route('/device_settings', methods=['POST'])
+def device_settings():
+    """Return stored settings to ESP32 when it requests them.
+    Expects JSON body: {"device_id": "ESP32_EcoWatt_Smart", "timestamp": 123456789}
+    Returns JSON payload with the fields requested by the user.
+    """
+    try:
+        req = request.get_json()
+        if not req or 'device_id' not in req or 'timestamp' not in req:
+            return jsonify({'error': 'Expected JSON with device_id and timestamp'}), 400
+
+        # Only a simple validation on device_id; could be extended
+        device_id = req.get('device_id')
+
+        with settings_lock:
+            # Build response from current state
+            resp = {
+                'Changed': bool(settings_state.get('Changed', False)),
+                'pollFreqChanged': bool(settings_state.get('pollFreqChanged', False)),
+                'newPollTimer': int(settings_state.get('newPollTimer', 0)),
+                'uploadFreqChanged': bool(settings_state.get('uploadFreqChanged', False)),
+                'newUploadTimer': int(settings_state.get('newUploadTimer', 0)),
+                'regsChanged': bool(settings_state.get('regsChanged', False)),
+                'regsCount': int(settings_state.get('regsCount', 0)),
+                'regs': settings_state.get('regs', "")
+            }
+
+            # After building the response, clear the boolean change flags
+            settings_state['Changed'] = False
+            settings_state['pollFreqChanged'] = False
+            settings_state['uploadFreqChanged'] = False
+            settings_state['regsChanged'] = False
+
+            # Print/log current variables after clearing flags
+            logger.info(f"Cleared change flags after reply; current settings_state: {settings_state}")
+            print(f"Cleared change flags after reply; current settings_state: {settings_state}")
+
+        logger.info(f"/device_settings reply for {device_id}: {resp}")
+        # Build explicit JSON response string and set headers to avoid chunked transfer
+        json_str = json.dumps(resp)
+        headers = {
+            'Content-Type': 'application/json',
+            'Content-Length': str(len(json_str)),
+            'Connection': 'close'
+        }
+        return Response(response=json_str, status=200, headers=headers)
+
+    except Exception as e:
+        logger.error(f"Error in /device_settings: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/changes', methods=['POST'])
+def changes():
+    """Alias for /device_settings - ESP32 posts here to get settings changes."""
+    return device_settings()
 
 if __name__ == '__main__':
     print("Starting EcoWatt Smart Selection Batch Server v3.1")

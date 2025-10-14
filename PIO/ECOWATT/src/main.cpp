@@ -5,16 +5,17 @@
 #include "application/ringbuffer.h"
 #include "application/compression.h"
 #include "application/compression_benchmark.h"
+#include "application/nvs.h"
 
 Arduino_Wifi Wifi;
 RingBuffer<SmartCompressedData, 20> smartRingBuffer;
 
-const char* serverURL = "http://192.168.8.152:5001/process";
+const char* dataPostURL = "http://10.243.4.129:5001/process";     // Your PC's actual IP address
+const char* fetchChangesURL = "http://10.243.4.129:5001/changes";  // Your PC's actual IP address
 
 void Wifi_init();
-void poll_and_save();
+void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* sensorData);
 void upload_data();
-void analyzeSensorDataAdvanced(uint16_t* data, const RegID* selection, size_t count);
 std::vector<uint8_t> compressWithSmartSelection(uint16_t* data, const RegID* selection, size_t count, 
                                                unsigned long& compressionTime, char* methodUsed, size_t methodSize,
                                                float& academicRatio, float& traditionalRatio);
@@ -29,6 +30,7 @@ void convertBinaryToBase64(const std::vector<uint8_t>& binaryData, char* result,
 void updateSmartPerformanceStatistics(const char* method, float academicRatio, unsigned long timeUs);
 bool readMultipleRegisters(const RegID* selection, size_t count, uint16_t* data);
 void enhanceDictionaryForOptimalCompression();
+void checkChanges(bool* registers_uptodate, bool* pollFreq_uptodate, bool* uploadFreq_uptodate);
 
 hw_timer_t *poll_timer = NULL;
 volatile bool poll_token = false;
@@ -49,10 +51,16 @@ void IRAM_ATTR set_upload_token()
   upload_token = true;
 }
 
+hw_timer_t *changes_timer = NULL;
+volatile bool changes_token = false;
+
+void IRAM_ATTR set_changes_token() 
+{
+  changes_token = true;
+}
+
 // Define registers to read
-const RegID selection[] = {REG_VAC1, REG_IAC1, REG_IPV1, REG_PAC, REG_IPV2, REG_TEMP};
-const size_t registerCount = 6;
-uint16_t sensorData[registerCount];
+// const RegID selection[] = {REG_VAC1, REG_IAC1, REG_IPV1, REG_PAC, REG_IPV2, REG_TEMP};
 
 void setup() 
 {
@@ -61,20 +69,45 @@ void setup()
 
   Wifi_init();
 
+  // Reading values from the nvs
+  size_t registerCount = nvs::getReadRegCount();
+  const RegID* selection = nvs::getReadRegs();
+  bool registers_uptodate = true;
+  uint16_t* sensorData = nullptr;
+  sensorData = new uint16_t[registerCount];
+
+  uint64_t pollFreq = nvs::getPollFreq();
+  bool pollFreq_uptodate = true;
+
+  uint64_t uploadFreq = nvs::getUploadFreq();
+  bool uploadFreq_uptodate = true;
+  
+  uint64_t checkChangesFreq = 5000000;
+  
+  // Set up the poll timer
   poll_timer = timerBegin(0, 80, true); // Timer 0, prescaler 80 (1us per tick)
-  timerAttachInterrupt(poll_timer,  &set_poll_token, true);
-  timerAlarmWrite(poll_timer, 2000000, true); // 2 seconds
+  timerAttachInterrupt(poll_timer, &set_poll_token, true);
+  timerAlarmWrite(poll_timer, pollFreq, true);
   timerAlarmEnable(poll_timer); // Enable the alarm
 
+  // Set up the upload timer
   upload_timer = timerBegin(1, 80, true); // Timer 1, prescaler 80 (1us per tick)
   timerAttachInterrupt(upload_timer,  &set_upload_token, true);
-  timerAlarmWrite(upload_timer, 15000000, true); // 15 seconds
+  timerAlarmWrite(upload_timer, uploadFreq, true);
   timerAlarmEnable(upload_timer); // Enable the alarm
+
+  // Set up the changes check timer
+  changes_timer = timerBegin(2, 80, true); // Timer 2, prescaler 80 (1us per tick)
+  timerAttachInterrupt(changes_timer,  &set_changes_token, true);
+  timerAlarmWrite(changes_timer, checkChangesFreq, true);
+  timerAlarmEnable(changes_timer); // Enable the alarm
+
 
   enhanceDictionaryForOptimalCompression();
   // Print initial memory status
   DataCompression::printMemoryUsage();
 
+/*
   //set power to 50W out
   bool ok = setPower(50); // set Pac = 50W
   if (ok) 
@@ -84,28 +117,183 @@ void setup()
   else 
   {
     print("Failed to set output power register!\n");
-  }
+  }*/
+
 
   while(true) 
   {
     if (poll_token) 
     {
       poll_token = false;
-      poll_and_save();
+      poll_and_save(selection, registerCount, sensorData);
     }
     
     if (upload_token) 
     {
       upload_token = false;
       upload_data();
+
+      // Applying the changes
+      if (!pollFreq_uptodate)
+      {
+        pollFreq = nvs::getPollFreq();
+        timerAlarmWrite(poll_timer, pollFreq, true);
+        pollFreq_uptodate = true;
+      }
+
+      if (!uploadFreq_uptodate)
+      {
+        uploadFreq = nvs::getUploadFreq();
+        timerAlarmWrite(upload_timer, uploadFreq, true);
+        uploadFreq_uptodate = true;
+      }
+
+      if (!registers_uptodate)
+      {
+        delete[] sensorData;
+        registerCount = nvs::getReadRegCount();
+        const RegID* selection = nvs::getReadRegs();
+        sensorData = new uint16_t[registerCount];
+        registers_uptodate = true;
+      }
+    }
+
+    if (changes_token)
+    {
+        changes_token = false;
+        checkChanges(&registers_uptodate, &pollFreq_uptodate, &uploadFreq_uptodate);
     }
   }
 }
 
 void loop() {}
 
+
+void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploadFreq_uptodate)
+{
+    print("Checking for changes from cloud...\n");
+    if (WiFi.status() != WL_CONNECTED) {
+        print("WiFi not connected. Cannot check changes.\n");
+        return;
+    }
+
+    HTTPClient http;
+    http.begin(fetchChangesURL);
+
+    http.addHeader("Content-Type", "application/json");
+
+    StaticJsonDocument<128> changesRequestBody;
+    changesRequestBody["device_id"] = "ESP32_EcoWatt_Smart";
+    changesRequestBody["timestamp"] = millis();
+
+    char requestBody[128];
+    serializeJson(changesRequestBody, requestBody, sizeof(requestBody));
+
+    int httpResponseCode = http.POST((uint8_t*)requestBody, strlen(requestBody));
+
+    if (httpResponseCode > 0) {
+        print("HTTP Response code: %d\n", httpResponseCode);
+
+        // Get response into a char buffer
+        WiFiClient* stream = http.getStreamPtr();
+        static char responseBuffer[1024]; // adjust if your response is larger
+        int len = http.getSize();
+        int index = 0;
+
+        while (http.connected() && (len > 0 || len == -1)) 
+        {
+            if (stream->available()) 
+            {
+                char c = stream->read();
+                if (index < (int)sizeof(responseBuffer) - 1)
+                responseBuffer[index++] = c;
+                if (len > 0) len--;
+            }
+        }
+        responseBuffer[index] = '\0'; // null terminate
+        print("ChangedResponse:");
+        print(responseBuffer);
+
+        StaticJsonDocument<1024> responsedoc;
+
+        DeserializationError error = deserializeJson(responsedoc, responseBuffer);
+        
+        if (!error)
+        {
+            bool settingsChanged = responsedoc["Changed"] | false;
+            
+            if (settingsChanged)
+            {
+                bool pollFreqChanged = responsedoc["pollFreqChanged"] | false;
+                if (pollFreqChanged)
+                {
+                    uint64_t new_poll_timer = responsedoc["newPollTimer"] | 0;
+                    nvs::changePollFreq(new_poll_timer);
+                    *pollFreq_uptodate = false;
+                    print("Poll timer set to update in next cycle\n");
+                }
+
+                bool uploadFreqChanged = responsedoc["uploadFreqChanged"] | false;
+                if (uploadFreqChanged)
+                {
+                    uint64_t new_upload_timer = responsedoc["newUploadTimer"] | 0;
+                    nvs::changeUploadFreq(new_upload_timer);
+                    *uploadFreq_uptodate = false;
+                    print("Upload timer set to update in next cycle\n");
+                }
+
+                bool regsChanged = responsedoc["regsChanged"] | false;
+                if (regsChanged)
+                {
+                    size_t regsCount = responsedoc["regsCount"] | 0;
+
+                    if (regsCount > 0 && responsedoc.containsKey("regs"))
+                    {
+                        JsonArray regsArray = responsedoc["regs"].as<JsonArray>();
+
+                        RegID* newRegs = new RegID[regsCount];
+                        size_t validCount = 0;
+
+                        for (size_t i = 0; i < regsCount; i++) 
+                        {
+                            const char* regName = regsArray[i] | "";
+
+                            for (size_t j = 0; j < REGISTER_COUNT; j++) 
+                            {
+                                if (strcmp(REGISTER_MAP[j].name, regName) == 0) 
+                                {
+                                    newRegs[validCount++] = REGISTER_MAP[j].id;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (validCount > 0) {
+                            // Store in NVS
+                            nvs::saveReadRegs(newRegs, validCount);
+                            *registers_uptodate = false;
+                            print("Set to update %d registers in next cycle.\n", validCount);               
+                        }
+
+                        delete[] newRegs;
+                    }
+                }
+            }
+
+            print("Changes noted\n");
+            http.end();
+        }
+        else
+        {
+            http.end();
+            print("Settings change error\n");
+        }
+    }
+}
+
 /**
  * @fn void Wifi_init()
+ * 
  * @brief Function to initialise Wifi
  */
 void Wifi_init()
@@ -115,7 +303,13 @@ void Wifi_init()
   Wifi.begin();
 }
 
-void poll_and_save()
+
+/**
+ * @fn void poll_and_save()
+ * 
+ * @brief Poll sensor data, compress with smart selection, and save to ring buffer.
+ */
+void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* sensorData)
 {
   if (readMultipleRegisters(selection, registerCount, sensorData)) 
   {
@@ -163,60 +357,37 @@ void poll_and_save()
   }
 }
 
+
+/**
+ * @fn void upload_data()
+ * 
+ * @brief Upload all smart compressed data in the ring buffer to the cloud server.
+ */
 void upload_data()
 {
     uploadSmartCompressedDataToCloud();
     printSmartPerformanceStatistics();
 }
 
-void analyzeSensorDataAdvanced(uint16_t* data, const RegID* selection, size_t count) {
-    // Basic statistics
-    uint16_t minVal = data[0], maxVal = data[0];
-    uint32_t sum = 0;
-    float variance = 0.0f;
-    
-    for (size_t i = 0; i < count; i++) {
-        if (data[i] < minVal) minVal = data[i];
-        if (data[i] > maxVal) maxVal = data[i];
-        sum += data[i];
-    }
-    
-    float avgValue = (float)sum / count;
-    
-    // Calculate variance
-    for (size_t i = 0; i < count; i++) {
-        float diff = (float)data[i] - avgValue;
-        variance += diff * diff;
-    }
-    variance /= count;
-    
-    // Register type analysis
-    uint8_t voltageCount = 0, currentCount = 0, powerCount = 0, tempCount = 0;
-    for (size_t i = 0; i < count; i++) {
-        char regType[16];
-        DataCompression::getRegisterType(selection[i], regType, sizeof(regType));
-        if (strcmp(regType, "voltage") == 0 || strcmp(regType, "pv_voltage") == 0) voltageCount++;
-        else if (strcmp(regType, "current") == 0 || strcmp(regType, "pv_current") == 0) currentCount++;
-        else if (strcmp(regType, "power") == 0) powerCount++;
-        else if (strcmp(regType, "temperature") == 0) tempCount++;
-    }
-    
-    // Delta analysis
-    if (count > 1) {
-        int32_t totalDeltaMagnitude = 0;
-        size_t smallDeltas = 0, largeDeltas = 0;
-        
-        for (size_t i = 1; i < count; i++) {
-            int32_t delta = abs((int32_t)data[i] - (int32_t)data[i-1]);
-            totalDeltaMagnitude += delta;
-            if (delta < 100) smallDeltas++;
-            else if (delta > 500) largeDeltas++;
-        }
-        
-        float avgDelta = (float)totalDeltaMagnitude / (count - 1);
-    }
-}
 
+/**
+ * @fn std::vector<uint8_t> compressWithSmartSelection(uint16_t* data, const RegID* selection, size_t count,
+ *                                               unsigned long& compressionTime, char* methodUsed, size_t methodSize,
+ *                                               float& academicRatio, float& traditionalRatio)
+ * 
+ * @brief Compress sensor data using the adaptive smart selection system and track performance.
+ * 
+ * @param data Pointer to the array of uint16_t sensor data.
+ * @param selection Pointer to the array of RegID indicating which registers are included.
+ * @param count Number of data points (length of data and selection arrays).
+ * @param compressionTime Reference to store the time taken for compression (in microseconds).
+ * @param methodUsed Pointer to char array to store the name of the compression method used.
+ * @param methodSize Size of the methodUsed char array.
+ * @param academicRatio Reference to store the academic compression ratio (compressed/original).
+ * @param traditionalRatio Reference to store the traditional compression ratio (original/compressed).
+ * 
+ * @return std::vector<uint8_t> Compressed data as a byte vector.
+ */
 std::vector<uint8_t> compressWithSmartSelection(uint16_t* data, const RegID* selection, size_t count, 
                                                unsigned long& compressionTime, char* methodUsed, size_t methodSize,
                                                float& academicRatio, float& traditionalRatio) {
@@ -268,6 +439,16 @@ std::vector<uint8_t> compressWithSmartSelection(uint16_t* data, const RegID* sel
     return compressed;
 }
 
+
+/**
+ * @fn updateSmartPerformanceStatistics(const char* method, float academicRatio, unsigned long timeUs)
+ * 
+ * @brief Update global statistics for smart compression performance tracking.
+ * 
+ * @param method Name of the compression method used.
+ * @param academicRatio Academic compression ratio (compressed/original).
+ * @param timeUs Time taken for compression in microseconds.
+ */
 void updateSmartPerformanceStatistics(const char* method, float academicRatio, 
                                      unsigned long timeUs) {
     smartStats.totalSmartCompressions++;
@@ -300,6 +481,12 @@ void updateSmartPerformanceStatistics(const char* method, float academicRatio,
     }
 }
 
+
+/**
+ * @fn void enhanceDictionaryForOptimalCompression()
+ * 
+ * @brief Enhance the dictionary with patterns learned from actual sensor data to improve compression.
+ */
 void enhanceDictionaryForOptimalCompression() {
     // Add patterns specifically learned from actual sensor data
     // Pattern 0: Your typical readings
@@ -314,6 +501,12 @@ void enhanceDictionaryForOptimalCompression() {
     uint16_t pattern4[] = {2480, 195, 80, 4800, 85, 620};
 }
 
+
+/**
+ * @fn void printSmartPerformanceStatistics()
+ * 
+ * @brief Print a summary of smart compression performance statistics.
+ */
 void printSmartPerformanceStatistics() {
     print("\nSMART COMPRESSION PERFORMANCE SUMMARY\n");
     print("=====================================\n");
@@ -339,6 +532,12 @@ void printSmartPerformanceStatistics() {
     print("=====================================\n");
 }
 
+
+/**
+ * @fn void uploadSmartCompressedDataToCloud()
+ * 
+ * @brief Upload all smart compressed data in the ring buffer to the cloud server.
+ */
 void uploadSmartCompressedDataToCloud() {
     if (WiFi.status() != WL_CONNECTED) {
         print("WiFi not connected. Cannot upload.\n");
@@ -351,7 +550,7 @@ void uploadSmartCompressedDataToCloud() {
     }
 
     HTTPClient http;
-    http.begin(serverURL);
+    http.begin(dataPostURL);
     http.addHeader("Content-Type", "application/json");
     
     // New JSON structure with compressed data and decompression metadata
@@ -464,6 +663,16 @@ void uploadSmartCompressedDataToCloud() {
     http.end();
 }
 
+
+/**
+ * @fn void convertBinaryToBase64(const std::vector<uint8_t>& binaryData, char* result, size_t resultSize)
+ * 
+ * @brief Convert binary data to Base64 encoded string.
+ * 
+ * @param binaryData Input binary data as a vector of bytes.
+ * @param result Output buffer to store the Base64 string.
+ * @param resultSize Size of the output buffer.
+ */
 void convertBinaryToBase64(const std::vector<uint8_t>& binaryData, char* result, size_t resultSize) {
     const char* chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     size_t pos = 0;
@@ -483,6 +692,25 @@ void convertBinaryToBase64(const std::vector<uint8_t>& binaryData, char* result,
     result[pos] = '\0';
 }
 
+
+/**
+ * @fn std::vector<uint8_t> compressBatchWithSmartSelection(const SampleBatch& batch,
+ *                                                   unsigned long& compressionTime,
+ *                                                  char* methodUsed, size_t methodSize,
+ *                                                  float& academicRatio,
+ *                                                 float& traditionalRatio)
+ * 
+ * @brief Compress an entire batch of samples using smart selection and track performance.
+ * 
+ * @param batch Reference to the SampleBatch containing multiple samples.
+ * @param compressionTime Reference to store the time taken for compression (in microseconds).
+ * @param methodUsed Pointer to char array to store the name of the compression method used.
+ * @param methodSize Size of the methodUsed char array.
+ * @param academicRatio Reference to store the academic compression ratio (compressed/original).
+ * @param traditionalRatio Reference to store the traditional compression ratio (original/compressed).
+ * 
+ * @return std::vector<uint8_t> Compressed data as a byte vector.
+ */
 std::vector<uint8_t> compressBatchWithSmartSelection(const SampleBatch& batch, 
                                                    unsigned long& compressionTime, 
                                                    char* methodUsed, size_t methodSize,
@@ -553,7 +781,20 @@ std::vector<uint8_t> compressBatchWithSmartSelection(const SampleBatch& batch,
     return compressed;
 }
 
-bool readMultipleRegisters(const RegID* selection, size_t count, uint16_t* data) {
+
+/**
+ * @fn bool readMultipleRegisters(const RegID* selection, size_t count, uint16_t* data)
+ * 
+ * @brief Read multiple registers from the sensor and store values in the provided array.
+ * 
+ * @param selection Pointer to the array of RegID indicating which registers to read.
+ * @param count Number of registers to read (length of selection and data arrays).
+ * @param data Pointer to the array where read register values will be stored.
+ * 
+ * @return bool True if read was successful and all registers were read, false otherwise.
+ */
+bool readMultipleRegisters(const RegID* selection, size_t count, uint16_t* data) 
+{
     // Use the acquisition system to read registers
     DecodedValues result = readRequest(selection, count);
     
