@@ -129,7 +129,7 @@ bool ProtocolAdapter::parseResponse(String response) {
     return false;
   }
 
-  StaticJsonDocument<200> doc;
+  JsonDocument doc;
   DeserializationError error = deserializeJson(doc, response);
 
   if (error) {
