@@ -133,9 +133,9 @@ bool ProtocolAdapter::sendRequest(const char* url, const char* frameHex, char* o
     bool ok = false;
     if (httpResponseCode > 0) 
     {
-      debug.log("Response code: %d\n", httpResponseCode);
+      //debug.log("Response code: %d\n", httpResponseCode);
       String response = http.getString();
-      debug.log("HTTP response: %s\n", response.c_str());
+      //debug.log("HTTP response: %s\n", response.c_str());
       // Convert String response to char array
       if (outResponseJson && outSize > 0) {
         size_t copyLen = (response.length() < (outSize-1)) ? response.length() : (outSize-1);
@@ -183,11 +183,11 @@ bool ProtocolAdapter::parseResponse(const char* response, char* outFrameHex, siz
 {
 
   size_t resp_len = response ? strlen(response) : 0;
-  debug.log("Raw HTTP response: %s\n", response ? response : "(null)");
-  debug.log("HTTP response length: %u\n", (unsigned)resp_len);
-  debug.log("HTTP response hex: ");
+  //debug.log("Raw HTTP response: %s\n", response ? response : "(null)");
+  //debug.log("HTTP response length: %u\n", (unsigned)resp_len);
+  //debug.log("HTTP response hex: ");
   for (size_t i = 0; i < resp_len && i < 32; ++i) {
-    debug.log("%02X ", (unsigned char)response[i]);
+    //debug.log("%02X ", (unsigned char)response[i]);
   }
   debug.log("\n");
   if (!response || response[0] == '\0') 
