@@ -183,6 +183,13 @@ bool OTAManager::downloadAndApplyFirmware()
     progress.percentage = 0;
     progress.state = OTA_DOWNLOADING;
     
+    // Clear any stored NVS progress to ensure clean start
+    if (nvs.begin("ota_progress", false)) {
+        nvs.clear();
+        nvs.end();
+        Serial.println("Cleared previous OTA progress from NVS");
+    }
+    
     // Get OTA partition information
     const esp_partition_t* ota_partition = esp_ota_get_next_update_partition(NULL);
     if (ota_partition == NULL) {
@@ -211,22 +218,33 @@ bool OTAManager::downloadAndApplyFirmware()
     
     Serial.println("OTA partition initialized successfully");
     
-    // Set AES decryption key
+    // Configure AES decryption key
     int aes_result = mbedtls_aes_setkey_dec(&aes_ctx, AES_FIRMWARE_KEY, 256);
     if (aes_result != 0) {
-        setError("AES key setup failed");
+        setError("AES key configuration failed");
         Serial.printf("ERROR: AES key setup failed: %d\n", aes_result);
         return false;
     }
     
+    // Reset IV to original value for streaming decryption
+    // The IV from manifest should be used as the starting IV
+    uint8_t ivBuffer[16];
+    int ivLen = base64_decode(manifest.iv.c_str(), ivBuffer, sizeof(ivBuffer));
+    if (ivLen == 16) {
+        memcpy(aes_iv, ivBuffer, 16);
+        Serial.println("AES IV reset for streaming decryption");
+    }
+    
     Serial.println("AES decryption key configured");
     
-    // Start download from last received chunk (for resume)
-    uint16_t startChunk = progress.chunks_received;
+    // Always start from chunk 0 (disable resume to debug decryption)
+    uint16_t startChunk = 0;
+    progress.chunks_received = 0;
+    progress.bytes_downloaded = 0;
     unsigned long startTime = millis();
     unsigned long lastProgressTime = startTime;
     
-    Serial.printf("Starting download from chunk %u to %u\n", startChunk, manifest.total_chunks - 1);
+    Serial.printf("Starting download from chunk %u to %u (resume disabled)\n", startChunk, manifest.total_chunks - 1);
     
     // Download chunks
     for (uint16_t chunk = startChunk; chunk < manifest.total_chunks; chunk++) {
@@ -282,12 +300,25 @@ bool OTAManager::downloadAndApplyFirmware()
     Serial.println("\n*** DOWNLOAD COMPLETED ***");
     Serial.printf("Total time: %lu seconds\n", totalTime);
     Serial.printf("Average speed: %.1f KB/s\n", avgSpeed);
-    Serial.printf("Total bytes: %u\n", progress.bytes_downloaded);
+    Serial.printf("Total bytes written: %u\n", progress.bytes_downloaded);
+    Serial.printf("Expected firmware size: %u bytes\n", manifest.original_size);
+    Serial.printf("Update progress: %u bytes\n", Update.progress());
+    Serial.printf("Update size: %u bytes\n", Update.size());
+    Serial.printf("Update remaining: %d bytes\n", Update.remaining());
+    
+    // Verify we wrote the expected amount
+    if (progress.bytes_downloaded != manifest.original_size) {
+        Serial.printf("WARNING: Size mismatch - wrote %u, expected %u\n", 
+                     progress.bytes_downloaded, manifest.original_size);
+    }
     
     // Finalize OTA
+    Serial.println("Calling Update.end()...");
     if (!Update.end()) {
         setError("OTA finalization failed: " + String(Update.errorString()));
         Serial.printf("ERROR: Update.end() failed: %s\n", Update.errorString());
+        Serial.printf("Update hasError: %s\n", Update.hasError() ? "YES" : "NO");
+        Serial.printf("Update getError: %u\n", Update.getError());
         return false;
     }
     
@@ -349,11 +380,22 @@ bool OTAManager::downloadChunk(uint16_t chunkNumber)
     }
     
     // Decrypt chunk
+    Serial.printf("About to decrypt chunk %u (%d bytes)\n", chunkNumber, encryptedLen);
     size_t decryptedLen;
     if (!decryptChunk(encryptedChunk, encryptedLen, 
-                     decryptBuffer, &decryptedLen)) {
-        Serial.printf("Decryption failed for chunk %u\n", chunkNumber);
+                     decryptBuffer, &decryptedLen, chunkNumber)) {
+        Serial.printf("ERROR: Decryption failed for chunk %u\n", chunkNumber);
         return false;
+    }
+    Serial.printf("Chunk %u decrypted successfully (%u bytes)\n", chunkNumber, decryptedLen);
+    
+    // Debug: Print first few bytes of decrypted data for verification
+    if (chunkNumber < 3) {
+        Serial.printf("Chunk %u decrypted (%u bytes): ", chunkNumber, decryptedLen);
+        for (int i = 0; i < 16 && i < decryptedLen; i++) {
+            Serial.printf("%02X ", decryptBuffer[i]);
+        }
+        Serial.println();
     }
     
     // Write decrypted data to OTA partition
@@ -361,6 +403,7 @@ bool OTAManager::downloadChunk(uint16_t chunkNumber)
     if (written != decryptedLen) {
         Serial.printf("Write error for chunk %u: expected %u, wrote %u\n", 
                      chunkNumber, decryptedLen, written);
+        Serial.printf("Update error: %s\n", Update.errorString());
         return false;
     }
     
@@ -370,22 +413,27 @@ bool OTAManager::downloadChunk(uint16_t chunkNumber)
     return true;
 }
 
-// Decrypt firmware chunk using AES-256-CBC
-bool OTAManager::decryptChunk(const uint8_t* encrypted, size_t encLen, uint8_t* decrypted, size_t* decLen)
+// Decrypt firmware chunk using AES-256-CBC (streaming mode)
+bool OTAManager::decryptChunk(const uint8_t* encrypted, size_t encLen, uint8_t* decrypted, size_t* decLen, uint16_t chunkNumber)
 {
+    Serial.printf("decryptChunk: Entering with %u bytes for chunk %u\n", encLen, chunkNumber);
+    
     // Check buffer size
     if (encLen > DECRYPT_BUFFER_SIZE) {
         Serial.printf("ERROR: Encrypted chunk too large: %u bytes (max %u)\n", encLen, DECRYPT_BUFFER_SIZE);
         return false;
     }
     
-    // Copy IV to local buffer (mbedtls modifies IV during decryption)
-    uint8_t iv_copy[16];
-    memcpy(iv_copy, aes_iv, 16);
+    // For streaming AES-CBC, we need to maintain IV state across chunks
+    // The IV is automatically updated by mbedtls during decryption
     
-    // Decrypt using AES-256-CBC
+    Serial.printf("decryptChunk: About to call mbedtls_aes_crypt_cbc\n");
+    
+    // Decrypt using AES-256-CBC in streaming mode
     int result = mbedtls_aes_crypt_cbc(&aes_ctx, MBEDTLS_AES_DECRYPT, encLen,
-                                      iv_copy, encrypted, decrypted);
+                                      aes_iv, encrypted, decrypted);
+    
+    Serial.printf("decryptChunk: mbedtls_aes_crypt_cbc returned %d\n", result);
     
     if (result != 0) {
         Serial.printf("ERROR: AES decryption failed: %d\n", result);
@@ -394,8 +442,11 @@ bool OTAManager::decryptChunk(const uint8_t* encrypted, size_t encLen, uint8_t* 
     
     *decLen = encLen;
     
-    // Remove PKCS7 padding (only on last chunk)
-    bool isLastChunk = (progress.chunks_received == manifest.total_chunks - 1);
+    // Remove PKCS7 padding ONLY on the very last chunk
+    bool isLastChunk = (chunkNumber == (manifest.total_chunks - 1));
+    Serial.printf("decryptChunk: chunk=%u, total=%u, isLast=%s\n", 
+                 chunkNumber, manifest.total_chunks, isLastChunk ? "YES" : "NO");
+    
     if (isLastChunk && encLen > 0) {
         uint8_t paddingLen = decrypted[encLen - 1];
         
@@ -816,6 +867,20 @@ void OTAManager::reset()
     
     // Clear manifest
     memset(&manifest, 0, sizeof(manifest));
+    
+    // Clear NVS progress data
+    if (nvs.begin("ota_progress", false)) {
+        nvs.clear();
+        nvs.end();
+        Serial.println("Cleared OTA progress from NVS");
+    }
+    
+    // Clear NVS manifest data  
+    if (nvs.begin("ota_manifest", false)) {
+        nvs.clear();
+        nvs.end();
+        Serial.println("Cleared OTA manifest from NVS");
+    }
     
     // Reset OTA handle if active
     if (ota_handle != 0) {

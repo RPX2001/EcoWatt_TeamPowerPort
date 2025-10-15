@@ -112,9 +112,9 @@ class FirmwareManager:
         Returns:
             Dict: Firmware manifest with metadata
         """
-        print(f"\n🚀 Preparing firmware for OTA update")
-        print(f"   📄 Binary file: {bin_file_path}")
-        print(f"   🔖 Version: {version}")
+        print(f"\nPreparing firmware for OTA update")
+        print(f"  Binary file: {bin_file_path}")
+        print(f"  Version: {version}")
         
         # Validate input file
         bin_path = Path(bin_file_path)
@@ -183,15 +183,12 @@ class FirmwareManager:
         return manifest
     
     def _sign_firmware_hash(self, sha256_hash: str) -> bytes:
-        """Sign firmware hash with RSA private key using PSS padding."""
+        """Sign firmware hash with RSA private key using PKCS#1 v1.5 padding."""
         hash_bytes = bytes.fromhex(sha256_hash)
         
         signature = self.private_key.sign(
             hash_bytes,
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
-            ),
+            padding.PKCS1v15(),  # Changed from PSS to PKCS#1 v1.5 for ESP32 compatibility
             hashes.SHA256()
         )
         

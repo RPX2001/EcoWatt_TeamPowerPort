@@ -122,7 +122,7 @@ private:
     bool httpPost(const String& endpoint, const String& payload, String& response);
     
     // Private methods - Cryptographic operations
-    bool decryptChunk(const uint8_t* encrypted, size_t encLen, uint8_t* decrypted, size_t* decLen);
+    bool decryptChunk(const uint8_t* encrypted, size_t encLen, uint8_t* decrypted, size_t* decLen, uint16_t chunkNumber);
     bool verifySignature(const String& base64Signature);
     bool verifyFirmwareHash();
     bool verifyRSASignature(const uint8_t* hash, const uint8_t* signature);
