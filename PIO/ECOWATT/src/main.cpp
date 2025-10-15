@@ -7,6 +7,7 @@
 #include "application/compression_benchmark.h"
 #include "application/nvs.h"
 #include "application/OTAManager.h"
+#include "application/security.h"
 
 Arduino_Wifi Wifi;
 RingBuffer<SmartCompressedData, 20> smartRingBuffer;
@@ -132,6 +133,10 @@ void setup()
   timerAlarmEnable(ota_timer);
   
   print("OTA timer configured (6-hour interval)\n");
+
+  // Initialize Security Layer
+  print("Initializing Security Layer...\n");
+  SecurityLayer::init();
 
   // Reading values from the nvs
   size_t registerCount = nvs::getReadRegCount();
@@ -711,7 +716,23 @@ void uploadSmartCompressedDataToCloud() {
         totalOriginalBytes, totalCompressedBytes,
         (totalOriginalBytes > 0) ? (1.0f - (float)totalCompressedBytes / (float)totalOriginalBytes) * 100.0f : 0.0f);
     
-    int httpResponseCode = http.POST((uint8_t*)jsonString, jsonLen);
+    // Apply security layer
+    char securedPayload[4096];
+    if (!SecurityLayer::securePayload(jsonString, securedPayload, sizeof(securedPayload))) {
+        print("Failed to secure payload!\n");
+        http.end();
+        
+        // Restore data to buffer
+        for (const auto& entry : allData) {
+            smartRingBuffer.push(entry);
+        }
+        smartStats.compressionFailures++;
+        return;
+    }
+    
+    print("Payload secured. Secured size: %zu bytes\n", strlen(securedPayload));
+    
+    int httpResponseCode = http.POST((uint8_t*)securedPayload, strlen(securedPayload));
     
     if (httpResponseCode == 200) {
         String response = http.getString();
