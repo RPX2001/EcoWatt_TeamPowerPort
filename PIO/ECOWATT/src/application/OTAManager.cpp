@@ -696,44 +696,21 @@ bool OTAManager::verifyAndReboot()
     
     Serial.println("✓ Firmware signature verified");
     
-    // Mark the new firmware as valid
-    esp_err_t result = esp_ota_end(ota_handle);
-    if (result != ESP_OK) {
-        Serial.printf("ERROR: OTA end failed: %s\n", esp_err_to_name(result));
-        setOTAState(OTA_ERROR);
-        return false;
-    }
-    
-    // Get the partition that was just written
-    const esp_partition_t* update_partition = esp_ota_get_next_update_partition(NULL);
-    if (!update_partition) {
-        Serial.println("ERROR: Could not get update partition");
-        setOTAState(OTA_ERROR);
-        return false;
-    }
-    
-    // Set boot partition to the new firmware
-    result = esp_ota_set_boot_partition(update_partition);
-    if (result != ESP_OK) {
-        Serial.printf("ERROR: Failed to set boot partition: %s\n", esp_err_to_name(result));
-        setOTAState(OTA_ERROR);
-        return false;
-    }
-    
-    Serial.printf("✓ Boot partition set to: %s\n", update_partition->label);
+    // Update.end() has already finalized the OTA and set the boot partition
+    // The Arduino Update library handles everything internally
     
     // Store update completion flag
     setOTAState(OTA_COMPLETED);
     
     Serial.println("=== OTA UPDATE SUCCESSFUL ===");
     Serial.printf("Version: %s → %s\n", currentVersion.c_str(), manifest.version.c_str());
-    Serial.printf("Size: %u bytes\n", manifest.firmware_size);
+    Serial.printf("Size: %u bytes\n", manifest.original_size);
     Serial.println("Rebooting to apply update...");
     
     delay(2000); // Allow serial output to complete
     
     // Reboot to apply the update
-    esp_restart();
+    ESP.restart();
     
     return true; // This line will never be reached
 }
@@ -934,11 +911,7 @@ void OTAManager::reset()
         Serial.println("Cleared OTA manifest from NVS");
     }
     
-    // Reset OTA handle if active
-    if (ota_handle != 0) {
-        esp_ota_abort(ota_handle);
-        ota_handle = 0;
-    }
+    // Arduino Update library handles cleanup automatically
     
     Serial.println("OTA Manager reset complete");
 }

@@ -9,11 +9,10 @@ import sys
 def main():
     # Initialize firmware manager
     fm = FirmwareManager('firmware', 'keys')
-    
-    # Prepare firmware version 1.0.4
-    firmware_file = '/Users/prabathwijethilaka/Sem7/Embedded/EcoWatt_TeamPowerPort/flask/firmware/firmware_v1.0.4.bin'
-    version = '1.0.4'
-    
+    # Prepare firmware version 1.0.5
+    firmware_file = '/Users/prabathwijethilaka/Sem7/Embedded/EcoWatt_TeamPowerPort/flask/firmware/firmware_v1.0.5.bin'
+    version = '1.0.5'
+
     print(f"\n{'='*60}")
     print(f"Preparing firmware: {firmware_file}")
     print(f"Version: {version}")
@@ -52,3 +51,5 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
+
+

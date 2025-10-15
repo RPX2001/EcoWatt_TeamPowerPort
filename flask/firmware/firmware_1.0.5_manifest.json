@@ -1,0 +1,11 @@
+{
+  "version": "1.0.5",
+  "original_size": 1013504,
+  "encrypted_size": 1013520,
+  "sha256_hash": "4fa053c3470563c291a5f406d82b565167f517968be8ec1ee0db2aba239604f2",
+  "signature": "FkE0kCRhfpPStaRRTaVdfOwwovqlH/WyMqNiVJNrqrbNGb4A7e5xW4bU8+LDOXjHDB4ah9dYOlW34Y41TFKzFs9/N9eHC+dpyOUVmu7wKOj6FzhJCBl3q8Vbg9pEUMI0Ak4OTS4BCVa5bE075Y5yUv/7lozrEHPPchLdwjKn8rKh+HPKb479iEnPzJLnu+Fd3tL0FifSW0vwXr8+Q7wjPbNacWu+9skyQXrPNZpYRloBWtIQhZsb6rtGmhOI5AB10Uk8E/WFf9uYCB/72oo9PRbnQR1saFn4mJKMjY1L9nbkgE2N3PMhaqX6WsFtDTlV3NJ3oOHCEsNPfYY1xWt63A==",
+  "iv": "2Lq+OBu6bfmrybse6D48iw==",
+  "chunk_size": 1024,
+  "total_chunks": 990,
+  "timestamp": "2025-10-15T10:59:47.863198"
+}

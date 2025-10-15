@@ -109,8 +109,8 @@ private:
     mbedtls_aes_context aes_ctx;
     uint8_t aes_iv[16];
     
-    // OTA Handle
-    esp_ota_handle_t ota_handle;
+    // Note: Using Arduino Update library, not ESP-IDF OTA API
+    // esp_ota_handle_t not needed
     
     // Decryption buffer
     uint8_t* decryptBuffer;

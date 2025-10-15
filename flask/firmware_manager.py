@@ -42,10 +42,10 @@ class FirmwareManager:
         self.aes_key = self._load_aes_key()
         self.hmac_psk = self._load_hmac_psk()
         
-        print(f"✅ FirmwareManager initialized")
-        print(f"   📁 Firmware directory: {self.firmware_dir.absolute()}")
-        print(f"   🔐 Keys loaded from: {self.keys_dir.absolute()}")
-    
+        print(f"FirmwareManager initialized")
+        print(f"Firmware directory: {self.firmware_dir.absolute()}")
+        print(f"Keys loaded from: {self.keys_dir.absolute()}")
+
     def _load_rsa_private_key(self) -> rsa.RSAPrivateKey:
         """Load RSA private key from PEM file."""
         private_key_path = self.keys_dir / "server_private_key.pem"
@@ -60,7 +60,7 @@ class FirmwareManager:
                 backend=default_backend()
             )
         
-        print(f"   🔐 RSA private key loaded")
+        print(f"RSA private key loaded")
         return private_key
     
     def _load_aes_key(self) -> bytes:
@@ -76,7 +76,7 @@ class FirmwareManager:
         if len(aes_key) != 32:
             raise ValueError(f"Invalid AES key size: {len(aes_key)} bytes (expected 32)")
         
-        print(f"   🔒 AES-256 key loaded")
+        print(f"AES-256 key loaded")
         return aes_key
     
     def _load_hmac_psk(self) -> str:
@@ -97,7 +97,7 @@ class FirmwareManager:
                 end = line.rfind('"')
                 if start > 0 and end > start:
                     hmac_psk = line[start:end]
-                    print(f"   🛡️ HMAC PSK loaded")
+                    print(f"HMAC PSK loaded")
                     return hmac_psk
         
         raise ValueError("HMAC_PSK not found in keys.h")
@@ -123,42 +123,42 @@ class FirmwareManager:
             raise FileNotFoundError(f"Firmware binary not found: {bin_file_path}")
         
         # Read firmware binary
-        print(f"   📖 Reading firmware binary...")
+        print(f"Reading firmware binary...")
         with open(bin_path, 'rb') as f:
             firmware_data = f.read()
         
         original_size = len(firmware_data)
-        print(f"   📏 Original size: {original_size:,} bytes")
+        print(f"Original size: {original_size:,} bytes")
         
         # Step 1: Calculate SHA-256 hash
-        print(f"   🔍 Calculating SHA-256 hash...")
+        print(f"Calculating SHA-256 hash...")
         sha256_hash = hashlib.sha256(firmware_data).hexdigest()
-        print(f"   ✅ Hash: {sha256_hash[:16]}...")
+        print(f"Hash: {sha256_hash[:16]}...")
         
         # Step 2: Sign hash with RSA private key
-        print(f"   ✍️  Signing with RSA-2048...")
+        print(f" Signing with RSA-2048...")
         signature = self._sign_firmware_hash(sha256_hash)
         signature_b64 = base64.b64encode(signature).decode('utf-8')
-        print(f"   ✅ Signature generated ({len(signature)} bytes)")
+        print(f"Signature generated ({len(signature)} bytes)")
         
         # Step 3: Encrypt firmware with AES-256-CBC
-        print(f"   🔐 Encrypting with AES-256-CBC...")
+        print(f"Encrypting with AES-256-CBC...")
         encrypted_data, iv = self._encrypt_firmware(firmware_data)
         iv_b64 = base64.b64encode(iv).decode('utf-8')
         encrypted_size = len(encrypted_data)
-        print(f"   ✅ Encrypted size: {encrypted_size:,} bytes")
+        print(f"Encrypted size: {encrypted_size:,} bytes")
         
         # Step 4: Calculate chunking parameters
         chunk_size = 1024  # 1KB chunks as per guideline
         total_chunks = (encrypted_size + chunk_size - 1) // chunk_size  # Ceiling division
-        print(f"   📦 Chunking: {total_chunks} chunks of {chunk_size} bytes")
+        print(f"Chunking: {total_chunks} chunks of {chunk_size} bytes")
         
         # Step 5: Save encrypted firmware
         encrypted_filename = f"firmware_{version}_encrypted.bin"
         encrypted_path = self.firmware_dir / encrypted_filename
         with open(encrypted_path, 'wb') as f:
             f.write(encrypted_data)
-        print(f"   💾 Encrypted firmware saved: {encrypted_filename}")
+        print(f"Encrypted firmware saved: {encrypted_filename}")
         
         # Step 6: Create manifest
         manifest = {
@@ -178,18 +178,18 @@ class FirmwareManager:
         manifest_path = self.firmware_dir / manifest_filename
         with open(manifest_path, 'w') as f:
             json.dump(manifest, f, indent=2)
-        print(f"   📋 Manifest saved: {manifest_filename}")
+        print(f"Manifest saved: {manifest_filename}")
         
-        print(f"   ✅ Firmware preparation complete!")
+        print(f"Firmware preparation complete!")
         return manifest
     
     def _sign_firmware_hash(self, sha256_hash: str) -> bytes:
         """Sign firmware hash with RSA private key using PKCS#1 v1.5 padding."""
         hash_bytes = bytes.fromhex(sha256_hash)
         
-        print(f"   🔐 Signing hash: {sha256_hash}")
-        print(f"   📏 Hash bytes length: {len(hash_bytes)}")
-        print(f"   🔢 Hash bytes (first 16): {hash_bytes[:16].hex()}")
+        print(f"Signing hash: {sha256_hash}")
+        print(f"Hash bytes length: {len(hash_bytes)}")
+        print(f"Hash bytes (first 16): {hash_bytes[:16].hex()}")
         
         # Use Prehashed() because we're signing an already-computed hash
         # Without Prehashed(), Python would hash the hash again!
@@ -199,8 +199,8 @@ class FirmwareManager:
             Prehashed(hashes.SHA256())  # Tell Python this is already hashed
         )
         
-        print(f"   ✍️  Signature length: {len(signature)}")
-        print(f"   🔢 Signature (first 16): {signature[:16].hex()}")
+        print(f"Signature length: {len(signature)}")
+        print(f"Signature (first 16): {signature[:16].hex()}")
         
         return signature
     
@@ -346,13 +346,12 @@ def main():
     
     if len(sys.argv) != 3:
         print("Usage: python3 firmware_manager.py <firmware.bin> <version>")
-        print("Example: python3 firmware_manager.py ../build/firmware.bin 1.0.3")
         return 1
     
     firmware_path = sys.argv[1]
     version = sys.argv[2]
     
-    print("🚀 EcoWatt FOTA Firmware Manager - Standalone Test")
+    print("EcoWatt FOTA Firmware Manager - Standalone Test")
     print("="*60)
     
     try:
@@ -366,16 +365,16 @@ def main():
         print(f"\n🔍 Testing chunk retrieval...")
         chunk_0 = fm.get_chunk(version, 0)
         if chunk_0:
-            print(f"   ✅ Chunk 0: {chunk_0['size']} bytes, HMAC: {chunk_0['hmac'][:16]}...")
+            print(f"Chunk 0: {chunk_0['size']} bytes, HMAC: {chunk_0['hmac'][:16]}...")
         
         # List versions
         versions = fm.list_versions()
-        print(f"\n📋 Available versions: {versions}")
+        print(f"\nAvailable versions: {versions}")
         
-        print(f"\n✅ Firmware manager test completed successfully!")
+        print(f"\nFirmware manager test completed successfully!")
         
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\nError: {e}")
         return 1
     
     return 0
