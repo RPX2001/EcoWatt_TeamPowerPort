@@ -190,6 +190,13 @@ bool OTAManager::downloadAndApplyFirmware()
         Serial.println("Cleared previous OTA progress from NVS");
     }
     
+    // Ensure Update library is clean for new session
+    if (Update.isRunning()) {
+        Serial.println("Previous OTA session still active - cleaning up...");
+        Update.abort();
+        Serial.println("Previous OTA session aborted");
+    }
+    
     // Get OTA partition information
     const esp_partition_t* ota_partition = esp_ota_get_next_update_partition(NULL);
     if (ota_partition == NULL) {
@@ -557,6 +564,13 @@ bool OTAManager::verifySignature(const String& base64Signature)
         return false;
     }
     
+    // Debug: Print first 16 bytes of signature
+    Serial.print("Signature (first 16 bytes): ");
+    for (int i = 0; i < 16; i++) {
+        Serial.printf("%02x", signature[i]);
+    }
+    Serial.println();
+    
     // Calculate SHA-256 hash of the entire decrypted firmware
     uint8_t firmware_hash[32];
     mbedtls_sha256_context sha_ctx;
@@ -595,6 +609,16 @@ bool OTAManager::verifySignature(const String& base64Signature)
     mbedtls_sha256_finish(&sha_ctx, firmware_hash);
     mbedtls_sha256_free(&sha_ctx);
     
+    // Debug: Print calculated hash
+    Serial.print("ESP32 calculated hash: ");
+    for (int i = 0; i < 32; i++) {
+        Serial.printf("%02x", firmware_hash[i]);
+    }
+    Serial.println();
+    
+    // Debug: Print expected hash from manifest
+    Serial.printf("Server expected hash: %s\n", manifest.sha256_hash.c_str());
+    
     // Verify RSA signature against calculated hash
     return verifyRSASignature(firmware_hash, signature);
 }
@@ -613,13 +637,41 @@ bool OTAManager::verifyRSASignature(const uint8_t* hash, const uint8_t* signatur
         return false;
     }
     
+    // Debug: Print hash being verified
+    Serial.print("Hash for verification: ");
+    for (int i = 0; i < 32; i++) {
+        Serial.printf("%02x", hash[i]);
+    }
+    Serial.println();
+    
+    // Debug: Print signature being verified
+    Serial.print("Signature for verification (first 32 bytes): ");
+    for (int i = 0; i < 32; i++) {
+        Serial.printf("%02x", signature[i]);
+    }
+    Serial.println();
+    
+    Serial.printf("Signature length: %u bytes\n", RSA_KEY_SIZE / 8);
+    
+    // Debug: Check key type and size
+    mbedtls_pk_type_t key_type = mbedtls_pk_get_type(&pk);
+    size_t key_bits = mbedtls_pk_get_bitlen(&pk);
+    Serial.printf("RSA key type: %d, bits: %zu\n", key_type, key_bits);
+    
     // Verify RSA signature using PKCS#1 v1.5 padding with SHA-256
     result = mbedtls_pk_verify(&pk, MBEDTLS_MD_SHA256, hash, 32, signature, RSA_KEY_SIZE / 8);
     
     mbedtls_pk_free(&pk);
     
     if (result != 0) {
-        Serial.printf("ERROR: RSA signature verification failed: %d\n", result);
+        Serial.printf("ERROR: RSA signature verification failed: %d (0x%X)\n", result, result);
+        Serial.printf("Hash length: 32, Signature length: %d\n", RSA_KEY_SIZE / 8);
+        
+        // Common mbedtls error codes
+        if (result == -0x4380) Serial.println("-> MBEDTLS_ERR_RSA_VERIFY_FAILED");
+        if (result == -0x4300) Serial.println("-> MBEDTLS_ERR_RSA_PUBLIC_FAILED");  
+        if (result == -0x4280) Serial.println("-> MBEDTLS_ERR_RSA_PRIVATE_FAILED");
+        
         return false;
     }
     

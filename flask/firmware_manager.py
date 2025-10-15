@@ -15,6 +15,7 @@ from typing import Optional, Dict, List
 
 from cryptography.hazmat.primitives import serialization, hashes, padding as crypto_padding
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
@@ -186,11 +187,20 @@ class FirmwareManager:
         """Sign firmware hash with RSA private key using PKCS#1 v1.5 padding."""
         hash_bytes = bytes.fromhex(sha256_hash)
         
+        print(f"   🔐 Signing hash: {sha256_hash}")
+        print(f"   📏 Hash bytes length: {len(hash_bytes)}")
+        print(f"   🔢 Hash bytes (first 16): {hash_bytes[:16].hex()}")
+        
+        # Use Prehashed() because we're signing an already-computed hash
+        # Without Prehashed(), Python would hash the hash again!
         signature = self.private_key.sign(
             hash_bytes,
-            padding.PKCS1v15(),  # Changed from PSS to PKCS#1 v1.5 for ESP32 compatibility
-            hashes.SHA256()
+            padding.PKCS1v15(),  # PKCS#1 v1.5 for ESP32 mbedtls compatibility
+            Prehashed(hashes.SHA256())  # Tell Python this is already hashed
         )
+        
+        print(f"   ✍️  Signature length: {len(signature)}")
+        print(f"   🔢 Signature (first 16): {signature[:16].hex()}")
         
         return signature
     

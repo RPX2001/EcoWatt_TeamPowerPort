@@ -1,11 +1,11 @@
 {
   "version": "1.0.4",
-  "original_size": 1030816,
-  "encrypted_size": 1030832,
-  "sha256_hash": "32578bf6c3a73bf34f663add3018df557e28698a680ac1145278b54b5810af13",
-  "signature": "GmS6OyTmxUW/2Gp7/IX3WhuHb9ZKYFwviyrJFIFMO31P/ESb1zw8Z0eJkkIOufXh4FgQo7Ltg0pBvLzfZdhDkVjD3SlVSEP2ijWAP+LyJ0qKhb57zfyDtgYa3PJ/qWoIWo0U5ryA5KAHM8JHkBALWxxwKWRFVHtxsxclYcZYproZtd5x5p4hzLsCvlTh4ig/AJ+rht0DHtdg0lYJxz8GPlNOVB/ET3muWoGSed03u+ek324bGAB7s/cUKhJWB6jVesdpCJJvmYghmMNrpvvsoyT+JmLGAWdv64vjr+qVivuqBqbziruypXaZH64TZY+4+ioodoLl4bI5mgpGyv/E9Q==",
-  "iv": "dxl/FwvZDRyObUFoz44OvA==",
+  "original_size": 1013920,
+  "encrypted_size": 1013936,
+  "sha256_hash": "0006dec671e04be987ae43fb13bb58c42850223af089359c63dbea515b0f9289",
+  "signature": "bi9vuc6xMwKetZyLMa6bcBUJo2OXQVIOboTnkXB/zp4aP5EA2ZEYFC5zMhycJXFXb+vAy0xeJa8d8UtQDmkSzJsSditIpysd2qrOcR+rP3andLxgYt1eCUfKNKgexSHumV4e3r22pH59qwtu2rsxYSYb4D67msvcZA9EKley3TYpyXGvVB1ljU6xndUohEERNId4AqUWPgXhFT/xAlLlSxcfxB4oTEJW3FnLh9K5bvtRzzJBzqERcrVBcB5l1UShfgFfiRKGTxmOkfjA2+PzbbnAyRy5S30gzl8Wa49n73NExH6Ah7z+EHSe3M9CuPZy9MR1rzGlTDDbJAH54xtugw==",
+  "iv": "/dk6aNHoqTusxqdUzFPduA==",
   "chunk_size": 1024,
-  "total_chunks": 1007,
-  "timestamp": "2025-10-14T18:15:23.533254"
+  "total_chunks": 991,
+  "timestamp": "2025-10-15T09:58:30.035979"
 }
