@@ -11,8 +11,8 @@
 Arduino_Wifi Wifi;
 RingBuffer<SmartCompressedData, 20> smartRingBuffer;
 
-const char* dataPostURL = "http://10.228.113.129:5001/process";
-const char* fetchChangesURL = "http://10.228.113.129:5001/changes";
+const char* dataPostURL = "http://10.78.228.2:5001/process";
+const char* fetchChangesURL = "http://10.78.228.2:5001/changes";
 
 void Wifi_init();
 void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* sensorData);
