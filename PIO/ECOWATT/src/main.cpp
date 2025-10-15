@@ -10,8 +10,8 @@
 Arduino_Wifi Wifi;
 RingBuffer<SmartCompressedData, 20> smartRingBuffer;
 
-const char* dataPostURL = "http://10.243.4.129:5001/process";     // Your PC's actual IP address
-const char* fetchChangesURL = "http://10.243.4.129:5001/changes";  // Your PC's actual IP address
+const char* dataPostURL = "http://10.228.113.129:5001/process";
+const char* fetchChangesURL = "http://10.228.113.129:5001/changes";
 
 void Wifi_init();
 void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* sensorData);
@@ -139,6 +139,7 @@ void setup()
         pollFreq = nvs::getPollFreq();
         timerAlarmWrite(poll_timer, pollFreq, true);
         pollFreq_uptodate = true;
+        print("Poll frequency updated to %llu\n", pollFreq);
       }
 
       if (!uploadFreq_uptodate)
@@ -146,6 +147,7 @@ void setup()
         uploadFreq = nvs::getUploadFreq();
         timerAlarmWrite(upload_timer, uploadFreq, true);
         uploadFreq_uptodate = true;
+        print("Upload frequency updated to %llu\n", uploadFreq);
       }
 
       if (!registers_uptodate)
@@ -155,6 +157,7 @@ void setup()
         const RegID* selection = nvs::getReadRegs();
         sensorData = new uint16_t[registerCount];
         registers_uptodate = true;
+        print("Set to update %d registers in next cycle.\n", registerCount);
       }
     }
 
@@ -192,7 +195,7 @@ void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploa
     int httpResponseCode = http.POST((uint8_t*)requestBody, strlen(requestBody));
 
     if (httpResponseCode > 0) {
-        print("HTTP Response code: %d\n", httpResponseCode);
+        //print("HTTP Response code: %d\n", httpResponseCode);
 
         // Get response into a char buffer
         WiFiClient* stream = http.getStreamPtr();
@@ -211,8 +214,8 @@ void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploa
             }
         }
         responseBuffer[index] = '\0'; // null terminate
-        print("ChangedResponse:");
-        print(responseBuffer);
+        //print("ChangedResponse:");
+        //print(responseBuffer);
 
         StaticJsonDocument<1024> responsedoc;
 
@@ -228,18 +231,18 @@ void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploa
                 if (pollFreqChanged)
                 {
                     uint64_t new_poll_timer = responsedoc["newPollTimer"] | 0;
-                    nvs::changePollFreq(new_poll_timer);
+                    nvs::changePollFreq(new_poll_timer * 1000000);
                     *pollFreq_uptodate = false;
-                    print("Poll timer set to update in next cycle\n");
+                    print("Poll timer set to update in next cycle %llu\n", new_poll_timer);
                 }
 
                 bool uploadFreqChanged = responsedoc["uploadFreqChanged"] | false;
                 if (uploadFreqChanged)
                 {
                     uint64_t new_upload_timer = responsedoc["newUploadTimer"] | 0;
-                    nvs::changeUploadFreq(new_upload_timer);
+                    nvs::changeUploadFreq(new_upload_timer * 1000000);
                     *uploadFreq_uptodate = false;
-                    print("Upload timer set to update in next cycle\n");
+                    print("Upload timer set to update in next cycle %llu\n", new_upload_timer);
                 }
 
                 bool regsChanged = responsedoc["regsChanged"] | false;
@@ -529,7 +532,7 @@ void printSmartPerformanceStatistics() {
     print("  Temporal: %lu\n", smartStats.temporalUsed);
     print("  Semantic: %lu\n", smartStats.semanticUsed);
     print("  BitPack: %lu\n", smartStats.bitpackUsed);
-    print("=====================================\n");
+    print("=====================================\n\n");
 }
 
 
@@ -643,7 +646,7 @@ void uploadSmartCompressedDataToCloud() {
     if (httpResponseCode == 200) {
         String response = http.getString();
         print("Upload successful to Flask server!\n");
-        print("Server response: %s\n", response.c_str());
+        //print("Server response: %s\n", response.c_str());
         smartStats.losslessSuccesses++;
     } else {
         print("Upload failed (HTTP %d)\n", httpResponseCode);
@@ -723,12 +726,14 @@ std::vector<uint8_t> compressBatchWithSmartSelection(const SampleBatch& batch,
     batch.toLinearArray(linearData);
     
     // Display original values clearly
+    /*
     print("ORIGINAL SENSOR VALUES:\n");
     for (size_t i = 0; i < batch.sampleCount; i++) {
         print("Sample %zu: VAC1=%u, IAC1=%u, IPV1=%u, PAC=%u, IPV2=%u, TEMP=%u\n",
                       i+1, batch.samples[i][0], batch.samples[i][1], batch.samples[i][2],
                       batch.samples[i][3], batch.samples[i][4], batch.samples[i][5]);
     }
+    */
     
     // Create register selection array for the batch
     RegID batchSelection[30];
