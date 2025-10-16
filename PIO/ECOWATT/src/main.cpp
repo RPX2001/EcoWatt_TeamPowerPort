@@ -73,7 +73,7 @@ volatile bool ota_token = false;
 // #define OTA_CHECK_INTERVAL 21600000000ULL  // 6 hours in microseconds
 #define OTA_CHECK_INTERVAL 60000000ULL  // 1 min in microseconds
 
-#define FIRMWARE_VERSION "1.0.6"
+#define FIRMWARE_VERSION "1.0.3"
 
 void IRAM_ATTR onOTATimer() {
     ota_token = true;
