@@ -329,6 +329,7 @@ import struct
 from datetime import datetime
 import logging
 import threading
+from server_security_layer import verify_secured_payload, is_secured_payload, SecurityError
 
 # Import firmware manager for OTA functionality
 from firmware_manager import FirmwareManager
@@ -776,8 +777,25 @@ def process_register_data(registers, decompressed_values):
 @app.route('/process', methods=['POST'])
 def process_compressed_data():
     try:
-        data = request.get_json()
+        # Get raw data first
+        raw_data = request.get_data(as_text=True)
+        data = json.loads(raw_data)
         
+        # ===== SECURITY LAYER: Check if payload is secured =====
+        if is_secured_payload(data):
+            logger.info("🔒 Detected secured payload - removing security layer...")
+            try:
+                # Verify and extract original payload
+                original_json = verify_secured_payload(raw_data, "ESP32_EcoWatt_Smart")
+                data = json.loads(original_json)
+                logger.info(f"✓ Security verification successful!")
+            except SecurityError as e:
+                logger.error(f"✗ Security verification failed: {e}")
+                return jsonify({'error': f'Security verification failed: {str(e)}'}), 401
+        else:
+            logger.info("No security layer detected - processing as plain JSON")
+        
+        # ===== Continue with normal decompression =====
         # Log basic payload info
         logger.info(f"Processing payload with {len(data)} keys")
         
