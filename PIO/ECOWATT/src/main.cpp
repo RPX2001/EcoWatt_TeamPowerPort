@@ -7,12 +7,14 @@
 #include "application/compression_benchmark.h"
 #include "application/nvs.h"
 #include "application/OTAManager.h"
+#include "application/credentials.h"
 
 Arduino_Wifi Wifi;
 RingBuffer<SmartCompressedData, 20> smartRingBuffer;
 
 const char* dataPostURL = "http://10.78.228.2:5001/process";
 const char* fetchChangesURL = "http://10.78.228.2:5001/changes";
+
 
 void Wifi_init();
 void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* sensorData);
@@ -284,8 +286,8 @@ void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploa
             }
         }
         responseBuffer[index] = '\0'; // null terminate
-        //print("ChangedResponse:");
-        //print(responseBuffer);
+        print("ChangedResponse:");
+        print(responseBuffer);
 
         StaticJsonDocument<1024> responsedoc;
 
@@ -371,8 +373,8 @@ void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploa
  */
 void Wifi_init()
 {
-  Wifi.setSSID("HydroBK");
-  Wifi.setPassword("Hydrolink123");
+  Wifi.setSSID(WIFI_SSID);
+  Wifi.setPassword(WIFI_PASSWORD);
   Wifi.begin();
 }
 
