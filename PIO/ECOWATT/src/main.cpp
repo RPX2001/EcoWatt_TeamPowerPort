@@ -8,6 +8,7 @@
 #include "application/nvs.h"
 #include "application/OTAManager.h"
 #include "application/credentials.h"
+#include "application/security.h"
 
 Arduino_Wifi Wifi;
 RingBuffer<SmartCompressedData, 20> smartRingBuffer;
@@ -116,10 +117,14 @@ void setup()
 
   Wifi_init();
 
+  // Initialize Security Layer
+  print("Initializing Security Layer...\n");
+  SecurityLayer::init();
+
   // Initialize OTA Manager
   print("Initializing OTA Manager...\n");
   otaManager = new OTAManager(
-      "http://10.78.228.2:5001",    // Flask server URL
+      FLASK_SERVER_URL ":5001",    // Flask server URL
       "ESP32_EcoWatt_Smart",         // Device ID
       FIRMWARE_VERSION               // Current version
   );
@@ -727,10 +732,26 @@ void uploadSmartCompressedDataToCloud() {
     }
     print("================================\n\n");
     
-    // Print the actual JSON being sent
-    print("JSON Payload:\n%s\n", jsonString);
+    // Apply Security Layer
+    // Use dynamic allocation to avoid stack overflow
+    char* securedPayload = new char[8192];
+    if (!securedPayload) {
+        print("Failed to allocate memory for secured payload! Aborting upload.\n");
+        http.end();
+        return;
+    }
     
-    int httpResponseCode = http.POST((uint8_t*)jsonString, jsonLen);
+    if (!SecurityLayer::securePayload(jsonString, securedPayload, 8192)) {
+        print("Failed to secure payload! Aborting upload.\n");
+        delete[] securedPayload;
+        http.end();
+        return;
+    }
+    
+    print("Security Layer: Payload secured successfully\n");
+    print("Secured Payload Size: %zu bytes\n", strlen(securedPayload));
+    
+    int httpResponseCode = http.POST((uint8_t*)securedPayload, strlen(securedPayload));
     
     if (httpResponseCode == 200) {
         String response = http.getString();
@@ -752,6 +773,8 @@ void uploadSmartCompressedDataToCloud() {
         smartStats.compressionFailures++;
     }
     
+    // Clean up dynamically allocated memory
+    delete[] securedPayload;
     http.end();
 }
 

@@ -86,7 +86,7 @@ class FirmwareManager:
         if not keys_header_path.exists():
             raise FileNotFoundError(f"Keys header not found: {keys_header_path}")
         
-        with open(keys_header_path, 'r') as f:
+        with open(keys_header_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
         # Extract HMAC_PSK from C header
