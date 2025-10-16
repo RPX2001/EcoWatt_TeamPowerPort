@@ -329,6 +329,10 @@ import struct
 from datetime import datetime
 import logging
 import threading
+import hmac
+import hashlib
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
 
 # Import firmware manager for OTA functionality
 from firmware_manager import FirmwareManager
@@ -338,6 +342,118 @@ app = Flask(__name__)
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# SECURITY LAYER - Matches ESP32 SecurityLayer implementation
+# ============================================================================
+
+# Pre-shared keys (must match ESP32 exactly)
+PSK_HMAC = bytes([
+    0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
+    0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c,
+    0x76, 0x2e, 0x71, 0x60, 0xf3, 0x8b, 0x4d, 0xa5,
+    0x6a, 0x78, 0x4d, 0x90, 0x45, 0x19, 0x0c, 0xfe
+])
+
+PSK_AES = bytes([
+    0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
+    0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c
+])
+
+AES_IV = bytes([
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+    0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f
+])
+
+# Nonce tracking for anti-replay protection
+last_valid_nonce = 10000  # Start from same value as ESP32
+nonce_lock = threading.Lock()
+
+def verify_and_remove_security(secured_payload_str):
+    """
+    Verify HMAC and decrypt (if encrypted) the secured payload from ESP32.
+    
+    Args:
+        secured_payload_str: JSON string with format {"nonce": int, "payload": base64, "mac": hex, "encrypted": bool}
+    
+    Returns:
+        tuple: (success: bool, decrypted_payload: str or None, error_message: str or None)
+    """
+    global last_valid_nonce
+    
+    try:
+        # Parse the secured JSON
+        secured_data = json.loads(secured_payload_str)
+        
+        # Extract fields
+        nonce = secured_data.get('nonce')
+        encoded_payload = secured_data.get('payload')
+        received_mac = secured_data.get('mac')
+        is_encrypted = secured_data.get('encrypted', False)
+        
+        if nonce is None or encoded_payload is None or received_mac is None:
+            return False, None, "Missing required security fields (nonce, payload, or mac)"
+        
+        # Convert nonce to uint32
+        nonce = int(nonce)
+        
+        # Anti-replay protection: Check nonce
+        with nonce_lock:
+            if nonce <= last_valid_nonce:
+                return False, None, f"Replay attack detected! Nonce {nonce} <= last valid {last_valid_nonce}"
+        
+        # Decode the payload (it's base64 encoded)
+        try:
+            payload_bytes = base64.b64decode(encoded_payload)
+        except Exception as e:
+            return False, None, f"Failed to decode base64 payload: {e}"
+        
+        # Decrypt if needed
+        if is_encrypted:
+            # Real AES-128-CBC decryption
+            try:
+                cipher = AES.new(PSK_AES, AES.MODE_CBC, AES_IV)
+                decrypted_bytes = cipher.decrypt(payload_bytes)
+                # Remove PKCS7 padding
+                decrypted_bytes = unpad(decrypted_bytes, AES.block_size)
+                payload_plaintext = decrypted_bytes.decode('utf-8')
+            except Exception as e:
+                return False, None, f"AES decryption failed: {e}"
+        else:
+            # Mock encryption: payload is just base64-encoded plaintext
+            try:
+                payload_plaintext = payload_bytes.decode('utf-8')
+            except Exception as e:
+                return False, None, f"Failed to decode plaintext: {e}"
+        
+        # Verify HMAC
+        # Create data to verify: nonce (4 bytes big-endian) + payload_plaintext
+        nonce_bytes = struct.pack('>I', nonce)  # Big-endian uint32
+        data_to_verify = nonce_bytes + payload_plaintext.encode('utf-8')
+        
+        # Calculate expected HMAC
+        expected_hmac = hmac.new(PSK_HMAC, data_to_verify, hashlib.sha256).digest()
+        expected_hmac_hex = expected_hmac.hex()
+        
+        # Compare HMACs (constant-time comparison)
+        if not hmac.compare_digest(received_mac.lower(), expected_hmac_hex.lower()):
+            return False, None, "HMAC verification failed - data may be tampered!"
+        
+        # Update last valid nonce
+        with nonce_lock:
+            last_valid_nonce = nonce
+        
+        logger.info(f"Security verified: nonce={nonce}, encrypted={is_encrypted}")
+        return True, payload_plaintext, None
+        
+    except json.JSONDecodeError as e:
+        return False, None, f"Invalid JSON in secured payload: {e}"
+    except Exception as e:
+        return False, None, f"Security verification error: {e}"
+
+# ============================================================================
+# END SECURITY LAYER
+# ============================================================================
 
 # MQTT Configuration
 MQTT_BROKER = "broker.hivemq.com"
@@ -760,7 +876,36 @@ def process_register_data(registers, decompressed_values):
 @app.route('/process', methods=['POST'])
 def process_compressed_data():
     try:
-        data = request.get_json()
+        # Get raw data - could be secured or unsecured
+        raw_data = request.data.decode('utf-8')
+        
+        # Try to parse as JSON to check if it's a secured payload
+        try:
+            potential_secured = json.loads(raw_data)
+            
+            # Check if this is a secured payload (has nonce, payload, mac fields)
+            if all(key in potential_secured for key in ['nonce', 'payload', 'mac']):
+                logger.info("Detected secured payload - removing security layer...")
+                
+                # Verify and remove security layer
+                success, decrypted_payload, error = verify_and_remove_security(raw_data)
+                
+                if not success:
+                    logger.error(f"Security verification failed: {error}")
+                    return jsonify({
+                        'error': 'Security verification failed',
+                        'details': error
+                    }), 401
+                
+                # Parse the decrypted payload as JSON
+                data = json.loads(decrypted_payload)
+                logger.info("Security layer removed successfully!")
+            else:
+                # Not a secured payload, use as-is
+                data = potential_secured
+                logger.info("Processing unsecured payload")
+        except json.JSONDecodeError:
+            return jsonify({'error': 'Invalid JSON payload'}), 400
         
         # Log basic payload info
         logger.info(f"Processing payload with {len(data)} keys")

@@ -1,0 +1,13 @@
+# Flask Server Requirements for EcoWatt
+
+# Web Framework
+Flask==2.3.3
+
+# MQTT Client
+paho-mqtt==1.6.1
+
+# Cryptography (for security layer)
+pycryptodome==3.19.0
+
+# Additional utilities
+requests==2.31.0

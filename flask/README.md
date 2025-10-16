@@ -1,49 +1,131 @@
 # EcoWatt Cloud API Server
 
-A Flask-based cloud API server for processing compressed solar inverter data from ESP32 devices.
+A Flask-based cloud API server for processing compressed and secured solar inverter data from ESP32 devices.
 
 ## Overview
 
-The EcoWatt Cloud API receives compressed sensor data from ESP32 solar inverter monitoring devices, decompresses it using various algorithms, and publishes simplified register data to MQTT brokers for real-time monitoring.
+The EcoWatt Cloud API receives **secured and compressed** sensor data from ESP32 solar inverter monitoring devices. The server:
+1. **Verifies security layer** (HMAC authentication + anti-replay protection)
+2. **Decompresses data** using smart compression algorithms
+3. **Processes register data** with human-readable conversions
+4. **Publishes to MQTT** for real-time monitoring
+
+## 🔐 Security Layer (NEW)
+
+This server now includes **security layer verification** matching the ESP32 SecurityLayer implementation:
+
+- ✅ **HMAC-SHA256 Authentication**: Verifies data integrity and authenticity
+- ✅ **Anti-Replay Protection**: Nonce-based system prevents replay attacks
+- ✅ **AES-128-CBC Decryption**: Supports encrypted payloads (when enabled)
+- ✅ **Automatic Detection**: Handles both secured and unsecured payloads
+
+**See detailed documentation:**
+- [`SECURITY_LAYER_README.md`](SECURITY_LAYER_README.md) - Technical details
+- [`SECURITY_FLOW_DIAGRAM.md`](SECURITY_FLOW_DIAGRAM.md) - Visual flow
+- [`INTEGRATION_SUMMARY.md`](INTEGRATION_SUMMARY.md) - What changed
 
 ## Features
 
-- **Multi-format Decompression**: Dictionary+Bitmask, Bit-Packed, Raw Binary
+- **Security Layer**: HMAC verification, replay protection, AES decryption
+- **Multi-format Decompression**: Dictionary+Bitmask, Temporal, Semantic, Bit-Packed
 - **Batch Processing**: Handle 1-30 register values per compressed item
-- **MQTT Integration**: Publishes simplified data to HiveMQ broker
-- **Register Mapping**: Solar inverter register definitions with units
-- **Performance Tracking**: Compression ratio and timing metrics
+- **MQTT Integration**: Publishes data to HiveMQ broker
+- **Register Mapping**: Solar inverter registers with units and conversions
+- **OTA Updates**: Firmware management and updates
+- **Performance Tracking**: Compression ratios and timing metrics
 - **Health Monitoring**: Status and health check endpoints
 
 ## Quick Start
 
-### Prerequisites
+### 1. Install Dependencies
 
+**Option A - Automatic:**
 ```bash
-pip install flask paho-mqtt
+python install_dependencies.py
 ```
 
-### Running the Server
+**Option B - Manual:**
+```bash
+pip install -r requirements.txt
+```
+
+Required packages:
+- Flask (web framework)
+- paho-mqtt (MQTT client)
+- pycryptodome (AES/HMAC for security layer)
+- requests (HTTP client)
+
+### 2. Test Security Layer
+
+```bash
+python test_security.py
+```
+
+This creates a test secured payload to verify the security integration.
+
+### 3. Run the Server
 
 ```bash
 python flask_server_hivemq.py
 ```
 
-Server starts on: `http://10.40.99.2:5001`
+Server starts on: `http://0.0.0.0:5001`
 
-### Testing the API
+### 4. Test with Secured Data
 
 ```bash
-python api_client_example.py
+curl -X POST http://localhost:5001/process \
+     -H "Content-Type: application/json" \
+     -d @test_secured_payload.json
 ```
 
 ## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/process` | Process compressed sensor data |
+| POST | `/process` | Process compressed sensor data (secured or unsecured) |
 | GET | `/status` | Get server status and configuration |
 | GET | `/health` | Health check endpoint |
+| GET | `/changes` | Check for setting changes |
+| POST | `/ota/check` | Check for firmware updates |
+| GET | `/ota/download/:version` | Download firmware binary |
+
+## Data Flow
+
+```
+ESP32 Device
+    ↓ (1) Compress data
+    ↓ (2) Apply security layer (HMAC + optional AES)
+    ↓ (3) HTTP POST to /process
+Flask Server
+    ↓ (4) Detect security layer
+    ↓ (5) Verify HMAC & nonce
+    ↓ (6) Decrypt (if encrypted)
+    ↓ (7) Extract original JSON
+    ↓ (8) Decompress data
+    ↓ (9) Process registers
+    ↓ (10) Publish to MQTT
+```
+
+## Secured Payload Format
+
+When ESP32 sends secured data, the payload looks like:
+
+```json
+{
+  "nonce": 10001,
+  "payload": "eyJkZXZpY2VfaWQiOi4uLn0=",
+  "mac": "a1b2c3d4e5f6789abcdef...",
+  "encrypted": false
+}
+```
+
+The server automatically:
+1. Detects the security layer (presence of `nonce`, `payload`, `mac`)
+2. Verifies the nonce (must be > last valid nonce)
+3. Decodes the base64 payload
+4. Verifies the HMAC-SHA256
+5. Extracts the original JSON for processing
 
 ## Register Map
 
