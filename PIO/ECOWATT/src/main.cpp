@@ -4,6 +4,7 @@
 #include "peripheral/arduino_wifi.h"
 #include "application/ringbuffer.h"
 #include "application/compression.h"
+#include "application/aggregation.h"
 #include "application/compression_benchmark.h"
 #include "application/nvs.h"
 #include "application/OTAManager.h"
@@ -12,6 +13,11 @@ Arduino_Wifi Wifi;
 
 // RAW uncompressed data, compression happens at upload time
 RingBuffer<RawSensorData, 450> rawDataBuffer;  // 450 samples = 15 min at 2 sec/sample (or ~7.5 for 15sec demo)
+
+// Aggregation settings
+bool enableDataAggregation = true;      // Enable/disable aggregation before compression
+size_t targetAggregatedSamples = 50;    // Target samples after aggregation (450→50 = 9x reduction)
+DataAggregation::AggregationMethod aggMethod = DataAggregation::AGG_MEAN; // Default method
 
 const char* dataPostURL = "http://10.78.228.2:5001/process";
 const char* fetchChangesURL = "http://10.78.228.2:5001/changes";
@@ -30,6 +36,10 @@ void updateSmartPerformanceStatistics(const char* method, float academicRatio, u
 bool readMultipleRegisters(const RegID* selection, size_t count, uint16_t* data);
 void enhanceDictionaryForOptimalCompression();
 void checkChanges(bool* registers_uptodate, bool* pollFreq_uptodate, bool* uploadFreq_uptodate);
+std::vector<uint8_t> aggregateAndCompressRawData(unsigned long& compressionTime, char* methodUsed, size_t methodSize,
+                                                 float& academicRatio, float& traditionalRatio, 
+                                                 size_t& originalSize, bool enableAggregation, size_t targetSamples);
+void printAggregationStats(size_t originalSamples, size_t aggregatedSamples, size_t originalBytes, size_t aggregatedBytes);
 
 hw_timer_t *poll_timer = NULL;
 volatile bool poll_token = false;
@@ -401,8 +411,8 @@ void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* senso
 /**
  * @fn void upload_data()
  * 
- * @brief Compress all raw data in the buffer and upload to the cloud server.
- *        THIS IS WHERE COMPRESSION HAPPENS - not during acquisition.
+ * @brief Aggregate (optional) and compress all raw data in the buffer, then upload to cloud.
+ *        AGGREGATION + COMPRESSION HAPPENS HERE - not during acquisition.
  */
 void upload_data()
 {
@@ -415,15 +425,16 @@ void upload_data()
     
     print("Raw samples in buffer: %zu\n", rawDataBuffer.size());
     
-    // Compress all buffered raw data
+    // Aggregate and compress all buffered raw data
     unsigned long compressionTime;
     char methodUsed[32];
     float academicRatio, traditionalRatio;
     size_t originalSize;
     
-    std::vector<uint8_t> compressedData = compressRawDataBuffer(
+    std::vector<uint8_t> compressedData = aggregateAndCompressRawData(
         compressionTime, methodUsed, sizeof(methodUsed), 
-        academicRatio, traditionalRatio, originalSize);
+        academicRatio, traditionalRatio, originalSize,
+        enableDataAggregation, targetAggregatedSamples);
     
     if (!compressedData.empty()) {
         // Upload compressed data
@@ -559,6 +570,197 @@ std::vector<uint8_t> compressRawDataBuffer(unsigned long& compressionTime, char*
     delete[] linearRegisters;
     
     return compressed;
+}
+
+
+/**
+ * @fn std::vector<uint8_t> aggregateAndCompressRawData(...)
+ * 
+ * @brief Optionally aggregate raw data, then compress using smart selection.
+ *        This combines data aggregation with compression for maximum efficiency.
+ * 
+ * @param compressionTime Reference to store compression time in microseconds.
+ * @param methodUsed Buffer to store the compression method name.
+ * @param methodSize Size of methodUsed buffer.
+ * @param academicRatio Reference to store academic compression ratio.
+ * @param traditionalRatio Reference to store traditional compression ratio.
+ * @param originalSize Reference to store original data size in bytes.
+ * @param enableAggregation Enable/disable aggregation step.
+ * @param targetSamples Target number of samples after aggregation.
+ * 
+ * @return std::vector<uint8_t> Compressed data.
+ */
+std::vector<uint8_t> aggregateAndCompressRawData(unsigned long& compressionTime, char* methodUsed, size_t methodSize,
+                                                 float& academicRatio, float& traditionalRatio, 
+                                                 size_t& originalSize, bool enableAggregation, size_t targetSamples) {
+    unsigned long startTime = micros();
+    
+    // Extract all raw data from buffer
+    auto allRawData = rawDataBuffer.drain_all();
+    
+    if (allRawData.empty()) {
+        strncpy(methodUsed, "NONE", methodSize - 1);
+        methodUsed[methodSize - 1] = '\0';
+        originalSize = 0;
+        compressionTime = 0;
+        academicRatio = 1.0f;
+        traditionalRatio = 0.0f;
+        return std::vector<uint8_t>();
+    }
+    
+    print("\n%s RAW DATA AT UPLOAD TIME\n", enableAggregation ? "AGGREGATING + COMPRESSING" : "COMPRESSING");
+    print("====================================\n");
+    print("Original samples: %zu\n", allRawData.size());
+    
+    // Determine total data size
+    size_t totalValues = 0;
+    size_t registerCount = allRawData[0].registerCount;
+    
+    for (const auto& sample : allRawData) {
+        totalValues += sample.registerCount;
+    }
+    
+    originalSize = totalValues * sizeof(uint16_t);
+    print("Total values: %zu (%zu bytes)\n", totalValues, originalSize);
+    
+    // Create arrays to hold data
+    uint16_t* linearData = new uint16_t[totalValues];
+    RegID* linearRegisters = new RegID[totalValues];
+    
+    size_t index = 0;
+    for (const auto& sample : allRawData) {
+        for (size_t i = 0; i < sample.registerCount; i++) {
+            linearData[index] = sample.values[i];
+            linearRegisters[index] = sample.registers[i];
+            index++;
+        }
+    }
+    
+    // STEP 1: AGGREGATION (if enabled)
+    uint16_t* dataToCompress = linearData;
+    RegID* registersToCompress = linearRegisters;
+    size_t valuesToCompress = totalValues;
+    
+    uint16_t* aggregatedData = nullptr;
+    RegID* aggregatedRegisters = nullptr;
+    
+    if (enableAggregation && allRawData.size() > targetSamples) {
+        print("\n--- AGGREGATION PHASE ---\n");
+        print("Downsampling from %zu to %zu samples...\n", allRawData.size(), targetSamples);
+        
+        // Allocate for aggregated data
+        size_t aggregatedValues = targetSamples * registerCount;
+        aggregatedData = new uint16_t[aggregatedValues];
+        aggregatedRegisters = new RegID[aggregatedValues];
+        
+        // Aggregate each register separately
+        size_t aggIndex = 0;
+        for (size_t reg = 0; reg < registerCount; reg++) {
+            // Extract all values for this register
+            uint16_t* regValues = new uint16_t[allRawData.size()];
+            for (size_t i = 0; i < allRawData.size(); i++) {
+                regValues[i] = allRawData[i].values[reg];
+            }
+            
+            // Downsample this register's values
+            uint16_t* aggregatedRegValues = new uint16_t[targetSamples];
+            size_t actualSamples = DataAggregation::adaptiveDownsample(
+                regValues, allRawData.size(), 
+                aggregatedRegValues, targetSamples, 
+                aggMethod);
+            
+            // Store aggregated values
+            for (size_t i = 0; i < actualSamples; i++) {
+                aggregatedData[aggIndex] = aggregatedRegValues[i];
+                aggregatedRegisters[aggIndex] = linearRegisters[reg];
+                aggIndex++;
+            }
+            
+            delete[] regValues;
+            delete[] aggregatedRegValues;
+        }
+        
+        // Use aggregated data for compression
+        dataToCompress = aggregatedData;
+        registersToCompress = aggregatedRegisters;
+        valuesToCompress = aggIndex;
+        
+        size_t aggregatedBytes = valuesToCompress * sizeof(uint16_t);
+        printAggregationStats(allRawData.size(), valuesToCompress / registerCount, originalSize, aggregatedBytes);
+    }
+    
+    // STEP 2: COMPRESSION
+    print("\n--- COMPRESSION PHASE ---\n");
+    print("Compressing %zu values...\n", valuesToCompress);
+    
+    std::vector<uint8_t> compressed = DataCompression::compressWithSmartSelection(
+        dataToCompress, registersToCompress, valuesToCompress);
+    
+    compressionTime = micros() - startTime;
+    
+    // Determine method from compressed data header
+    if (!compressed.empty()) {
+        uint8_t marker = compressed[0];
+        switch (marker) {
+            case 0x10: 
+                strncpy(methodUsed, "DICTIONARY", methodSize - 1);
+                smartStats.dictionaryUsed++;
+                break;
+            case 0x30: 
+                strncpy(methodUsed, "TEMPORAL", methodSize - 1);
+                smartStats.temporalUsed++;
+                break;
+            case 0x50: 
+                strncpy(methodUsed, "SEMANTIC", methodSize - 1);
+                smartStats.semanticUsed++;
+                break;
+            case 0x01:
+            default:
+                strncpy(methodUsed, "BITPACK", methodSize - 1);
+                smartStats.bitpackUsed++;
+        }
+        methodUsed[methodSize - 1] = '\0';
+    } else {
+        strncpy(methodUsed, "ERROR", methodSize - 1);
+        methodUsed[methodSize - 1] = '\0';
+    }
+    
+    // Calculate compression ratios
+    size_t compressedSize = compressed.size();
+    academicRatio = (compressedSize > 0) ? (float)compressedSize / (float)originalSize : 1.0f;
+    traditionalRatio = (compressedSize > 0) ? (float)originalSize / (float)compressedSize : 0.0f;
+    
+    print("Compressed size: %zu bytes\n", compressedSize);
+    print("Method used: %s\n", methodUsed);
+    print("Academic ratio: %.3f (%.1f%% savings)\n", academicRatio, (1.0f - academicRatio) * 100.0f);
+    if (enableAggregation) {
+        print("Combined reduction: %.1f%%\n", (1.0f - (float)compressedSize / (float)originalSize) * 100.0f);
+    }
+    print("Total time: %lu μs\n", compressionTime);
+    print("====================================\n");
+    
+    // Clean up
+    delete[] linearData;
+    delete[] linearRegisters;
+    if (aggregatedData) delete[] aggregatedData;
+    if (aggregatedRegisters) delete[] aggregatedRegisters;
+    
+    return compressed;
+}
+
+
+/**
+ * @fn void printAggregationStats(...)
+ * 
+ * @brief Print aggregation statistics
+ */
+void printAggregationStats(size_t originalSamples, size_t aggregatedSamples, size_t originalBytes, size_t aggregatedBytes) {
+    float reduction = (1.0f - (float)aggregatedSamples / (float)originalSamples) * 100.0f;
+    float byteReduction = (1.0f - (float)aggregatedBytes / (float)originalBytes) * 100.0f;
+    
+    print("Aggregation complete:\n");
+    print("  Samples: %zu → %zu (%.1f%% reduction)\n", originalSamples, aggregatedSamples, reduction);
+    print("  Data size: %zu → %zu bytes (%.1f%% reduction)\n", originalBytes, aggregatedBytes, byteReduction);
 }
 
 
