@@ -143,22 +143,21 @@ bool ProtocolAdapter::sendRequest(const char* url, const char* frameHex, char* o
         outResponseJson[copyLen] = '\0';
       }
       ok = (response.length() > 0);
+      http.end();  // Always close connection after getting response
       if (!ok) 
       {
         debug.log("Empty response, retrying...\n");
       } 
       else 
       {
-        http.end();
         return true;
       }
     } 
     else 
     {
       debug.log("Request failed (code %d), retrying...\n", httpResponseCode);
+      http.end();  // Always close connection even on failure
     }
-
-    http.end();
     debug.log("Waiting %d ms before retry...\n", backoffDelay);
     wait.ms(backoffDelay);
     backoffDelay *= 2;

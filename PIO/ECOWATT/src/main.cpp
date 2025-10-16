@@ -24,6 +24,7 @@ std::vector<uint8_t> compressWithSmartSelection(uint16_t* data, const RegID* sel
 void printSmartPerformanceStatistics();
 void uploadSmartCompressedDataToCloud();
 std::vector<uint8_t> compressBatchWithSmartSelection(const SampleBatch& batch, 
+                                                   const RegID* selection, size_t registerCount,
                                                    unsigned long& compressionTime, 
                                                    char* methodUsed, size_t methodSize,
                                                    float& academicRatio, 
@@ -217,12 +218,16 @@ void setup()
 
       if (!registers_uptodate)
       {
-        delete[] sensorData;
+        selection = nvs::getReadRegs();
         registerCount = nvs::getReadRegCount();
-        const RegID* selection = nvs::getReadRegs();
+        delete[] sensorData;
         sensorData = new uint16_t[registerCount];
         registers_uptodate = true;
-        print("Set to update %d registers in next cycle.\n", registerCount);
+        print("Registers updated! Now reading %d registers:\n", registerCount);
+        // Print which registers we're now reading
+        for (size_t i = 0; i < registerCount && i < REGISTER_COUNT; i++) {
+            print("  [%zu] %s (ID: %d)\n", i, REGISTER_MAP[selection[i]].name, selection[i]);
+        }
       }
     }
 
@@ -323,33 +328,15 @@ void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploa
 
                     if (regsCount > 0 && responsedoc.containsKey("regs"))
                     {
-                        JsonArray regsArray = responsedoc["regs"].as<JsonArray>();
-
-                        RegID* newRegs = new RegID[regsCount];
-                        size_t validCount = 0;
-
-                        for (size_t i = 0; i < regsCount; i++) 
-                        {
-                            const char* regName = regsArray[i] | "";
-
-                            for (size_t j = 0; j < REGISTER_COUNT; j++) 
-                            {
-                                if (strcmp(REGISTER_MAP[j].name, regName) == 0) 
-                                {
-                                    newRegs[validCount++] = REGISTER_MAP[j].id;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (validCount > 0) {
-                            // Store in NVS
-                            nvs::saveReadRegs(newRegs, validCount);
+                        uint16_t regsMask = responsedoc["regs"] | 0;  // Fixed: removed double assignment
+                        print("Received regsMask: %u, regsCount: %zu\n", regsMask, regsCount);
+                        bool saved = nvs::saveReadRegs(regsMask, regsCount);
+                        if (saved) {
                             *registers_uptodate = false;
-                            print("Set to update %d registers in next cycle.\n", validCount);               
+                            print("Set to update %zu registers in next cycle.\n", regsCount);
+                        } else {
+                            print("Failed to save register changes to NVS\n");
                         }
-
-                        delete[] newRegs;
                     }
                 }
             }
@@ -362,6 +349,10 @@ void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploa
             http.end();
             print("Settings change error\n");
         }
+    } else {
+        // HTTP request failed - must still close the connection!
+        print("HTTP POST failed with error code: %d\n", httpResponseCode);
+        http.end();
     }
 }
 
@@ -387,9 +378,16 @@ void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* senso
 {
   if (readMultipleRegisters(selection, registerCount, sensorData)) 
   {
+    // Print sensor values being added to batch
+    print("Polled values: ");
+    for (size_t i = 0; i < registerCount; i++) {
+        print("%s=%u ", REGISTER_MAP[selection[i]].name, sensorData[i]);
+    }
+    print("\n");
+    
     // Process the read sensor data
-    // Add to batch
-    currentBatch.addSample(sensorData, millis());
+    // Add to batch with registerCount
+    currentBatch.addSample(sensorData, millis(), registerCount);
 
     // When batch is full, compress and store
     if (currentBatch.isFull()) {
@@ -399,7 +397,7 @@ void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* senso
         
         // Compress the entire batch with smart selection
         std::vector<uint8_t> compressedBinary = compressBatchWithSmartSelection(
-            currentBatch, compressionTime, methodUsed, sizeof(methodUsed), academicRatio, traditionalRatio);
+            currentBatch, selection, registerCount, compressionTime, methodUsed, sizeof(methodUsed), academicRatio, traditionalRatio);
         
         // Store compressed data with metadata
         if (!compressedBinary.empty()) {
@@ -636,14 +634,19 @@ void uploadSmartCompressedDataToCloud() {
     doc["data_type"] = "compressed_sensor_batch";
     doc["total_samples"] = allData.size();
     
-    // Register mapping for decompression
+    // Build register mapping dynamically from the first entry
+    // (assuming all entries in this batch use the same register set)
     JsonObject registerMapping = doc["register_mapping"].to<JsonObject>();
-    registerMapping["0"] = "REG_VAC1";
-    registerMapping["1"] = "REG_IAC1";
-    registerMapping["2"] = "REG_IPV1";
-    registerMapping["3"] = "REG_PAC";
-    registerMapping["4"] = "REG_IPV2";
-    registerMapping["5"] = "REG_TEMP";
+    if (!allData.empty()) {
+        const auto& firstEntry = allData[0];
+        for (size_t i = 0; i < firstEntry.registerCount && i < REGISTER_COUNT; i++) {
+            char key[8];
+            snprintf(key, sizeof(key), "%zu", i);
+            // Use the actual register name from REGISTER_MAP
+            registerMapping[key] = REGISTER_MAP[firstEntry.registers[i]].name;
+        }
+        print("Register mapping built: %zu registers\n", firstEntry.registerCount);
+    }
     
     // Compressed data packets with decompression metadata
     JsonArray compressedPackets = doc["compressed_data"].to<JsonArray>();
@@ -712,6 +715,21 @@ void uploadSmartCompressedDataToCloud() {
         totalOriginalBytes, totalCompressedBytes,
         (totalOriginalBytes > 0) ? (1.0f - (float)totalCompressedBytes / (float)totalOriginalBytes) * 100.0f : 0.0f);
     
+    // Print register mapping being sent
+    print("\n=== UPLOADED REGISTER MAPPING ===\n");
+    if (!allData.empty()) {
+        const auto& firstEntry = allData[0];
+        print("Sending %zu registers:\n", firstEntry.registerCount);
+        for (size_t i = 0; i < firstEntry.registerCount && i < REGISTER_COUNT; i++) {
+            RegID regId = firstEntry.registers[i];
+            print("  [%zu] %s (ID: %d)\n", i, REGISTER_MAP[regId].name, regId);
+        }
+    }
+    print("================================\n\n");
+    
+    // Print the actual JSON being sent
+    print("JSON Payload:\n%s\n", jsonString);
+    
     int httpResponseCode = http.POST((uint8_t*)jsonString, jsonLen);
     
     if (httpResponseCode == 200) {
@@ -769,6 +787,7 @@ void convertBinaryToBase64(const std::vector<uint8_t>& binaryData, char* result,
 
 /**
  * @fn std::vector<uint8_t> compressBatchWithSmartSelection(const SampleBatch& batch,
+ *                                                   const RegID* selection, size_t registerCount,
  *                                                   unsigned long& compressionTime,
  *                                                  char* methodUsed, size_t methodSize,
  *                                                  float& academicRatio,
@@ -777,6 +796,8 @@ void convertBinaryToBase64(const std::vector<uint8_t>& binaryData, char* result,
  * @brief Compress an entire batch of samples using smart selection and track performance.
  * 
  * @param batch Reference to the SampleBatch containing multiple samples.
+ * @param selection Pointer to the array of RegID indicating which registers are being read.
+ * @param registerCount Number of registers in the selection.
  * @param compressionTime Reference to store the time taken for compression (in microseconds).
  * @param methodUsed Pointer to char array to store the name of the compression method used.
  * @param methodSize Size of the methodUsed char array.
@@ -786,39 +807,34 @@ void convertBinaryToBase64(const std::vector<uint8_t>& binaryData, char* result,
  * @return std::vector<uint8_t> Compressed data as a byte vector.
  */
 std::vector<uint8_t> compressBatchWithSmartSelection(const SampleBatch& batch, 
+                                                   const RegID* selection, size_t registerCount,
                                                    unsigned long& compressionTime, 
                                                    char* methodUsed, size_t methodSize,
                                                    float& academicRatio, 
                                                    float& traditionalRatio) {
     unsigned long startTime = micros();
     
-    // Convert batch to linear array
-    uint16_t linearData[30];  // 5 samples × 6 values
+    // Convert batch to linear array (dynamically sized based on actual register count)
+    const size_t maxDataSize = batch.sampleCount * registerCount;
+    uint16_t* linearData = new uint16_t[maxDataSize];
     batch.toLinearArray(linearData);
     
-    // Display original values clearly
-    /*
-    print("ORIGINAL SENSOR VALUES:\n");
-    for (size_t i = 0; i < batch.sampleCount; i++) {
-        print("Sample %zu: VAC1=%u, IAC1=%u, IPV1=%u, PAC=%u, IPV2=%u, TEMP=%u\n",
-                      i+1, batch.samples[i][0], batch.samples[i][1], batch.samples[i][2],
-                      batch.samples[i][3], batch.samples[i][4], batch.samples[i][5]);
-    }
-    */
-    
-    // Create register selection array for the batch
-    RegID batchSelection[30];
-    const RegID singleSelection[] = {REG_VAC1, REG_IAC1, REG_IPV1, REG_PAC, REG_IPV2, REG_TEMP};
+    // Create register selection array for the batch using the ACTUAL selection passed in
+    RegID* batchSelection = new RegID[maxDataSize];
     
     for (size_t i = 0; i < batch.sampleCount; i++) {
-        memcpy(batchSelection + (i * 6), singleSelection, 6 * sizeof(RegID));
+        memcpy(batchSelection + (i * registerCount), selection, registerCount * sizeof(RegID));
     }
     
     // Use smart selection on the entire batch
     std::vector<uint8_t> compressed = DataCompression::compressWithSmartSelection(
-        linearData, batchSelection, batch.sampleCount * 6);
+        linearData, batchSelection, batch.sampleCount * registerCount);
     
     compressionTime = micros() - startTime;
+    
+    // Clean up dynamic allocations
+    delete[] linearData;
+    delete[] batchSelection;
     
     // Determine method from compressed data header
     if (!compressed.empty()) {
@@ -848,7 +864,7 @@ std::vector<uint8_t> compressBatchWithSmartSelection(const SampleBatch& batch,
     }
     
     // Calculate compression ratios
-    size_t originalSize = batch.sampleCount * 6 * sizeof(uint16_t);
+    size_t originalSize = batch.sampleCount * registerCount * sizeof(uint16_t);
     size_t compressedSize = compressed.size();
     
     academicRatio = (compressedSize > 0) ? (float)compressedSize / (float)originalSize : 1.0f;

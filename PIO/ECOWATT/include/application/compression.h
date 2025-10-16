@@ -8,30 +8,36 @@
 #include "peripheral/print.h"
 
 struct SampleBatch {
-    uint16_t samples[5][6];  // 5 samples of 6 values each for better compression
-    size_t sampleCount = 0;
-    unsigned long timestamps[5];
+    static const size_t MAX_REGISTERS = 10;  // Support up to 10 registers
+    static const size_t MAX_SAMPLES = 5;     // Still keep 5 samples
     
-    void addSample(uint16_t* values, unsigned long timestamp) {
-        if (sampleCount < 5) {
-            memcpy(samples[sampleCount], values, 6 * sizeof(uint16_t));
+    uint16_t samples[MAX_SAMPLES][MAX_REGISTERS];  // Dynamic size based on register count
+    size_t sampleCount = 0;
+    size_t registerCount = 0;  // Track how many registers per sample
+    unsigned long timestamps[MAX_SAMPLES];
+    
+    void addSample(uint16_t* values, unsigned long timestamp, size_t regCount) {
+        if (sampleCount < MAX_SAMPLES) {
+            registerCount = regCount;  // Store the register count
+            memcpy(samples[sampleCount], values, regCount * sizeof(uint16_t));
             timestamps[sampleCount] = timestamp;
             sampleCount++;
         }
     }
     
     bool isFull() const {
-        return sampleCount >= 5;
+        return sampleCount >= MAX_SAMPLES;
     }
     
     void reset() {
         sampleCount = 0;
+        registerCount = 0;
     }
     
     // Convert batch to linear array for compression
     void toLinearArray(uint16_t* output) const {
         for (size_t i = 0; i < sampleCount; i++) {
-            memcpy(output + (i * 6), samples[i], 6 * sizeof(uint16_t));
+            memcpy(output + (i * registerCount), samples[i], registerCount * sizeof(uint16_t));
         }
     }
 };

@@ -19,7 +19,7 @@ class nvs{
         static uint64_t getPollFreq();
         static uint64_t getUploadFreq();
 
-        static bool saveReadRegs(const RegID* selection, size_t count);
+        static bool saveReadRegs(uint16_t regMask, size_t count);
         static bool changePollFreq(uint64_t poll_time);
         static bool changeUploadFreq(uint64_t upload_time);
 };
