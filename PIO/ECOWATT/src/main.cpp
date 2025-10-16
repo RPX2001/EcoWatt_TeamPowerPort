@@ -119,7 +119,7 @@ void setup()
   // Initialize OTA Manager
   print("Initializing OTA Manager...\n");
   otaManager = new OTAManager(
-      "http://10.78.228.2:5001",    // Flask server URL
+      FLASK_SERVER_URL ":5001",    // Flask server URL
       "ESP32_EcoWatt_Smart",         // Device ID
       FIRMWARE_VERSION               // Current version
   );
