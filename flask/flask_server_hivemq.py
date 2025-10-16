@@ -358,7 +358,7 @@ settings_state = {
     'newUploadTimer': 0,
     'regsChanged': False,
     'regsCount': 0,
-    'regs': ""
+    'regs': 0  # int16 number from MQTT
 }
 settings_lock = threading.Lock()
 
@@ -421,12 +421,13 @@ def on_message(client, userdata, msg):
                 settings_state['regsChanged'] = bool(settings_state.get('regsChanged', False)) or bool(data.get('regsChanged', False))
             if 'regsCount' in data and isinstance(data.get('regsCount'), int):
                 settings_state['regsCount'] = int(data.get('regsCount'))
-            if 'regs' in data and isinstance(data.get('regs'), str):
+            if 'regs' in data:
+                # Store int16 value as-is
                 settings_state['regs'] = data.get('regs')
+                settings_state['regsChanged'] = True
 
-        logger.info(f"Updated settings_state: {settings_state}")
-        # Also print to stdout for immediate visibility (ESP32 debugging)
-        print(f"Updated settings_state: {settings_state}")
+            # Log concise update once
+            logger.info("settings_state updated: regsCount=%d, Changed=%s", settings_state.get('regsCount', 0), settings_state.get('Changed', False))
 
     except Exception as e:
         logger.error(f"Error in on_message settings handler: {e}")
