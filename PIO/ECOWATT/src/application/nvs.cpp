@@ -25,21 +25,32 @@ uint8_t nvs::getReadRegCount()
 
 const RegID* nvs::getReadRegs()
 {
-    static RegID defaultRegs[] = {REG_VAC1, REG_IAC1, REG_IPV1, REG_PAC, REG_IPV2, REG_TEMP};
+    static RegID defaultRegs[REG_MAX] = {REG_VAC1, REG_IAC1, REG_IPV1, REG_PAC, REG_IPV2, REG_TEMP, REG_NONE, REG_NONE, REG_NONE, REG_NONE};
+    uint8_t defaultRegCount = 6;
+
+    uint16_t default_regs_bitmask = 0;
+    for (size_t i=0; i<REG_MAX; i++)
+    {
+        if (defaultRegs[i] != REG_NONE) {
+            default_regs_bitmask |= (1 << defaultRegs[i]);
+        }
+    }
+    
     // Try to open read namespace
     if (!esp_prefs_nvs.begin("readregs", true)) {
         // cannot open NVS, return defaults
         return defaultRegs;
     }
 
-    if (!esp_prefs_nvs.isKey("read_regs")) {
+    if (!esp_prefs_nvs.isKey("regs")) {
         // write default selection so future boots have it
         esp_prefs_nvs.end();
         if (!esp_prefs_nvs.begin("readregs", false)) {
             return defaultRegs;
         }
-        esp_prefs_nvs.putInt("reg_count", sizeof(defaultRegs) / sizeof(defaultRegs[0]));
-        esp_prefs_nvs.putBytes("read_regs", defaultRegs, sizeof(defaultRegs));
+
+        esp_prefs_nvs.putInt("reg_count", defaultRegCount);
+        esp_prefs_nvs.putUInt("regs", default_regs_bitmask);
         esp_prefs_nvs.end();
         return defaultRegs;
     }
@@ -51,16 +62,26 @@ const RegID* nvs::getReadRegs()
     }
 
     // allocate and read stored regs
-    RegID* stored_regs = new RegID[stored_count];
-    size_t bytes_read = esp_prefs_nvs.getBytes("read_regs", stored_regs, stored_count * sizeof(RegID));
+    static RegID stored_regs[REG_MAX] = {REG_NONE, REG_NONE, REG_NONE, REG_NONE, REG_NONE, REG_NONE, REG_NONE, REG_NONE, REG_NONE, REG_NONE};
+
+    uint16_t stored_regslist = esp_prefs_nvs.getUInt("regs", default_regs_bitmask);
     esp_prefs_nvs.end();
 
-    if (bytes_read == stored_count * sizeof(RegID)) {
-        return stored_regs;
-    } else {
-        delete[] stored_regs;
-        return defaultRegs;
+    size_t index = 0;
+    for (RegID rid = REG_VAC1; rid < REG_MAX; rid = static_cast<RegID>(rid + 1)) {
+        if (stored_regslist & (1 << rid)) {
+            if (index < REG_MAX) {
+                stored_regs[index++] = rid;
+            }
+        }
     }
+
+    // (optional) ensure the rest are REG_NONE
+    for (; index < REG_MAX; index++) {
+        stored_regs[index] = REG_NONE;
+    }
+
+    return stored_regs;
 }
 
 
@@ -123,19 +144,11 @@ uint64_t nvs::getUploadFreq()
 }
 
 
-bool nvs::saveReadRegs(const RegID* selection, size_t count) 
+bool nvs::saveReadRegs(uint16_t regMask, size_t count) 
 {
-    if (selection == nullptr || count == 0) 
+    if (regMask == 0 || count == 0 || count > REG_MAX+1) 
     {
         return false; // Invalid input
-    }
-
-    for (size_t i = 0; i < count; i++) 
-    {
-        if (selection[i] >= REG_MAX) 
-        {
-            return false; // Invalid RegID
-        }
     }
 
     if (!esp_prefs_nvs.begin("readregs", false)) // Open NVS in read-write mode
@@ -143,14 +156,9 @@ bool nvs::saveReadRegs(const RegID* selection, size_t count)
         return false; // Failed to open NVS
     }
 
-    size_t bytes_to_write = count * sizeof(RegID);
-    size_t bytes_written = esp_prefs_nvs.putBytes("read_regs", selection, bytes_to_write);
+    esp_prefs_nvs.putUInt("regs", regMask);
+    esp_prefs_nvs.putInt("reg_count", count);
     esp_prefs_nvs.end();
-
-    if (bytes_to_write != bytes_written)
-    {
-        return false;
-    }
 
     return true;
 }

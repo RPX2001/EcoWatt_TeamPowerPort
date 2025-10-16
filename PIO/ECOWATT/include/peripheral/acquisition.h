@@ -8,8 +8,9 @@
 #include "driver/debug.h"
 
 // Register identifiers
-enum RegID : uint8_t 
+enum RegID : int8_t 
 {
+  REG_NONE = -1,
   REG_VAC1,
   REG_IAC1,
   REG_FAC1,

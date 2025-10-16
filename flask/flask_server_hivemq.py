@@ -358,7 +358,7 @@ settings_state = {
     'newUploadTimer': 0,
     'regsChanged': False,
     'regsCount': 0,
-    'regs': ""
+    'regs': 0  # int16 number from MQTT
 }
 settings_lock = threading.Lock()
 
@@ -421,12 +421,13 @@ def on_message(client, userdata, msg):
                 settings_state['regsChanged'] = bool(settings_state.get('regsChanged', False)) or bool(data.get('regsChanged', False))
             if 'regsCount' in data and isinstance(data.get('regsCount'), int):
                 settings_state['regsCount'] = int(data.get('regsCount'))
-            if 'regs' in data and isinstance(data.get('regs'), str):
+            if 'regs' in data:
+                # Store int16 value as-is
                 settings_state['regs'] = data.get('regs')
+                settings_state['regsChanged'] = True
 
-        logger.info(f"Updated settings_state: {settings_state}")
-        # Also print to stdout for immediate visibility (ESP32 debugging)
-        print(f"Updated settings_state: {settings_state}")
+            # Log concise update once
+            logger.info("settings_state updated: regsCount=%d, Changed=%s", settings_state.get('regsCount', 0), settings_state.get('Changed', False))
 
     except Exception as e:
         logger.error(f"Error in on_message settings handler: {e}")
@@ -506,16 +507,16 @@ def decompress_dictionary_bitmask(binary_data):
         # Handle batch data (count = 30 for 5 samples × 6 registers)
         if count == 30:  # Batch of 5 samples
             result = base_pattern * 5
-            registers_per_sample = 6
+            registers_per_sample = 10  # Updated to 10 registers
             samples = 5
-        elif count == 6:  # Single sample
+        elif count == 10:  # Single sample with 10 registers
             result = base_pattern[:]
-            registers_per_sample = 6
+            registers_per_sample = 10
             samples = 1
         else:
             # Handle other counts gracefully
-            registers_per_sample = min(6, count)
-            samples = count // registers_per_sample if count >= 6 else 1
+            registers_per_sample = min(10, count)
+            samples = count // registers_per_sample if count >= 10 else 1
             result = (base_pattern * samples)[:count]
         
         # Apply deltas based on bitmask - FIXED FOR EXTENDED BITMASKS
@@ -623,14 +624,14 @@ def decompress_bit_packed(binary_data):
             result.append(value)
             bit_offset += bits_per_value
         
-        # Return in same format as dictionary
-        if count >= 6:
+        # Return in same format as dictionary - updated to 10 registers
+        if count >= 10:
             return {
                 'type': 'single',
-                'samples': [result[:6]],
+                'samples': [result[:10]],
                 'flat_data': result,
                 'sample_count': 1,
-                'first_sample': result[:6]
+                'first_sample': result[:10]
             }
         else:
             return result
@@ -690,14 +691,14 @@ def decompress_smart_binary_data(base64_data):
                     value = binary_data[i] | (binary_data[i + 1] << 8)
                     result.append(value)
             
-            # Return in standard format
-            if len(result) >= 6:
+            # Return in standard format - updated to 10 registers
+            if len(result) >= 10:
                 return {
                     'type': 'single',
-                    'samples': [result[:6]],
+                    'samples': [result[:10]],
                     'flat_data': result,
                     'sample_count': 1,
-                    'first_sample': result[:6]
+                    'first_sample': result[:10]
                 }
             else:
                 return result
@@ -732,15 +733,30 @@ def process_register_data(registers, decompressed_values):
             elif reg_name == "REG_IAC1":
                 register_data["ac_current_readable"] = f"{value/100.0:.2f}A"
                 register_data["ac_current_amps"] = value / 100.0
+            elif reg_name == "REG_FAC1":
+                register_data["ac_frequency_readable"] = f"{value/10.0:.1f}Hz"
+                register_data["ac_frequency_hz"] = value / 10.0
+            elif reg_name == "REG_VPV1":
+                register_data["pv_voltage_1_readable"] = f"{value/10.0:.1f}V"
+                register_data["pv_voltage_1_volts"] = value / 10.0
+            elif reg_name == "REG_VPV2":
+                register_data["pv_voltage_2_readable"] = f"{value/10.0:.1f}V"
+                register_data["pv_voltage_2_volts"] = value / 10.0
             elif reg_name == "REG_IPV1":
                 register_data["pv_current_1_readable"] = f"{value/100.0:.2f}A"
+                register_data["pv_current_1_amps"] = value / 100.0
             elif reg_name == "REG_IPV2":
                 register_data["pv_current_2_readable"] = f"{value/100.0:.2f}A"
+                register_data["pv_current_2_amps"] = value / 100.0
+            elif reg_name == "REG_TEMP":
+                register_data["temperature_readable"] = f"{value}°C"
+                register_data["temperature_celsius"] = value
+            elif reg_name == "REG_POW":
+                register_data["power_readable"] = f"{value}W"
+                register_data["power_watts"] = value
             elif reg_name == "REG_PAC":
                 register_data["ac_power_readable"] = f"{value}W"
                 register_data["ac_power_watts"] = value
-            elif reg_name == "REG_TEMP":
-                register_data["temperature_readable"] = f"{value}°C"
     
     # Calculate power efficiency
     if all(key in register_data for key in ["ac_voltage_volts", "ac_current_amps", "ac_power_watts"]):
@@ -782,8 +798,8 @@ def process_compressed_data():
         
         print(f"Found {len(compressed_data_list)} compressed data items")
         
-        # Standard register order
-        registers = ["REG_VAC1", "REG_IAC1", "REG_IPV1", "REG_PAC", "REG_IPV2", "REG_TEMP"]
+        # Standard register order - updated to match all 10 registers
+        registers = ["REG_VAC1", "REG_IAC1", "REG_FAC1", "REG_VPV1", "REG_VPV2", "REG_IPV1", "REG_IPV2", "REG_TEMP", "REG_POW", "REG_PAC"]
         
         processed_entries = []
         total_power = 0
@@ -807,19 +823,19 @@ def process_compressed_data():
                     item_data = compressed_item['data']
                     if isinstance(item_data, str) and len(item_data) > 10:
                         decompressed_result = decompress_smart_binary_data(item_data)
-                    elif isinstance(item_data, list) and len(item_data) >= 6:
+                    elif isinstance(item_data, list) and len(item_data) >= 10:
                         decompressed_result = {
                             'type': 'single',
-                            'samples': [item_data[:6]],
-                            'first_sample': item_data[:6]
+                            'samples': [item_data[:10]],
+                            'first_sample': item_data[:10]
                         }
             elif isinstance(compressed_item, str):
                 decompressed_result = decompress_smart_binary_data(compressed_item)
-            elif isinstance(compressed_item, list) and len(compressed_item) >= 6:
+            elif isinstance(compressed_item, list) and len(compressed_item) >= 10:
                 decompressed_result = {
                     'type': 'single',
-                    'samples': [compressed_item[:6]],
-                    'first_sample': compressed_item[:6]
+                    'samples': [compressed_item[:10]],
+                    'first_sample': compressed_item[:10]
                 }
             
             # Process decompression result
@@ -828,7 +844,7 @@ def process_compressed_data():
                 batch_samples = decompressed_result.get('samples', [])
                 total_samples_processed += len(batch_samples)
             elif isinstance(decompressed_result, list):
-                decompressed_values = decompressed_result[:6] if len(decompressed_result) >= 6 else decompressed_result
+                decompressed_values = decompressed_result[:10] if len(decompressed_result) >= 10 else decompressed_result
                 batch_samples = [decompressed_values] if decompressed_values else []
                 total_samples_processed += len(batch_samples)
             else:
@@ -836,14 +852,15 @@ def process_compressed_data():
                 batch_samples = []
             
             # Check if decompression was successful
-            success = len(decompressed_values) >= 6 and any(val > 0 for val in decompressed_values)
+            success = len(decompressed_values) >= 10 and any(val > 0 for val in decompressed_values)
             if success:
                 decompression_successes += 1
-                if len(decompressed_values) > 3:
-                    power_value = decompressed_values[3]
+                # REG_PAC is now at index 9 (was index 3 in old 6-register format)
+                if len(decompressed_values) > 9:
+                    power_value = decompressed_values[9]  # REG_PAC
                     total_power += power_value * len(batch_samples)
             else:
-                decompressed_values = [0, 0, 0, 0, 0, 0]
+                decompressed_values = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]  # 10 zeros
                 batch_samples = [decompressed_values]
             
             # Get metadata from the item if it's a dict
@@ -903,21 +920,29 @@ def process_compressed_data():
         if not mqtt_register_data and processed_entries:
             mqtt_register_data = processed_entries[0].get('register_data', {})
         
-        # Create simplified MQTT payload with only the specified fields
+        # Create simplified MQTT payload with all 10 registers
         simplified_mqtt_payload = {
             'register_data': {
                 'REG_VAC1': mqtt_register_data.get('REG_VAC1', 2400),
                 'ac_voltage_readable': mqtt_register_data.get('ac_voltage_readable', "240.0V"),
                 'REG_IAC1': mqtt_register_data.get('REG_IAC1', 170),
                 'ac_current_readable': mqtt_register_data.get('ac_current_readable', "1.70A"),
+                'REG_FAC1': mqtt_register_data.get('REG_FAC1', 500),
+                'ac_frequency_readable': mqtt_register_data.get('ac_frequency_readable', "50.0Hz"),
+                'REG_VPV1': mqtt_register_data.get('REG_VPV1', 3000),
+                'pv_voltage_1_readable': mqtt_register_data.get('pv_voltage_1_readable', "300.0V"),
+                'REG_VPV2': mqtt_register_data.get('REG_VPV2', 2950),
+                'pv_voltage_2_readable': mqtt_register_data.get('pv_voltage_2_readable', "295.0V"),
                 'REG_IPV1': mqtt_register_data.get('REG_IPV1', 70),
                 'pv_current_1_readable': mqtt_register_data.get('pv_current_1_readable', "0.70A"),
-                'REG_PAC': mqtt_register_data.get('REG_PAC', 4000),
-                'ac_power_readable': mqtt_register_data.get('ac_power_readable', "4000W"),
                 'REG_IPV2': mqtt_register_data.get('REG_IPV2', 65),
                 'pv_current_2_readable': mqtt_register_data.get('pv_current_2_readable', "0.65A"),
                 'REG_TEMP': mqtt_register_data.get('REG_TEMP', 550),
-                'temperature_readable': mqtt_register_data.get('temperature_readable', "550°C")
+                'temperature_readable': mqtt_register_data.get('temperature_readable', "550°C"),
+                'REG_POW': mqtt_register_data.get('REG_POW', 4000),
+                'power_readable': mqtt_register_data.get('power_readable', "4000W"),
+                'REG_PAC': mqtt_register_data.get('REG_PAC', 4000),
+                'ac_power_readable': mqtt_register_data.get('ac_power_readable', "4000W")
             }
         }
         
