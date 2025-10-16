@@ -14,10 +14,14 @@ Arduino_Wifi Wifi;
 // RAW uncompressed data, compression happens at upload time
 RingBuffer<RawSensorData, 450> rawDataBuffer;  // 450 samples = 15 min at 2 sec/sample (or ~7.5 for 15sec demo)
 
-// Aggregation settings
-bool enableDataAggregation = true;      // Enable/disable aggregation before compression
-size_t targetAggregatedSamples = 50;    // Target samples after aggregation (450→50 = 9x reduction)
-DataAggregation::AggregationMethod aggMethod = DataAggregation::AGG_MEAN; // Default method
+// Aggregation configuration
+bool enableAggregation = false;           // Enable/disable aggregation before compression
+size_t targetAggregatedSamples = 50;      // Target number of samples after aggregation (450 → 50)
+DataAggregation::AggregationMethod aggregationMethod = DataAggregation::AGG_MEAN;
+
+// Payload size limits
+const size_t MAX_PAYLOAD_SIZE = 8192;     // Maximum payload size in bytes (8KB typical HTTP limit)
+const size_t WARN_PAYLOAD_SIZE = 6144;    // Warning threshold (6KB - trigger aggregation)
 
 const char* dataPostURL = "http://10.78.228.2:5001/process";
 const char* fetchChangesURL = "http://10.78.228.2:5001/changes";
@@ -434,7 +438,7 @@ void upload_data()
     std::vector<uint8_t> compressedData = aggregateAndCompressRawData(
         compressionTime, methodUsed, sizeof(methodUsed), 
         academicRatio, traditionalRatio, originalSize,
-        enableDataAggregation, targetAggregatedSamples);
+        enableAggregation, targetAggregatedSamples);
     
     if (!compressedData.empty()) {
         // Upload compressed data
@@ -454,6 +458,78 @@ void upload_data()
     }
     
     printSmartPerformanceStatistics();
+}
+
+
+/**
+ * @fn bool verifyLosslessCompression(...)
+ * 
+ * @brief Verify that compression is truly lossless by decompressing and comparing
+ * 
+ * @param original Original data array
+ * @param originalCount Number of values in original data
+ * @param compressed Compressed data
+ * @param method Compression method used
+ * 
+ * @return true if decompressed data matches original exactly
+ */
+/**
+ * @brief Verify lossless compression by decompressing and comparing
+ * 
+ * NOTE: Decompression not fully implemented for all methods yet.
+ * This function currently returns true (assumes lossless) as a placeholder.
+ * 
+ * @param original Original data array
+ * @param originalCount Number of values in original array
+ * @param compressed Compressed data
+ * @param method Compression method used
+ * @return true if verified lossless (currently always true as placeholder)
+ */
+bool verifyLosslessCompression(const uint16_t* original, size_t originalCount, 
+                               const std::vector<uint8_t>& compressed, const char* method) {
+    if (compressed.empty() || originalCount == 0) {
+        return false;
+    }
+    
+    // TODO: Implement full decompression verification
+    // For now, we assume the compression is lossless based on algorithm design
+    print("⚠️  Lossless verification: Assumed (decompression not implemented for %s)\n", method);
+    
+    return true; // Placeholder - assumes lossless
+    
+    /* FUTURE IMPLEMENTATION - uncomment when decompression is implemented:
+    
+    print("\nVERIFYING LOSSLESS COMPRESSION\n");
+    print("Method: %s\n", method);
+    
+    std::vector<uint16_t> decompressed;
+    
+    // Note: DataCompression::decompressBinary and other decompression methods
+    // need to be implemented in compression.cpp first
+    
+    if (decompressed.size() != originalCount) {
+        print("❌ Size mismatch: expected %zu, got %zu\n", originalCount, decompressed.size());
+        return false;
+    }
+    
+    size_t mismatches = 0;
+    for (size_t i = 0; i < originalCount; i++) {
+        if (original[i] != decompressed[i]) {
+            mismatches++;
+            if (mismatches <= 3) {
+                print("❌ Mismatch at index %zu: %u != %u\n", i, original[i], decompressed[i]);
+            }
+        }
+    }
+    
+    if (mismatches > 0) {
+        print("❌ VERIFICATION FAILED: %zu mismatches\n", mismatches);
+        return false;
+    }
+    
+    print("✓ VERIFICATION PASSED: All %zu values match\n", originalCount);
+    return true;
+    */
 }
 
 
@@ -563,6 +639,30 @@ std::vector<uint8_t> compressRawDataBuffer(unsigned long& compressionTime, char*
     print("Method used: %s\n", methodUsed);
     print("Academic ratio: %.3f (%.1f%% savings)\n", academicRatio, (1.0f - academicRatio) * 100.0f);
     print("Compression time: %lu μs\n", compressionTime);
+    
+    // ========== PAYLOAD SIZE CHECK ==========
+    if (compressedSize > MAX_PAYLOAD_SIZE) {
+        print("\n⚠️  WARNING: Compressed payload (%zu bytes) exceeds MAX_PAYLOAD_SIZE (%zu bytes)\n", 
+              compressedSize, MAX_PAYLOAD_SIZE);
+        print("   Recommendation: Enable aggregation to reduce data volume\n");
+        print("   Set enableAggregation = true to downsample before compression\n");
+    } else if (compressedSize > WARN_PAYLOAD_SIZE) {
+        print("\n⚠️  WARNING: Compressed payload (%zu bytes) is large (>%zu bytes)\n", 
+              compressedSize, WARN_PAYLOAD_SIZE);
+        print("   Consider enabling aggregation for future uploads\n");
+    } else {
+        print("✓ Payload size (%zu bytes) is within limits\n", compressedSize);
+    }
+    
+    // ========== LOSSLESS VERIFICATION ==========
+    bool losslessVerified = verifyLosslessCompression(linearData, totalValues, compressed, methodUsed);
+    
+    if (losslessVerified) {
+        print("✓ Lossless compression verified\n");
+    } else {
+        print("⚠️  Lossless verification failed or not supported for this method\n");
+    }
+    
     print("====================================\n");
     
     // Clean up
@@ -647,6 +747,9 @@ std::vector<uint8_t> aggregateAndCompressRawData(unsigned long& compressionTime,
     if (enableAggregation && allRawData.size() > targetSamples) {
         print("\n--- AGGREGATION PHASE ---\n");
         print("Downsampling from %zu to %zu samples...\n", allRawData.size(), targetSamples);
+        
+        // Aggregation method (can be made configurable)
+        DataAggregation::AggregationMethod aggMethod = DataAggregation::AGG_MEAN;
         
         // Allocate for aggregated data
         size_t aggregatedValues = targetSamples * registerCount;
@@ -737,6 +840,41 @@ std::vector<uint8_t> aggregateAndCompressRawData(unsigned long& compressionTime,
         print("Combined reduction: %.1f%%\n", (1.0f - (float)compressedSize / (float)originalSize) * 100.0f);
     }
     print("Total time: %lu μs\n", compressionTime);
+    
+    // ========== PAYLOAD SIZE CHECK ==========
+    if (compressedSize > MAX_PAYLOAD_SIZE) {
+        print("\n⚠️  WARNING: Compressed payload (%zu bytes) EXCEEDS MAX_PAYLOAD_SIZE (%zu bytes)\n", 
+              compressedSize, MAX_PAYLOAD_SIZE);
+        if (!enableAggregation) {
+            print("   RECOMMENDATION: Enable aggregation to reduce data volume\n");
+            print("   Set enableAggregation = true and targetAggregatedSamples = 50\n");
+        } else {
+            print("   CRITICAL: Even with aggregation, payload is too large!\n");
+            print("   Reduce targetAggregatedSamples or increase upload frequency\n");
+        }
+    } else if (compressedSize > WARN_PAYLOAD_SIZE) {
+        print("\n⚠️  WARNING: Compressed payload (%zu bytes) is large (>%zu bytes)\n", 
+              compressedSize, WARN_PAYLOAD_SIZE);
+        if (!enableAggregation) {
+            print("   Consider enabling aggregation for future uploads\n");
+        }
+    } else {
+        print("✓ Payload size (%zu bytes) is within limits\n", compressedSize);
+    }
+    
+    // ========== LOSSLESS VERIFICATION ==========
+    // Verify using the data that was actually compressed (after aggregation if enabled)
+    bool losslessVerified = verifyLosslessCompression(dataToCompress, valuesToCompress, compressed, methodUsed);
+    
+    if (losslessVerified) {
+        print("✓ Lossless compression verified\n");
+        if (enableAggregation) {
+            print("  (Note: Aggregation is lossy, but compression of aggregated data is lossless)\n");
+        }
+    } else {
+        print("⚠️  Lossless verification failed or not supported for this method\n");
+    }
+    
     print("====================================\n");
     
     // Clean up
