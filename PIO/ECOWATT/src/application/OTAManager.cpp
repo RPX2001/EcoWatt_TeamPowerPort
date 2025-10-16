@@ -496,7 +496,7 @@ bool OTAManager::verifyChunkHMAC(const uint8_t* chunkData, size_t len, uint16_t 
     }
     
     // Start HMAC with PSK key
-    result = mbedtls_md_hmac_starts(&ctx, (const unsigned char*)HMAC_PSK, strlen(HMAC_PSK));
+    result = mbedtls_md_hmac_starts(&ctx, (const unsigned char*)HMAC_FOTA_KEY, strlen(HMAC_FOTA_KEY));
     if (result != 0) {
         Serial.printf("ERROR: HMAC start failed: %d\n", result);
         mbedtls_md_free(&ctx);

@@ -7,6 +7,7 @@
 #include "application/compression_benchmark.h"
 #include "application/nvs.h"
 #include "application/OTAManager.h"
+#include "application/security.h"
 #include "application/credentials.h"
 
 Arduino_Wifi Wifi;
@@ -14,6 +15,7 @@ RingBuffer<SmartCompressedData, 20> smartRingBuffer;
 
 const char* dataPostURL = "http://10.78.228.2:5001/process";
 const char* fetchChangesURL = "http://10.78.228.2:5001/changes";
+
 
 
 void Wifi_init();
@@ -34,6 +36,7 @@ void updateSmartPerformanceStatistics(const char* method, float academicRatio, u
 bool readMultipleRegisters(const RegID* selection, size_t count, uint16_t* data);
 void enhanceDictionaryForOptimalCompression();
 void checkChanges(bool* registers_uptodate, bool* pollFreq_uptodate, bool* uploadFreq_uptodate);
+void checkAndExecuteCommands();
 
 hw_timer_t *poll_timer = NULL;
 volatile bool poll_token = false;
@@ -70,7 +73,7 @@ volatile bool ota_token = false;
 // #define OTA_CHECK_INTERVAL 21600000000ULL  // 6 hours in microseconds
 #define OTA_CHECK_INTERVAL 60000000ULL  // 1 min in microseconds
 
-#define FIRMWARE_VERSION "1.0.3"
+#define FIRMWARE_VERSION "1.0.6"
 
 void IRAM_ATTR onOTATimer() {
     ota_token = true;
@@ -115,6 +118,15 @@ void setup()
   print("Starting ECOWATT\n");
 
   Wifi_init();
+
+  // Initialize Security Manager
+  print("Initializing Security Manager...\n");
+  if (securityManager.initialize(HMAC_PSK, sizeof(HMAC_PSK))) {
+      print("Security Manager initialized successfully\n");
+      print("Current sequence number: %u\n", securityManager.getCurrentSequence());
+  } else {
+      print("ERROR: Failed to initialize Security Manager!\n");
+  }
 
   // Initialize OTA Manager
   print("Initializing OTA Manager...\n");
@@ -199,6 +211,9 @@ void setup()
       upload_token = false;
       upload_data();
 
+      // Check for and execute pending commands
+      checkAndExecuteCommands();
+
       // Applying the changes
       if (!pollFreq_uptodate)
       {
@@ -254,7 +269,6 @@ void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploa
 
     HTTPClient http;
     http.begin(fetchChangesURL);
-
     http.addHeader("Content-Type", "application/json");
 
     StaticJsonDocument<128> changesRequestBody;
@@ -267,11 +281,9 @@ void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploa
     int httpResponseCode = http.POST((uint8_t*)requestBody, strlen(requestBody));
 
     if (httpResponseCode > 0) {
-        //print("HTTP Response code: %d\n", httpResponseCode);
-
         // Get response into a char buffer
         WiFiClient* stream = http.getStreamPtr();
-        static char responseBuffer[1024]; // adjust if your response is larger
+        static char responseBuffer[1024];
         int len = http.getSize();
         int index = 0;
 
@@ -281,17 +293,21 @@ void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploa
             {
                 char c = stream->read();
                 if (index < (int)sizeof(responseBuffer) - 1)
-                responseBuffer[index++] = c;
+                    responseBuffer[index++] = c;
                 if (len > 0) len--;
             }
         }
-        responseBuffer[index] = '\0'; // null terminate
-        print("ChangedResponse:");
-        print(responseBuffer);
+        responseBuffer[index] = '\0';
+        print("ConfigResponse: %s\n", responseBuffer);
 
         StaticJsonDocument<1024> responsedoc;
-
         DeserializationError error = deserializeJson(responsedoc, responseBuffer);
+        
+        // Prepare configuration update report
+        StaticJsonDocument<512> reportDoc;
+        reportDoc["device_id"] = "ESP32_EcoWatt_Smart";
+        reportDoc["timestamp"] = millis();
+        JsonArray updates = reportDoc.createNestedArray("updates");
         
         if (!error)
         {
@@ -299,70 +315,190 @@ void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploa
             
             if (settingsChanged)
             {
+                // Handle poll frequency change
                 bool pollFreqChanged = responsedoc["pollFreqChanged"] | false;
                 if (pollFreqChanged)
                 {
                     uint64_t new_poll_timer = responsedoc["newPollTimer"] | 0;
-                    nvs::changePollFreq(new_poll_timer * 1000000);
-                    *pollFreq_uptodate = false;
-                    print("Poll timer set to update in next cycle %llu\n", new_poll_timer);
+                    
+                    // Validate: minimum 100ms (100000 microseconds)
+                    if (new_poll_timer >= 0.1) {  // seconds
+                        bool success = nvs::changePollFreq(new_poll_timer * 1000000);
+                        if (success) {
+                            *pollFreq_uptodate = false;
+                            print("✓ Poll frequency: %.1f sec accepted\n", new_poll_timer);
+                            
+                            JsonObject update = updates.createNestedObject();
+                            update["parameter"] = "poll_frequency";
+                            update["status"] = "accepted";
+                            update["value"] = new_poll_timer;
+                            update["unit"] = "seconds";
+                        } else {
+                            print("✗ Poll frequency: NVS save failed\n");
+                            
+                            JsonObject update = updates.createNestedObject();
+                            update["parameter"] = "poll_frequency";
+                            update["status"] = "rejected";
+                            update["error"] = "NVS save failed";
+                        }
+                    } else {
+                        print("✗ Poll frequency: %.1f sec too low (min 0.1 sec)\n", new_poll_timer);
+                        
+                        JsonObject update = updates.createNestedObject();
+                        update["parameter"] = "poll_frequency";
+                        update["status"] = "rejected";
+                        update["value"] = new_poll_timer;
+                        update["error"] = "Value too low, minimum 0.1 seconds";
+                    }
                 }
 
+                // Handle upload frequency change
                 bool uploadFreqChanged = responsedoc["uploadFreqChanged"] | false;
                 if (uploadFreqChanged)
                 {
                     uint64_t new_upload_timer = responsedoc["newUploadTimer"] | 0;
-                    nvs::changeUploadFreq(new_upload_timer * 1000000);
-                    *uploadFreq_uptodate = false;
-                    print("Upload timer set to update in next cycle %llu\n", new_upload_timer);
+                    
+                    // Validate: minimum 1 second
+                    if (new_upload_timer >= 1.0) {
+                        bool success = nvs::changeUploadFreq(new_upload_timer * 1000000);
+                        if (success) {
+                            *uploadFreq_uptodate = false;
+                            print("✓ Upload frequency: %.1f sec accepted\n", new_upload_timer);
+                            
+                            JsonObject update = updates.createNestedObject();
+                            update["parameter"] = "upload_frequency";
+                            update["status"] = "accepted";
+                            update["value"] = new_upload_timer;
+                            update["unit"] = "seconds";
+                        } else {
+                            print("✗ Upload frequency: NVS save failed\n");
+                            
+                            JsonObject update = updates.createNestedObject();
+                            update["parameter"] = "upload_frequency";
+                            update["status"] = "rejected";
+                            update["error"] = "NVS save failed";
+                        }
+                    } else {
+                        print("✗ Upload frequency: %.1f sec too low (min 1 sec)\n", new_upload_timer);
+                        
+                        JsonObject update = updates.createNestedObject();
+                        update["parameter"] = "upload_frequency";
+                        update["status"] = "rejected";
+                        update["value"] = new_upload_timer;
+                        update["error"] = "Value too low, minimum 1 second";
+                    }
                 }
 
+                // Handle register list change
                 bool regsChanged = responsedoc["regsChanged"] | false;
                 if (regsChanged)
                 {
                     size_t regsCount = responsedoc["regsCount"] | 0;
 
-                    if (regsCount > 0 && responsedoc.containsKey("regs"))
+                    if (regsCount > 0 && regsCount <= 10 && responsedoc.containsKey("regs"))
                     {
                         JsonArray regsArray = responsedoc["regs"].as<JsonArray>();
-
                         RegID* newRegs = new RegID[regsCount];
                         size_t validCount = 0;
+                        String invalidRegs = "";
 
                         for (size_t i = 0; i < regsCount; i++) 
                         {
                             const char* regName = regsArray[i] | "";
+                            bool found = false;
 
                             for (size_t j = 0; j < REGISTER_COUNT; j++) 
                             {
                                 if (strcmp(REGISTER_MAP[j].name, regName) == 0) 
                                 {
                                     newRegs[validCount++] = REGISTER_MAP[j].id;
+                                    found = true;
                                     break;
                                 }
+                            }
+                            
+                            if (!found && strlen(regName) > 0) {
+                                if (invalidRegs.length() > 0) invalidRegs += ", ";
+                                invalidRegs += regName;
                             }
                         }
 
                         if (validCount > 0) {
-                            // Store in NVS
-                            nvs::saveReadRegs(newRegs, validCount);
-                            *registers_uptodate = false;
-                            print("Set to update %d registers in next cycle.\n", validCount);               
+                            bool success = nvs::saveReadRegs(newRegs, validCount);
+                            if (success) {
+                                *registers_uptodate = false;
+                                print("✓ Register list: %d valid registers accepted\n", validCount);
+                                
+                                JsonObject update = updates.createNestedObject();
+                                update["parameter"] = "register_list";
+                                update["status"] = "accepted";
+                                update["count"] = validCount;
+                                
+                                if (invalidRegs.length() > 0) {
+                                    update["warning"] = "Some invalid registers ignored: " + invalidRegs;
+                                }
+                            } else {
+                                print("✗ Register list: NVS save failed\n");
+                                
+                                JsonObject update = updates.createNestedObject();
+                                update["parameter"] = "register_list";
+                                update["status"] = "rejected";
+                                update["error"] = "NVS save failed";
+                            }
+                        } else {
+                            print("✗ Register list: No valid registers\n");
+                            
+                            JsonObject update = updates.createNestedObject();
+                            update["parameter"] = "register_list";
+                            update["status"] = "rejected";
+                            update["error"] = "No valid registers in list";
                         }
 
                         delete[] newRegs;
+                    } else {
+                        print("✗ Register list: Invalid count %d (max 10)\n", regsCount);
+                        
+                        JsonObject update = updates.createNestedObject();
+                        update["parameter"] = "register_list";
+                        update["status"] = "rejected";
+                        update["error"] = "Invalid register count";
                     }
                 }
+            } else {
+                print("No configuration changes\n");
+            }
+            
+            // Send configuration update report back to cloud
+            if (updates.size() > 0) {
+                HTTPClient reportHttp;
+                const char* reportURL = "http://10.78.228.2:5001/config/report";
+                reportHttp.begin(reportURL);
+                reportHttp.addHeader("Content-Type", "application/json");
+                
+                char reportBody[512];
+                serializeJson(reportDoc, reportBody, sizeof(reportBody));
+                
+                print("Sending config update report...\n");
+                int reportResponse = reportHttp.POST((uint8_t*)reportBody, strlen(reportBody));
+                
+                if (reportResponse == 200) {
+                    print("✓ Configuration report sent successfully\n");
+                } else {
+                    print("✗ Failed to send config report (HTTP %d)\n", reportResponse);
+                }
+                
+                reportHttp.end();
             }
 
-            print("Changes noted\n");
             http.end();
         }
         else
         {
             http.end();
-            print("Settings change error\n");
+            print("✗ Settings change error: JSON parse failed\n");
         }
+    } else {
+        print("✗ Failed to check changes (HTTP %d)\n", httpResponseCode);
     }
 }
 
@@ -704,8 +840,25 @@ void uploadSmartCompressedDataToCloud() {
     methodStats["semantic_count"] = smartStats.semanticUsed;
     methodStats["bitpack_count"] = smartStats.bitpackUsed;
     
-    char jsonString[2048];
+    char jsonString[4096];  // Increased buffer size for larger batches
     size_t jsonLen = serializeJson(doc, jsonString, sizeof(jsonString));
+
+    // Add security: HMAC and sequence number
+    uint32_t sequence = securityManager.getAndIncrementSequence();
+    uint8_t hmac[32];
+    char hmacHex[65];
+    
+    if (securityManager.computeHMAC((uint8_t*)jsonString, jsonLen, sequence, hmac)) {
+        securityManager.hmacToHex(hmac, hmacHex);
+        
+        // Add security headers
+        http.addHeader("X-Sequence-Number", String(sequence));
+        http.addHeader("X-HMAC-SHA256", String(hmacHex));
+        
+        print("Security: Sequence=%u, HMAC=%s\n", sequence, hmacHex);
+    } else {
+        print("WARNING: Failed to compute HMAC, uploading without security\n");
+    }
 
     print("UPLOADING COMPRESSED DATA TO FLASK SERVER\n");
     print("Packets: %zu | JSON Size: %zu bytes\n", allData.size(), jsonLen);
@@ -886,5 +1039,156 @@ bool readMultipleRegisters(const RegID* selection, size_t count, uint16_t* data)
     }
     
     return true;
+}
+
+
+/**
+ * @fn void checkAndExecuteCommands()
+ * 
+ * @brief Check for pending commands from the cloud and execute them on the Inverter SIM.
+ * Reports execution results back to the cloud.
+ */
+void checkAndExecuteCommands()
+{
+    print("Checking for pending commands from cloud...\n");
+    
+    if (WiFi.status() != WL_CONNECTED) {
+        print("WiFi not connected. Cannot check commands.\n");
+        return;
+    }
+
+    HTTPClient http;
+    const char* getCommandsURL = "http://10.78.228.2:5001/command/get";
+    http.begin(getCommandsURL);
+    http.addHeader("Content-Type", "application/json");
+
+    // Build request
+    StaticJsonDocument<128> requestDoc;
+    requestDoc["device_id"] = "ESP32_EcoWatt_Smart";
+    requestDoc["timestamp"] = millis();
+
+    char requestBody[128];
+    serializeJson(requestDoc, requestBody, sizeof(requestBody));
+
+    // Send POST request to get commands
+    int httpResponseCode = http.POST((uint8_t*)requestBody, strlen(requestBody));
+
+    if (httpResponseCode > 0) {
+        // Parse response
+        WiFiClient* stream = http.getStreamPtr();
+        static char responseBuffer[1024];
+        int len = http.getSize();
+        int index = 0;
+
+        while (http.connected() && (len > 0 || len == -1)) {
+            if (stream->available()) {
+                char c = stream->read();
+                if (index < (int)sizeof(responseBuffer) - 1)
+                    responseBuffer[index++] = c;
+                if (len > 0) len--;
+            }
+        }
+        responseBuffer[index] = '\0';
+
+        print("Commands Response: %s\n", responseBuffer);
+
+        // Parse JSON response
+        DynamicJsonDocument responseDoc(2048);
+        DeserializationError error = deserializeJson(responseDoc, responseBuffer);
+
+        if (!error) {
+            int commandCount = responseDoc["command_count"] | 0;
+            
+            if (commandCount > 0) {
+                print("Found %d pending commands to execute\n", commandCount);
+                
+                JsonArray commands = responseDoc["commands"].as<JsonArray>();
+                
+                // Execute each command
+                for (JsonObject command : commands) {
+                    const char* commandId = command["command_id"];
+                    const char* commandType = command["command_type"];
+                    JsonObject parameters = command["parameters"];
+                    
+                    print("Executing command: %s (Type: %s)\n", commandId, commandType);
+                    
+                    bool success = false;
+                    String resultMessage = "";
+                    
+                    // Execute based on command type
+                    if (strcmp(commandType, "set_power") == 0) {
+                        uint16_t powerValue = parameters["power_value"] | 0;
+                        print("  Setting power to %u W\n", powerValue);
+                        
+                        success = setPower(powerValue);
+                        
+                        if (success) {
+                            resultMessage = String("Successfully set power to ") + String(powerValue) + String(" W");
+                        } else {
+                            resultMessage = "Failed to set power value";
+                        }
+                    }
+                    else if (strcmp(commandType, "write_register") == 0) {
+                        uint16_t regAddress = parameters["register_address"] | 0;
+                        uint16_t value = parameters["value"] | 0;
+                        print("  Writing register 0x%04X with value %u\n", regAddress, value);
+                        
+                        // Use setPower for now (register 8 is power)
+                        if (regAddress == 8) {
+                            success = setPower(value);
+                            resultMessage = success ? "Register write successful" : "Register write failed";
+                        } else {
+                            resultMessage = "Unsupported register address";
+                            success = false;
+                        }
+                    }
+                    else {
+                        print("  Unknown command type: %s\n", commandType);
+                        resultMessage = "Unknown command type";
+                        success = false;
+                    }
+                    
+                    // Report result back to cloud
+                    print("Reporting command result to cloud...\n");
+                    
+                    HTTPClient reportHttp;
+                    const char* reportURL = "http://10.78.228.2:5001/command/report";
+                    reportHttp.begin(reportURL);
+                    reportHttp.addHeader("Content-Type", "application/json");
+                    
+                    StaticJsonDocument<512> reportDoc;
+                    reportDoc["device_id"] = "ESP32_EcoWatt_Smart";
+                    reportDoc["command_id"] = commandId;
+                    reportDoc["status"] = success ? "completed" : "failed";
+                    reportDoc["result"] = resultMessage.c_str();
+                    if (!success) {
+                        reportDoc["error_message"] = resultMessage.c_str();
+                    }
+                    reportDoc["timestamp"] = millis();
+                    
+                    char reportBody[512];
+                    serializeJson(reportDoc, reportBody, sizeof(reportBody));
+                    
+                    int reportResponse = reportHttp.POST((uint8_t*)reportBody, strlen(reportBody));
+                    
+                    if (reportResponse == 200) {
+                        print("  Command result reported successfully\n");
+                    } else {
+                        print("  Failed to report command result (HTTP %d)\n", reportResponse);
+                    }
+                    
+                    reportHttp.end();
+                }
+            } else {
+                print("No pending commands\n");
+            }
+        } else {
+            print("Failed to parse commands response\n");
+        }
+    } else {
+        print("Failed to get commands (HTTP %d)\n", httpResponseCode);
+    }
+    
+    http.end();
 }
 

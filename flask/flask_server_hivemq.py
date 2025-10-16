@@ -332,6 +332,8 @@ import threading
 
 # Import firmware manager for OTA functionality
 from firmware_manager import FirmwareManager
+# Import security manager for authentication
+from security_manager import security_manager
 
 app = Flask(__name__)
 
@@ -361,6 +363,13 @@ settings_state = {
     'regs': 0  # int16 number from MQTT
 }
 settings_lock = threading.Lock()
+
+# Command Queue State (thread-safe)
+# Structure: { device_id: [ {command_id, command_type, parameters, status, timestamp, result} ] }
+command_queue = {}
+command_history = {}  # All commands with their full lifecycle
+command_lock = threading.Lock()
+command_id_counter = 0
 
 # OTA Configuration and State
 LATEST_FIRMWARE_VERSION = "1.0.4"
@@ -761,6 +770,35 @@ def process_register_data(registers, decompressed_values):
 @app.route('/process', methods=['POST'])
 def process_compressed_data():
     try:
+        # Security validation
+        device_id = request.json.get('device_id', 'ESP32_EcoWatt_Smart') if request.json else 'ESP32_EcoWatt_Smart'
+        sequence_number = request.headers.get('X-Sequence-Number')
+        received_hmac = request.headers.get('X-HMAC-SHA256')
+        
+        if sequence_number and received_hmac:
+            # Validate security
+            try:
+                sequence_num = int(sequence_number)
+                payload_bytes = request.get_data()
+                
+                is_valid, error_msg = security_manager.validate_request(
+                    device_id, payload_bytes, sequence_num, received_hmac
+                )
+                
+                if not is_valid:
+                    logger.warning(f"Security validation failed: {error_msg}")
+                    return jsonify({
+                        'error': 'Security validation failed',
+                        'message': error_msg
+                    }), 401
+                else:
+                    logger.info(f"✓ Security validated: Device={device_id}, Seq={sequence_num}")
+            except Exception as e:
+                logger.error(f"Security validation error: {e}")
+                return jsonify({'error': f'Security validation error: {str(e)}'}), 401
+        else:
+            logger.warning("Request received without security headers (HMAC/Sequence)")
+        
         data = request.get_json()
         
         # Log basic payload info
@@ -1056,6 +1094,326 @@ def device_settings():
 def changes():
     """Alias for /device_settings - ESP32 posts here to get settings changes."""
     return device_settings()
+
+@app.route('/config/report', methods=['POST'])
+def config_report():
+    """Receive configuration update confirmation/rejection from ESP32."""
+    try:
+        data = request.get_json()
+        
+        if not data or 'device_id' not in data:
+            return jsonify({'error': 'Missing device_id'}), 400
+        
+        device_id = data['device_id']
+        timestamp = data.get('timestamp', int(time.time() * 1000))
+        updates = data.get('updates', [])
+        
+        # Log each configuration update
+        logger.info(f"Configuration update report from {device_id}:")
+        for update in updates:
+            parameter = update.get('parameter', 'unknown')
+            status = update.get('status', 'unknown')
+            value = update.get('value', 'N/A')
+            error = update.get('error', None)
+            warning = update.get('warning', None)
+            
+            if status == 'accepted':
+                logger.info(f"  ✓ {parameter}: {value} - ACCEPTED")
+                if warning:
+                    logger.warning(f"    ⚠ {warning}")
+            else:
+                logger.warning(f"  ✗ {parameter}: {value} - REJECTED")
+                if error:
+                    logger.error(f"    Error: {error}")
+        
+        # Store in a configuration history log (optional)
+        # You could add this to a database or file for auditing
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Configuration report received and logged'
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error processing config report: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# COMMAND EXECUTION ENDPOINTS
+# ============================
+
+@app.route('/command/queue', methods=['POST'])
+def queue_command():
+    """Queue a new command for a device to execute."""
+    global command_id_counter
+    
+    try:
+        data = request.get_json()
+        
+        # Validate request
+        if not data or 'device_id' not in data or 'command_type' not in data:
+            return jsonify({'error': 'Missing device_id or command_type'}), 400
+        
+        device_id = data['device_id']
+        command_type = data['command_type']
+        parameters = data.get('parameters', {})
+        
+        # Validate command type
+        valid_commands = ['set_power', 'write_register', 'read_register']
+        if command_type not in valid_commands:
+            return jsonify({'error': f'Invalid command_type. Valid types: {valid_commands}'}), 400
+        
+        with command_lock:
+            # Generate unique command ID
+            command_id_counter += 1
+            cmd_id = f"CMD_{command_id_counter}_{int(time.time())}"
+            
+            # Create command object
+            command = {
+                'command_id': cmd_id,
+                'command_type': command_type,
+                'parameters': parameters,
+                'status': 'pending',
+                'queued_time': datetime.now().isoformat(),
+                'queued_timestamp': int(time.time() * 1000),
+                'result': None,
+                'error_message': None
+            }
+            
+            # Initialize device queue if needed
+            if device_id not in command_queue:
+                command_queue[device_id] = []
+            if device_id not in command_history:
+                command_history[device_id] = []
+            
+            # Add to queue
+            command_queue[device_id].append(command)
+            command_history[device_id].append(command.copy())
+            
+            logger.info(f"Command queued: {cmd_id} for device {device_id} - {command_type}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Command queued successfully',
+            'command_id': cmd_id,
+            'device_id': device_id,
+            'command_type': command_type,
+            'queued_time': command['queued_time']
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error queuing command: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/command/get', methods=['POST'])
+def get_pending_commands():
+    """Get pending commands for a device. Called by ESP32 during upload cycle."""
+    try:
+        data = request.get_json()
+        
+        if not data or 'device_id' not in data:
+            return jsonify({'error': 'Missing device_id'}), 400
+        
+        device_id = data['device_id']
+        
+        with command_lock:
+            # Get pending commands for this device
+            if device_id not in command_queue:
+                pending_commands = []
+            else:
+                pending_commands = [cmd for cmd in command_queue[device_id] if cmd['status'] == 'pending']
+                
+                # Mark as 'executing' when retrieved
+                for cmd in pending_commands:
+                    cmd['status'] = 'executing'
+                    cmd['execution_start'] = datetime.now().isoformat()
+                    cmd['execution_start_timestamp'] = int(time.time() * 1000)
+                    
+                    # Update in history too
+                    for hist_cmd in command_history[device_id]:
+                        if hist_cmd['command_id'] == cmd['command_id']:
+                            hist_cmd['status'] = 'executing'
+                            hist_cmd['execution_start'] = cmd['execution_start']
+                            hist_cmd['execution_start_timestamp'] = cmd['execution_start_timestamp']
+        
+        logger.info(f"Device {device_id} retrieved {len(pending_commands)} pending commands")
+        
+        return jsonify({
+            'status': 'success',
+            'device_id': device_id,
+            'command_count': len(pending_commands),
+            'commands': pending_commands
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error getting commands: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/command/report', methods=['POST'])
+def report_command_result():
+    """Device reports the execution result of a command."""
+    try:
+        data = request.get_json()
+        
+        # Validate request
+        required_fields = ['device_id', 'command_id', 'status', 'result']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        device_id = data['device_id']
+        command_id = data['command_id']
+        status = data['status']  # 'completed' or 'failed'
+        result = data['result']
+        error_message = data.get('error_message', None)
+        
+        with command_lock:
+            # Find and update command in queue
+            if device_id in command_queue:
+                for cmd in command_queue[device_id]:
+                    if cmd['command_id'] == command_id:
+                        cmd['status'] = status
+                        cmd['result'] = result
+                        cmd['error_message'] = error_message
+                        cmd['completed_time'] = datetime.now().isoformat()
+                        cmd['completed_timestamp'] = int(time.time() * 1000)
+                        
+                        # Calculate execution time
+                        if 'execution_start_timestamp' in cmd:
+                            exec_time_ms = cmd['completed_timestamp'] - cmd['execution_start_timestamp']
+                            cmd['execution_time_ms'] = exec_time_ms
+                        
+                        # Update in history
+                        for hist_cmd in command_history[device_id]:
+                            if hist_cmd['command_id'] == command_id:
+                                hist_cmd.update(cmd)
+                        
+                        logger.info(f"Command {command_id} for device {device_id} - Status: {status}, Result: {result}")
+                        
+                        # Remove from active queue after completion
+                        command_queue[device_id] = [c for c in command_queue[device_id] if c['command_id'] != command_id]
+                        
+                        return jsonify({
+                            'status': 'success',
+                            'message': 'Command result recorded',
+                            'command_id': command_id
+                        }), 200
+            
+            # Command not found
+            logger.warning(f"Command {command_id} not found for device {device_id}")
+            return jsonify({'error': 'Command not found'}), 404
+    
+    except Exception as e:
+        logger.error(f"Error reporting command result: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/command/history', methods=['GET'])
+def get_command_history():
+    """Get command history for all devices or specific device."""
+    try:
+        device_id = request.args.get('device_id', None)
+        
+        with command_lock:
+            if device_id:
+                history = command_history.get(device_id, [])
+                return jsonify({
+                    'status': 'success',
+                    'device_id': device_id,
+                    'command_count': len(history),
+                    'commands': history
+                }), 200
+            else:
+                return jsonify({
+                    'status': 'success',
+                    'all_devices': True,
+                    'command_history': command_history
+                }), 200
+    
+    except Exception as e:
+        logger.error(f"Error getting command history: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/command/status', methods=['GET'])
+def get_command_status():
+    """Get status of a specific command."""
+    try:
+        command_id = request.args.get('command_id', None)
+        
+        if not command_id:
+            return jsonify({'error': 'Missing command_id parameter'}), 400
+        
+        with command_lock:
+            # Search all devices for this command
+            for device_id, commands in command_history.items():
+                for cmd in commands:
+                    if cmd['command_id'] == command_id:
+                        return jsonify({
+                            'status': 'success',
+                            'command': cmd
+                        }), 200
+            
+            return jsonify({'error': 'Command not found'}), 404
+    
+    except Exception as e:
+        logger.error(f"Error getting command status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# SECURITY ENDPOINTS
+# ==================
+
+@app.route('/security/stats', methods=['GET'])
+def get_security_stats():
+    """Get security statistics."""
+    try:
+        stats = security_manager.get_stats()
+        return jsonify({
+            'status': 'success',
+            'security_stats': stats
+        }), 200
+    except Exception as e:
+        logger.error(f"Error getting security stats: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/security/log', methods=['GET'])
+def get_security_log():
+    """Get security validation log."""
+    try:
+        device_id = request.args.get('device_id', None)
+        limit = int(request.args.get('limit', 50))
+        
+        log_entries = security_manager.get_validation_log(device_id, limit)
+        
+        return jsonify({
+            'status': 'success',
+            'device_id': device_id,
+            'log_count': len(log_entries),
+            'log': log_entries
+        }), 200
+    except Exception as e:
+        logger.error(f"Error getting security log: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/security/reset', methods=['POST'])
+def reset_device_sequence():
+    """Reset sequence number for a device (testing only)."""
+    try:
+        data = request.get_json()
+        device_id = data.get('device_id')
+        
+        if not device_id:
+            return jsonify({'error': 'Missing device_id'}), 400
+        
+        security_manager.reset_device_sequence(device_id)
+        
+        logger.info(f"Sequence number reset for device {device_id}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Sequence reset for {device_id}',
+            'device_id': device_id
+        }), 200
+    except Exception as e:
+        logger.error(f"Error resetting sequence: {e}")
+        return jsonify({'error': str(e)}), 500
 
 # OTA ENDPOINTS
 # =============

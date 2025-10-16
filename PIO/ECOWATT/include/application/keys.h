@@ -17,8 +17,9 @@ extern const char* SERVER_PUBLIC_KEY;
 // AES-256 Key for firmware decryption (32 bytes)
 extern const uint8_t AES_FIRMWARE_KEY[32];
 
-// HMAC Pre-Shared Key for chunk authentication
-extern const char* HMAC_PSK;
+// HMAC Key for FOTA chunk authentication (hex string)
+// Note: Different from HMAC_PSK in credentials.h (used for data authentication)
+extern const char* HMAC_FOTA_KEY;
 
 // Key metadata
 #define RSA_KEY_SIZE 2048
