@@ -15,10 +15,15 @@ RingBuffer<SmartCompressedData, 20> smartRingBuffer;
 
 const char* dataPostURL = FLASK_SERVER_URL "/process";
 const char* fetchChangesURL = FLASK_SERVER_URL "/changes";
+const char* commandPollURL = FLASK_SERVER_URL "/command/poll";
+const char* commandResultURL = FLASK_SERVER_URL "/command/result";
 
 void Wifi_init();
 void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* sensorData);
 void upload_data();
+void checkForCommands();
+bool executeCommand(const char* commandId, const char* commandType, const char* parameters);
+void sendCommandResult(const char* commandId, bool success, const char* result);
 std::vector<uint8_t> compressWithSmartSelection(uint16_t* data, const RegID* selection, size_t count, 
                                                unsigned long& compressionTime, char* methodUsed, size_t methodSize,
                                                float& academicRatio, float& traditionalRatio);
@@ -203,6 +208,9 @@ void setup()
     {
       upload_token = false;
       upload_data();
+      
+      // Check for any queued commands from server
+      checkForCommands();
 
       // Applying the changes
       if (!pollFreq_uptodate)
@@ -371,6 +379,171 @@ void Wifi_init()
   Wifi.setSSID(WIFI_SSID);
   Wifi.setPassword(WIFI_PASSWORD);
   Wifi.begin();
+}
+
+
+/**
+ * @fn void checkForCommands()
+ * 
+ * @brief Poll the server for any queued commands and execute them
+ */
+void checkForCommands()
+{
+    print("Checking for queued commands from server...\n");
+    if (WiFi.status() != WL_CONNECTED) {
+        print("WiFi not connected. Cannot check commands.\n");
+        return;
+    }
+
+    HTTPClient http;
+    http.begin(commandPollURL);
+    http.addHeader("Content-Type", "application/json");
+
+    StaticJsonDocument<128> pollRequest;
+    pollRequest["device_id"] = "ESP32_EcoWatt_Smart";
+
+    char requestBody[128];
+    serializeJson(pollRequest, requestBody, sizeof(requestBody));
+
+    int httpResponseCode = http.POST((uint8_t*)requestBody, strlen(requestBody));
+
+    if (httpResponseCode > 0) {
+        WiFiClient* stream = http.getStreamPtr();
+        static char responseBuffer[512];
+        int len = http.getSize();
+        int index = 0;
+
+        while (http.connected() && (len > 0 || len == -1)) {
+            if (stream->available()) {
+                char c = stream->read();
+                if (index < (int)sizeof(responseBuffer) - 1)
+                    responseBuffer[index++] = c;
+                if (len > 0) len--;
+            }
+        }
+        responseBuffer[index] = '\0';
+
+        StaticJsonDocument<512> responseDoc;
+        DeserializationError error = deserializeJson(responseDoc, responseBuffer);
+
+        if (!error && responseDoc.containsKey("command")) {
+            const char* commandId = responseDoc["command"]["command_id"] | "";
+            const char* commandType = responseDoc["command"]["command_type"] | "";
+            
+            print("Received command: %s (ID: %s)\n", commandType, commandId);
+            
+            // Extract parameters as JSON string
+            char parameters[256] = {0};
+            if (responseDoc["command"].containsKey("parameters")) {
+                serializeJson(responseDoc["command"]["parameters"], parameters, sizeof(parameters));
+            }
+            
+            // Execute the command
+            bool success = executeCommand(commandId, commandType, parameters);
+            
+            // Send result back to server
+            char result[128];
+            snprintf(result, sizeof(result), "Command %s: %s", commandType, success ? "executed successfully" : "failed");
+            sendCommandResult(commandId, success, result);
+        } else if (error) {
+            print("Failed to parse command response\n");
+        } else {
+            print("No pending commands\n");
+        }
+
+        http.end();
+    } else {
+        print("HTTP POST failed with error code: %d\n", httpResponseCode);
+        http.end();
+    }
+}
+
+
+/**
+ * @fn bool executeCommand(const char* commandId, const char* commandType, const char* parameters)
+ * 
+ * @brief Execute a specific command received from the server
+ */
+bool executeCommand(const char* commandId, const char* commandType, const char* parameters)
+{
+    print("Executing command: %s\n", commandType);
+    print("Parameters: %s\n", parameters);
+    
+    StaticJsonDocument<256> paramDoc;
+    DeserializationError error = deserializeJson(paramDoc, parameters);
+    
+    if (error) {
+        print("Failed to parse parameters\n");
+        return false;
+    }
+    
+    // Handle different command types
+    if (strcmp(commandType, "set_power") == 0) {
+        int powerValue = paramDoc["power_value"] | 0;
+        print("Setting power to %d W\n", powerValue);
+        
+        // Call the setPower function from acquisition
+        bool result = setPower(powerValue);
+        
+        if (result) {
+            print("Power set successfully to %d W\n", powerValue);
+        } else {
+            print("Failed to set power\n");
+        }
+        return result;
+        
+    } else if (strcmp(commandType, "write_register") == 0) {
+        int regAddress = paramDoc["register_address"] | 0;
+        int value = paramDoc["value"] | 0;
+        print("Writing register %d with value %d\n", regAddress, value);
+        
+        // Call the writeRegister function (you'll need to implement this)
+        // For now, return false as placeholder
+        print("Write register command not yet implemented\n");
+        return false;
+        
+    } else {
+        print("Unknown command type: %s\n", commandType);
+        return false;
+    }
+}
+
+
+/**
+ * @fn void sendCommandResult(const char* commandId, bool success, const char* result)
+ * 
+ * @brief Send command execution result back to the server
+ */
+void sendCommandResult(const char* commandId, bool success, const char* result)
+{
+    print("Sending command result to server...\n");
+    
+    if (WiFi.status() != WL_CONNECTED) {
+        print("WiFi not connected. Cannot send result.\n");
+        return;
+    }
+
+    HTTPClient http;
+    http.begin(commandResultURL);
+    http.addHeader("Content-Type", "application/json");
+
+    StaticJsonDocument<256> resultDoc;
+    resultDoc["command_id"] = commandId;
+    resultDoc["status"] = success ? "completed" : "failed";
+    resultDoc["result"] = result;
+
+    char resultBody[256];
+    serializeJson(resultDoc, resultBody, sizeof(resultBody));
+
+    int httpResponseCode = http.POST((uint8_t*)resultBody, strlen(resultBody));
+
+    if (httpResponseCode == 200) {
+        print("Command result sent successfully\n");
+    } else {
+        print("Failed to send command result (HTTP %d)\n", httpResponseCode);
+    }
+
+    http.end();
 }
 
 

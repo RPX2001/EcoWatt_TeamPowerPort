@@ -197,6 +197,17 @@
         "className": ""
     },
     {
+        "id": "54160806e061939a",
+        "type": "ui_group",
+        "name": "Command",
+        "tab": "b68a42613a64acc5",
+        "order": 3,
+        "disp": true,
+        "width": "6",
+        "collapse": false,
+        "className": ""
+    },
+    {
         "id": "84daba29a66249fd",
         "type": "mqtt in",
         "z": "95a58d00f0208f4c",
@@ -552,7 +563,7 @@
         "type": "function",
         "z": "95a58d00f0208f4c",
         "name": "JSON Parser",
-        "func": "// ---- Store incoming values by topic ----\nif (msg.topic === \"sampleTime\") flow.set(\"sampleTime\", msg.payload);\nif (msg.topic === \"uploadTime\") flow.set(\"uploadTime\", msg.payload);\n\nconst regs = [\"VAC1\", \"IAC1\", \"FAC1\", \"VPV1\", \"VPV2\", \"IPV1\", \"IPV2\", \"TEMP\", \"POW\", \"PAC\"];\nregs.forEach(r => {\n    if (msg.topic === r) flow.set(r, msg.payload);\n});\n\n// ---- Retrieve current values ----\nlet newSampleTime = flow.get(\"sampleTime\");\nlet newUploadTime = flow.get(\"uploadTime\");\nlet values = {};\nregs.forEach(r => values[r] = flow.get(r));\n\n// ---- Previous values ----\nlet prevSampleTime = context.get(\"prevSampleTime\");\nlet prevUploadTime = context.get(\"prevUploadTime\");\nlet prevValues = {};\nregs.forEach(r => prevValues[r] = context.get(\"prev\" + r));\n\n// ---- Change detection ----\nlet pollFreqChanged = prevSampleTime !== undefined && newSampleTime !== prevSampleTime;\nlet uploadFreqChanged = prevUploadTime !== undefined && newUploadTime !== prevUploadTime;\n\nlet firstRun = prevSampleTime === undefined && prevUploadTime === undefined &&\n               regs.every(r => prevValues[r] === undefined);\n\n// ---- Build 16-bit register bitmask ----\nlet regsBin = 0;\nregs.forEach((r, i) => {\n    if (Number(values[r]) === 1) {\n        regsBin |= (1 << i);\n    }\n});\n\nlet regsChanged = regsBin !== 0;\nlet changed = firstRun || pollFreqChanged || uploadFreqChanged || regsChanged;\n\n// ---- Update previous ----\ncontext.set(\"prevSampleTime\", newSampleTime);\ncontext.set(\"prevUploadTime\", newUploadTime);\nregs.forEach(r => context.set(\"prev\" + r, values[r]));\n\n// ---- Build payload ----\nmsg.payload = {\n    Changed: changed,\n    pollFreqChanged: pollFreqChanged,\n    newPollTimer: newSampleTime,\n    uploadFreqChanged: uploadFreqChanged,\n    newUploadTimer: newUploadTime,\n    regsChanged: regsChanged,\n    regs: regsBin,\n    regsCount: Object.values(values).filter(v => Number(v) === 1).length\n};\nmsg.topic = \"esp32/ecowatt_settings\";\n\nreturn msg;\n",
+        "func": "// ---- Store incoming values by topic ----\nif (msg.topic === \"sampleTime\") flow.set(\"sampleTime\", msg.payload);\nif (msg.topic === \"uploadTime\") flow.set(\"uploadTime\", msg.payload);\n\nconst regs = [\"VAC1\", \"IAC1\", \"FAC1\", \"VPV1\", \"VPV2\", \"IPV1\", \"IPV2\", \"TEMP\", \"POW\", \"PAC\"];\nregs.forEach(r => {\n    if (msg.topic === r) flow.set(r, msg.payload);\n});\nif (msg.topic === \"power\") flow.set(\"power\", msg.payload);\n\n// ---- Retrieve current values ----\nlet newSampleTime = flow.get(\"sampleTime\");\nlet newUploadTime = flow.get(\"uploadTime\");\nlet values = {};\nregs.forEach(r => values[r] = flow.get(r));\n\n// ---- Previous values ----\nlet prevSampleTime = context.get(\"prevSampleTime\");\nlet prevUploadTime = context.get(\"prevUploadTime\");\nlet prevValues = {};\nregs.forEach(r => prevValues[r] = context.get(\"prev\" + r));\n\n// ---- Change detection ----\nlet pollFreqChanged = prevSampleTime !== undefined && newSampleTime !== prevSampleTime;\nlet uploadFreqChanged = prevUploadTime !== undefined && newUploadTime !== prevUploadTime;\n\nlet firstRun = prevSampleTime === undefined && prevUploadTime === undefined &&\n               regs.every(r => prevValues[r] === undefined);\n\n// ---- Build 16-bit register bitmask ----\nlet regsBin = 0;\nregs.forEach((r, i) => {\n    if (Number(values[r]) === 1) {\n        regsBin |= (1 << i);\n    }\n});\n\nlet regsChanged = regsBin !== 0;\nlet changed = firstRun || pollFreqChanged || uploadFreqChanged || regsChanged;\n\n// ---- Update previous ----\ncontext.set(\"prevSampleTime\", newSampleTime);\ncontext.set(\"prevUploadTime\", newUploadTime);\nregs.forEach(r => context.set(\"prev\" + r, values[r]));\n\n// ---- Build payload ----\nmsg.payload = {\n    Changed: changed,\n    pollFreqChanged: pollFreqChanged,\n    newPollTimer: newSampleTime,\n    uploadFreqChanged: uploadFreqChanged,\n    newUploadTimer: newUploadTime,\n    regsChanged: regsChanged,\n    regs: regsBin,\n    regsCount: Object.values(values).filter(v => Number(v) === 1).length\n};\nmsg.topic = \"esp32/ecowatt_settings\";\n\nreturn msg;\n",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
