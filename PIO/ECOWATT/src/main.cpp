@@ -48,6 +48,9 @@ volatile bool poll_token = false;
 SmartPerformanceStats smartStats;
 SampleBatch currentBatch;
 
+// Counter for command polling (check every 2nd config check = every 10s)
+static uint8_t command_poll_counter = 0;
+
 void IRAM_ATTR set_poll_token() 
 {
   poll_token = true;
@@ -209,9 +212,6 @@ void setup()
     {
       upload_token = false;
       upload_data();
-      
-      // Check for any queued commands from server
-      checkForCommands();
 
       // Applying the changes
       if (!pollFreq_uptodate)
@@ -249,6 +249,13 @@ void setup()
     {
         changes_token = false;
         checkChanges(&registers_uptodate, &pollFreq_uptodate, &uploadFreq_uptodate);
+        
+        // Check for commands every 2nd config check (every 10s instead of every 5s)
+        command_poll_counter++;
+        if (command_poll_counter >= 2) {
+            command_poll_counter = 0;
+            checkForCommands();
+        }
     }
 
     // Handle OTA check
@@ -829,17 +836,18 @@ void printSmartPerformanceStatistics() {
  * @brief Upload all smart compressed data in the ring buffer to the cloud server.
  */
 void uploadSmartCompressedDataToCloud() {
-    PRINT_SECTION("DATA UPLOAD CYCLE");
-    
     if (WiFi.status() != WL_CONNECTED) {
-        PRINT_ERROR("WiFi not connected - cannot upload");
+        // Silently skip if WiFi not connected
         return;
     }
 
     if (smartRingBuffer.empty()) {
-        PRINT_INFO("Buffer empty - nothing to upload");
+        // Silently skip if buffer is empty - no need to print anything
         return;
     }
+    
+    // Only print section header if there's actually data to upload
+    PRINT_SECTION("DATA UPLOAD CYCLE");
     
     HTTPClient http;
     http.begin(dataPostURL);

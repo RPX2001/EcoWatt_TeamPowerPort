@@ -10,7 +10,7 @@ def main():
     # Initialize firmware manager
     fm = FirmwareManager('firmware', 'keys')
     # Prepare firmware version 1.0.4
-    firmware_file = 'D:/Documents/UoM/Semester 7/Embedded/Firmware/flask/firmware/firmware_v1.4.bin'
+    firmware_file = '/Users/prabathwijethilaka/Sem7/Embedded/EcoWatt_TeamPowerPort/flask/firmware/firmware_v1.4.bin'
     version = '1.0.4'
 
     print(f"\n{'='*60}")

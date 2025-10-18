@@ -9,7 +9,7 @@
 
 struct SampleBatch {
     static const size_t MAX_REGISTERS = 10;  // Support up to 10 registers
-    static const size_t MAX_SAMPLES = 5;     // Still keep 5 samples
+    static const size_t MAX_SAMPLES = 7;     // Batch size: 7 samples
     
     uint16_t samples[MAX_SAMPLES][MAX_REGISTERS];  // Dynamic size based on register count
     size_t sampleCount = 0;
