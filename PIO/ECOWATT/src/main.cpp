@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "peripheral/acquisition.h"
 #include "peripheral/print.h"
+#include "peripheral/formatted_print.h"
 #include "peripheral/arduino_wifi.h"
 #include "application/ringbuffer.h"
 #include "application/compression.h"
@@ -389,9 +390,11 @@ void Wifi_init()
  */
 void checkForCommands()
 {
-    print("Checking for queued commands from server...\n");
+    PRINT_SECTION("COMMAND POLL CYCLE");
+    PRINT_PROGRESS("Polling server for pending commands...");
+    
     if (WiFi.status() != WL_CONNECTED) {
-        print("WiFi not connected. Cannot check commands.\n");
+        PRINT_ERROR("WiFi not connected - cannot check commands");
         return;
     }
 
@@ -430,12 +433,13 @@ void checkForCommands()
             const char* commandId = responseDoc["command"]["command_id"] | "";
             const char* commandType = responseDoc["command"]["command_type"] | "";
             
-            print("Received command: %s (ID: %s)\n", commandType, commandId);
+            Serial.printf("  [CMD] Received: %s (ID: %s)\n", commandType, commandId);
             
             // Extract parameters as JSON string
             char parameters[256] = {0};
             if (responseDoc["command"].containsKey("parameters")) {
                 serializeJson(responseDoc["command"]["parameters"], parameters, sizeof(parameters));
+                Serial.printf("  [INFO] Parameters: %s\n", parameters);
             }
             
             // Execute the command
@@ -445,15 +449,21 @@ void checkForCommands()
             char result[128];
             snprintf(result, sizeof(result), "Command %s: %s", commandType, success ? "executed successfully" : "failed");
             sendCommandResult(commandId, success, result);
+            
+            if (success) {
+                PRINT_SUCCESS("Command executed successfully");
+            } else {
+                PRINT_ERROR("Command execution failed");
+            }
         } else if (error) {
-            print("Failed to parse command response\n");
+            PRINT_ERROR("Failed to parse JSON response: %s", error.c_str());
         } else {
-            print("No pending commands\n");
+            PRINT_INFO("No pending commands in queue");
         }
 
         http.end();
     } else {
-        print("HTTP POST failed with error code: %d\n", httpResponseCode);
+        PRINT_ERROR("HTTP POST failed - Error code: %d", httpResponseCode);
         http.end();
     }
 }
@@ -819,16 +829,18 @@ void printSmartPerformanceStatistics() {
  * @brief Upload all smart compressed data in the ring buffer to the cloud server.
  */
 void uploadSmartCompressedDataToCloud() {
+    PRINT_SECTION("DATA UPLOAD CYCLE");
+    
     if (WiFi.status() != WL_CONNECTED) {
-        print("WiFi not connected. Cannot upload.\n");
+        PRINT_ERROR("WiFi not connected - cannot upload");
         return;
     }
 
     if (smartRingBuffer.empty()) {
-        print("Buffer empty. Nothing to upload.\n");
+        PRINT_INFO("Buffer empty - nothing to upload");
         return;
     }
-
+    
     HTTPClient http;
     http.begin(dataPostURL);
     http.addHeader("Content-Type", "application/json");
@@ -842,6 +854,8 @@ void uploadSmartCompressedDataToCloud() {
     doc["data_type"] = "compressed_sensor_batch";
     doc["total_samples"] = allData.size();
     
+    Serial.printf("  [INFO] Preparing %zu compressed batches for upload\n", allData.size());
+    
     // Build register mapping dynamically from the first entry
     // (assuming all entries in this batch use the same register set)
     JsonObject registerMapping = doc["register_mapping"].to<JsonObject>();
@@ -853,7 +867,6 @@ void uploadSmartCompressedDataToCloud() {
             // Use the actual register name from REGISTER_MAP
             registerMapping[key] = REGISTER_MAP[firstEntry.registers[i]].name;
         }
-        print("Register mapping built: %zu registers\n", firstEntry.registerCount);
     }
     
     // Compressed data packets with decompression metadata
@@ -917,57 +930,50 @@ void uploadSmartCompressedDataToCloud() {
     char jsonString[2048];
     size_t jsonLen = serializeJson(doc, jsonString, sizeof(jsonString));
 
-    print("UPLOADING COMPRESSED DATA TO FLASK SERVER\n");
-    print("Packets: %zu | JSON Size: %zu bytes\n", allData.size(), jsonLen);
-    print("Compression Summary: %zu -> %zu bytes (%.1f%% savings)\n", 
-        totalOriginalBytes, totalCompressedBytes,
-        (totalOriginalBytes > 0) ? (1.0f - (float)totalCompressedBytes / (float)totalOriginalBytes) * 100.0f : 0.0f);
+    // Compression statistics
+    float savingsPercent = (totalOriginalBytes > 0) ? 
+        (1.0f - (float)totalCompressedBytes / (float)totalOriginalBytes) * 100.0f : 0.0f;
     
-    // Print register mapping being sent
-    print("\n=== UPLOADED REGISTER MAPPING ===\n");
-    if (!allData.empty()) {
-        const auto& firstEntry = allData[0];
-        print("Sending %zu registers:\n", firstEntry.registerCount);
-        for (size_t i = 0; i < firstEntry.registerCount && i < REGISTER_COUNT; i++) {
-            RegID regId = firstEntry.registers[i];
-            print("  [%zu] %s (ID: %d)\n", i, REGISTER_MAP[regId].name, regId);
-        }
-    }
-    print("================================\n\n");
+    Serial.printf("  [INFO] Compression: %zu bytes -> %zu bytes (%.1f%% savings)\n", 
+                  totalOriginalBytes, totalCompressedBytes, savingsPercent);
+    Serial.printf("  [INFO] Sending %zu packets with %zu registers\n", 
+                  allData.size(), allData.empty() ? 0 : allData[0].registerCount);
     
     // Apply Security Layer
+    PRINT_PROGRESS("Encrypting payload with AES-128...");
+    
     // Use dynamic allocation to avoid stack overflow
     char* securedPayload = new char[8192];
     if (!securedPayload) {
-        print("Failed to allocate memory for secured payload! Aborting upload.\n");
+        PRINT_ERROR("Failed to allocate memory for secured payload");
         http.end();
         return;
     }
     
     if (!SecurityLayer::securePayload(jsonString, securedPayload, 8192)) {
-        print("Failed to secure payload! Aborting upload.\n");
+        PRINT_ERROR("Payload encryption failed");
         delete[] securedPayload;
         http.end();
         return;
     }
     
-    print("Security Layer: Payload secured successfully\n");
-    print("Secured Payload Size: %zu bytes\n", strlen(securedPayload));
+    PRINT_SUCCESS("Payload encrypted successfully");
+    
+    PRINT_PROGRESS("Uploading to server...");
     
     int httpResponseCode = http.POST((uint8_t*)securedPayload, strlen(securedPayload));
     
     if (httpResponseCode == 200) {
         String response = http.getString();
-        print("Upload successful to Flask server!\n");
-        //print("Server response: %s\n", response.c_str());
+        PRINT_SUCCESS("Upload successful! (HTTP 200)");
         smartStats.losslessSuccesses++;
     } else {
-        print("Upload failed (HTTP %d)\n", httpResponseCode);
+        PRINT_ERROR("Upload failed - HTTP %d", httpResponseCode);
         if (httpResponseCode > 0) {
             String errorResponse = http.getString();
-            print("Flask server error: %s\n", errorResponse.c_str());
+            PRINT_DATA("Error Response", "%s", errorResponse.c_str());
         }
-        print("Restoring compressed data to buffer...\n");
+        PRINT_WARNING("Restoring data to buffer for retry...");
         
         // Restore data to buffer
         for (const auto& entry : allData) {
