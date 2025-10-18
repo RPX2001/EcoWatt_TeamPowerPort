@@ -480,15 +480,45 @@ bool executeCommand(const char* commandId, const char* commandType, const char* 
     // Handle different command types
     if (strcmp(commandType, "set_power") == 0) {
         int powerValue = paramDoc["power_value"] | 0;
-        print("Setting power to %d W\n", powerValue);
         
-        // Call the setPower function from acquisition
-        bool result = setPower(powerValue);
+        // IMPORTANT: Register 8 accepts PERCENTAGE (0-100), not absolute watts
+        // Convert power value to percentage based on your inverter's max capacity
+        // Assuming max inverter capacity is 10,000W (adjust as needed)
+        const int MAX_INVERTER_CAPACITY = 10000; // Watts
+        int powerPercentage = (powerValue * 100) / MAX_INVERTER_CAPACITY;
+        
+        // Clamp to valid range 0-100%
+        if (powerPercentage < 0) powerPercentage = 0;
+        if (powerPercentage > 100) powerPercentage = 100;
+        
+        print("Setting power to %d W (%d%%)\n", powerValue, powerPercentage);
+        
+        // Call the setPower function with PERCENTAGE value
+        bool result = setPower(powerPercentage);
         
         if (result) {
-            print("Power set successfully to %d W\n", powerValue);
+            print("Power set successfully to %d W (%d%%)\n", powerValue, powerPercentage);
         } else {
             print("Failed to set power\n");
+        }
+        return result;
+        
+    } else if (strcmp(commandType, "set_power_percentage") == 0) {
+        // Direct percentage control (0-100%)
+        int percentage = paramDoc["percentage"] | 0;
+        
+        // Clamp to valid range
+        if (percentage < 0) percentage = 0;
+        if (percentage > 100) percentage = 100;
+        
+        print("Setting power percentage to %d%%\n", percentage);
+        
+        bool result = setPower(percentage);
+        
+        if (result) {
+            print("Power percentage set successfully to %d%%\n", percentage);
+        } else {
+            print("Failed to set power percentage\n");
         }
         return result;
         
@@ -616,7 +646,7 @@ void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* senso
 void upload_data()
 {
     uploadSmartCompressedDataToCloud();
-    printSmartPerformanceStatistics();
+    // printSmartPerformanceStatistics();
 }
 
 

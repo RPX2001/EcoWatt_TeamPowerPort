@@ -334,6 +334,9 @@ from server_security_layer import verify_secured_payload, is_secured_payload, Se
 # Import firmware manager for OTA functionality
 from firmware_manager import FirmwareManager
 
+# Import command manager for command execution
+from command_manager import CommandManager
+
 app = Flask(__name__)
 
 # Configure logging
@@ -368,6 +371,9 @@ LATEST_FIRMWARE_VERSION = "1.0.4"
 firmware_manager = None
 ota_sessions = {}  # Track active OTA sessions by device_id
 ota_lock = threading.Lock()
+
+# Command Manager
+command_manager = None
 
 def on_connect(client, userdata, flags, rc):
     global mqtt_connected
@@ -476,6 +482,18 @@ def init_firmware_manager():
         return True
     except Exception as e:
         logger.error(f"Failed to initialize OTA firmware manager: {e}")
+        return False
+
+def init_command_manager():
+    """Initialize the command manager for command execution."""
+    global command_manager
+    
+    try:
+        command_manager = CommandManager(log_file='flask/commands.log')
+        logger.info("Command manager initialized successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to initialize command manager: {e}")
         return False
 
 def decompress_dictionary_bitmask(binary_data):
@@ -1323,6 +1341,388 @@ def ota_status():
         logger.error(f"Error in /ota/status: {e}")
         return jsonify({'error': str(e)}), 500
 
+
+# ============================================================================
+# COMMAND EXECUTION ENDPOINTS
+# ============================================================================
+
+@app.route('/command/queue', methods=['POST'])
+def queue_command():
+    """
+    Queue a new command for a device.
+    
+    Request body:
+    {
+        "device_id": "ESP32_EcoWatt_Smart",
+        "command_type": "set_power" | "write_register",
+        "parameters": {
+            "power_value": 5000  // for set_power
+            OR
+            "register_address": 40001,  // for write_register
+            "value": 4500
+        }
+    }
+    
+    Response:
+    {
+        "status": "success",
+        "command_id": "CMD_1000_1729123456",
+        "message": "Command queued successfully"
+    }
+    """
+    try:
+        if not command_manager:
+            return jsonify({'error': 'Command manager not initialized'}), 500
+        
+        data = request.get_json()
+        
+        if not data or 'device_id' not in data or 'command_type' not in data:
+            return jsonify({'error': 'Invalid request format. Required: device_id, command_type, parameters'}), 400
+        
+        device_id = data['device_id']
+        command_type = data['command_type']
+        parameters = data.get('parameters', {})
+        
+        # Validate command type
+        if command_type not in ['set_power', 'set_power_percentage', 'write_register']:
+            return jsonify({'error': f'Unsupported command type: {command_type}'}), 400
+        
+        # Validate parameters based on command type
+        if command_type == 'set_power':
+            if 'power_value' not in parameters:
+                return jsonify({'error': 'Missing power_value parameter for set_power command'}), 400
+        elif command_type == 'set_power_percentage':
+            if 'percentage' not in parameters:
+                return jsonify({'error': 'Missing percentage parameter for set_power_percentage command'}), 400
+            # Validate percentage range
+            pct = parameters.get('percentage', 0)
+            if not isinstance(pct, (int, float)) or pct < 0 or pct > 100:
+                return jsonify({'error': 'Percentage must be between 0 and 100'}), 400
+        elif command_type == 'write_register':
+            if 'register_address' not in parameters or 'value' not in parameters:
+                return jsonify({'error': 'Missing register_address or value for write_register command'}), 400
+        
+        # Queue the command
+        command_id = command_manager.queue_command(device_id, command_type, parameters)
+        
+        logger.info(f"Command queued: {command_id} for {device_id}")
+        
+        return jsonify({
+            'status': 'success',
+            'command_id': command_id,
+            'device_id': device_id,
+            'command_type': command_type,
+            'parameters': parameters,
+            'message': f'Command {command_type} queued successfully for {device_id}'
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /command/queue: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/command/poll', methods=['POST'])
+def poll_command():
+    """
+    Poll for pending commands (called by ESP32).
+    
+    Request body:
+    {
+        "device_id": "ESP32_EcoWatt_Smart"
+    }
+    
+    Response (if command available):
+    {
+        "command": {
+            "command_id": "CMD_1000_1729123456",
+            "command_type": "set_power",
+            "parameters": {
+                "power_value": 5000
+            }
+        }
+    }
+    
+    Response (if no commands):
+    {
+        "message": "No pending commands"
+    }
+    """
+    try:
+        if not command_manager:
+            return jsonify({'error': 'Command manager not initialized'}), 500
+        
+        data = request.get_json()
+        
+        if not data or 'device_id' not in data:
+            return jsonify({'error': 'Missing device_id'}), 400
+        
+        device_id = data['device_id']
+        
+        # Get next command for this device
+        command = command_manager.get_next_command(device_id)
+        
+        if command:
+            logger.info(f"Serving command {command['command_id']} to {device_id}")
+            return jsonify({
+                'command': command
+            }), 200
+        else:
+            logger.debug(f"No pending commands for {device_id}")
+            return jsonify({
+                'message': 'No pending commands'
+            }), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /command/poll: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/command/result', methods=['POST'])
+def submit_command_result():
+    """
+    Submit command execution result (called by ESP32).
+    
+    Request body:
+    {
+        "command_id": "CMD_1000_1729123456",
+        "status": "completed" | "failed",
+        "result": "Command set_power: executed successfully"
+    }
+    
+    Response:
+    {
+        "status": "success",
+        "message": "Result recorded"
+    }
+    """
+    try:
+        if not command_manager:
+            return jsonify({'error': 'Command manager not initialized'}), 500
+        
+        data = request.get_json()
+        
+        if not data or 'command_id' not in data or 'status' not in data or 'result' not in data:
+            return jsonify({'error': 'Missing required fields: command_id, status, result'}), 400
+        
+        command_id = data['command_id']
+        status = data['status']
+        result = data['result']
+        
+        # Validate status
+        if status not in ['completed', 'failed']:
+            return jsonify({'error': 'Invalid status. Must be "completed" or "failed"'}), 400
+        
+        # Record the result
+        success = command_manager.record_result(command_id, status, result)
+        
+        if success:
+            logger.info(f"Command result recorded: {command_id} - {status}")
+            return jsonify({
+                'status': 'success',
+                'message': 'Result recorded successfully',
+                'command_id': command_id
+            }), 200
+        else:
+            logger.warning(f"Command not found: {command_id}")
+            return jsonify({
+                'status': 'warning',
+                'message': 'Command not found, but result logged',
+                'command_id': command_id
+            }), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /command/result: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/command/status/<command_id>', methods=['GET'])
+def get_command_status(command_id):
+    """
+    Get status of a specific command.
+    
+    Response:
+    {
+        "command_id": "CMD_1000_1729123456",
+        "device_id": "ESP32_EcoWatt_Smart",
+        "command_type": "set_power",
+        "parameters": {...},
+        "status": "completed",
+        "queued_time": "2025-10-18T14:30:00",
+        "sent_time": "2025-10-18T14:31:00",
+        "completed_time": "2025-10-18T14:31:05",
+        "result": "Command executed successfully"
+    }
+    """
+    try:
+        if not command_manager:
+            return jsonify({'error': 'Command manager not initialized'}), 500
+        
+        command = command_manager.get_command_status(command_id)
+        
+        if command:
+            return jsonify(command), 200
+        else:
+            return jsonify({'error': 'Command not found'}), 404
+    
+    except Exception as e:
+        logger.error(f"Error in /command/status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/command/history', methods=['GET'])
+def get_command_history():
+    """
+    Get command history, optionally filtered by device.
+    
+    Query parameters:
+    - device_id: Optional device filter
+    - limit: Maximum number of commands to return (default 50)
+    
+    Response:
+    {
+        "commands": [
+            {
+                "command_id": "CMD_1000_1729123456",
+                "device_id": "ESP32_EcoWatt_Smart",
+                "command_type": "set_power",
+                "status": "completed",
+                ...
+            },
+            ...
+        ],
+        "count": 25
+    }
+    """
+    try:
+        if not command_manager:
+            return jsonify({'error': 'Command manager not initialized'}), 500
+        
+        device_id = request.args.get('device_id')
+        limit = int(request.args.get('limit', 50))
+        
+        if device_id:
+            commands = command_manager.get_device_commands(device_id, limit)
+        else:
+            commands = command_manager.get_all_commands(limit)
+        
+        return jsonify({
+            'commands': commands,
+            'count': len(commands),
+            'device_id_filter': device_id if device_id else 'all'
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /command/history: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/command/pending', methods=['GET'])
+def get_pending_commands():
+    """
+    Get all pending commands, optionally filtered by device.
+    
+    Query parameters:
+    - device_id: Optional device filter
+    
+    Response:
+    {
+        "pending_commands": [...],
+        "count": 3
+    }
+    """
+    try:
+        if not command_manager:
+            return jsonify({'error': 'Command manager not initialized'}), 500
+        
+        device_id = request.args.get('device_id')
+        
+        pending = command_manager.get_pending_commands(device_id)
+        
+        return jsonify({
+            'pending_commands': pending,
+            'count': len(pending),
+            'device_id_filter': device_id if device_id else 'all'
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /command/pending: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/command/statistics', methods=['GET'])
+def get_command_statistics():
+    """
+    Get command execution statistics.
+    
+    Response:
+    {
+        "total_commands": 150,
+        "completed": 145,
+        "failed": 3,
+        "pending": 2,
+        "success_rate": 96.67,
+        "active_devices": 1,
+        "total_queued": 2
+    }
+    """
+    try:
+        if not command_manager:
+            return jsonify({'error': 'Command manager not initialized'}), 500
+        
+        stats = command_manager.get_statistics()
+        
+        return jsonify(stats), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /command/statistics: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/command/logs', methods=['GET'])
+def export_command_logs():
+    """
+    Export command logs with optional filtering.
+    
+    Query parameters:
+    - device_id: Optional device filter
+    - start_time: Optional start time (ISO format)
+    - end_time: Optional end time (ISO format)
+    
+    Response:
+    {
+        "logs": [...],
+        "count": 50
+    }
+    """
+    try:
+        if not command_manager:
+            return jsonify({'error': 'Command manager not initialized'}), 500
+        
+        device_id = request.args.get('device_id')
+        start_time = request.args.get('start_time')
+        end_time = request.args.get('end_time')
+        
+        logs = command_manager.export_logs(device_id, start_time, end_time)
+        
+        return jsonify({
+            'logs': logs,
+            'count': len(logs),
+            'filters': {
+                'device_id': device_id,
+                'start_time': start_time,
+                'end_time': end_time
+            }
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /command/logs: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# END OF COMMAND EXECUTION ENDPOINTS
+# ============================================================================
+
 if __name__ == '__main__':
     print("Starting EcoWatt Smart Selection Batch Server v3.1")
     print("="*60)
@@ -1343,9 +1743,16 @@ if __name__ == '__main__':
     else:
         print("Warning: OTA firmware manager failed to initialize")
     
+    # Initialize Command Manager
+    if init_command_manager():
+        print("Command manager initialized successfully")
+    else:
+        print("Warning: Command manager failed to initialize")
+    
     print(f"MQTT: {MQTT_BROKER}:{MQTT_PORT} → {MQTT_TOPIC}")
     print("Starting Flask server with comprehensive batch logging...")
     print("OTA endpoints available: /ota/check, /ota/chunk, /ota/verify, /ota/complete, /ota/status")
+    print("Command endpoints: /command/queue, /command/poll, /command/result, /command/status, /command/history")
     print("="*60)
     
     app.run(host='0.0.0.0', port=5001, debug=True)
