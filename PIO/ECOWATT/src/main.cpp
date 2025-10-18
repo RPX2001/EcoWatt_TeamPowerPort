@@ -10,6 +10,8 @@
 #include "application/OTAManager.h"
 #include "application/credentials.h"
 #include "application/security.h"
+#include "application/power_management.h"
+#include "application/peripheral_power.h"
 
 Arduino_Wifi Wifi;
 RingBuffer<SmartCompressedData, 20> smartRingBuffer;
@@ -126,6 +128,12 @@ void setup()
 
   Wifi_init();
 
+  // Initialize Power Management
+  PowerManagement::init();
+
+  // Initialize Peripheral Power Gating
+  PeripheralPower::init();
+
   // Initialize Security Layer
   print("Initializing Security Layer...\n");
   SecurityLayer::init();
@@ -202,6 +210,10 @@ void setup()
 
   while(true) 
   {
+    // NOTE: CPU frequency scaling disabled due to WiFi stability issues
+    // ESP32 WiFi requires 240 MHz to maintain stable connection
+    // Frequency scaling causes BEACON_TIMEOUT errors and disconnections
+    
     if (poll_token) 
     {
       poll_token = false;
@@ -263,6 +275,11 @@ void setup()
         ota_token = false;
         performOTAUpdate();
     }
+    
+    // Small yield to prevent watchdog triggers
+    // NOTE: Sleep disabled due to watchdog compatibility
+    // WiFi requires 240 MHz, so frequency scaling also disabled
+    delay(1);  // Minimal delay to yield to system tasks
   }
 }
 
@@ -387,6 +404,12 @@ void Wifi_init()
   Wifi.setSSID(WIFI_SSID);
   Wifi.setPassword(WIFI_PASSWORD);
   Wifi.begin();
+  
+  // Disable WiFi power save mode to prevent beacon timeouts
+  // This is critical when using CPU frequency scaling
+  WiFi.setSleep(false);
+  
+  print("WiFi power save disabled for stability\n");
 }
 
 
@@ -549,6 +572,32 @@ bool executeCommand(const char* commandId, const char* commandType, const char* 
         print("Write register command not yet implemented\n");
         return false;
         
+    } else if (strcmp(commandType, "get_power_stats") == 0) {
+        // Print power management statistics
+        print("Printing power management statistics...\n");
+        PowerManagement::printStats();
+        return true;
+        
+    } else if (strcmp(commandType, "reset_power_stats") == 0) {
+        // Reset power statistics
+        print("Resetting power management statistics...\n");
+        PowerManagement::resetStats();
+        PowerManagement::printStats();
+        return true;
+        
+    } else if (strcmp(commandType, "get_peripheral_stats") == 0) {
+        // Print peripheral power gating statistics
+        print("Printing peripheral power gating statistics...\n");
+        PeripheralPower::printStats();
+        return true;
+        
+    } else if (strcmp(commandType, "reset_peripheral_stats") == 0) {
+        // Reset peripheral power statistics
+        print("Resetting peripheral power gating statistics...\n");
+        PeripheralPower::resetStats();
+        PeripheralPower::printStats();
+        return true;
+        
     } else {
         print("Unknown command type: %s\n", commandType);
         return false;
@@ -601,6 +650,9 @@ void sendCommandResult(const char* commandId, bool success, const char* result)
  */
 void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* sensorData)
 {
+  // Enable UART for Modbus communication (power gating)
+  PERIPHERAL_UART_ON();
+  
   if (readMultipleRegisters(selection, registerCount, sensorData)) 
   {
     // Print sensor values being added to batch
@@ -652,6 +704,9 @@ void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* senso
   {
     print("Failed to read registers\n");
   }
+  
+  // Disable UART to save power (power gating)
+  PERIPHERAL_UART_OFF();
 }
 
 

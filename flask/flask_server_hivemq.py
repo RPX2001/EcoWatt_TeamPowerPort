@@ -1063,7 +1063,12 @@ def queue_command():
         parameters = data.get('parameters', {})
         
         # Validate command type
-        if command_type not in ['set_power', 'set_power_percentage', 'write_register']:
+        valid_commands = [
+            'set_power', 'set_power_percentage', 'write_register',
+            'get_peripheral_stats', 'reset_peripheral_stats', 
+            'get_power_stats', 'reset_power_stats'
+        ]
+        if command_type not in valid_commands:
             return jsonify({'error': f'Unsupported command type: {command_type}'}), 400
         
         # Validate parameters based on command type
@@ -1080,6 +1085,7 @@ def queue_command():
         elif command_type == 'write_register':
             if 'register_address' not in parameters or 'value' not in parameters:
                 return jsonify({'error': 'Missing register_address or value for write_register command'}), 400
+        # Stats commands don't require parameters validation
         
         # Queue the command
         command_id = command_manager.queue_command(device_id, command_type, parameters)
