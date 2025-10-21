@@ -1284,14 +1284,14 @@ void uploadFaultLogToCloud()
     // Format fault log as JSON
     char* faultLogJson = new char[8192];  // Large buffer for fault log
     if (!FaultRecovery::getFaultLogJSON(faultLogJson, 8192)) {
-        print("❌ Failed to format fault log as JSON\n");
+        print("Failed to format fault log as JSON\n");
         delete[] faultLogJson;
         return;
     }
 
     // Check WiFi connectivity
     if (WiFi.status() != WL_CONNECTED) {
-        print("❌ WiFi not connected. Cannot upload fault log.\n");
+        print("WiFi not connected. Cannot upload fault log.\n");
         delete[] faultLogJson;
         return;
     }
@@ -1313,12 +1313,12 @@ void uploadFaultLogToCloud()
             // Clear log after successful upload (optional - keep for debugging)
             // FaultRecovery::clearFaultLog();
         } else {
-            print("⚠️ Server returned HTTP %d\n", httpCode);
+            print("Server returned HTTP %d\n", httpCode);
             String response = http.getString();
             print("Response: %s\n", response.c_str());
         }
     } else {
-        print("❌ HTTP POST failed: %s\n", http.errorToString(httpCode).c_str());
+        print("HTTP POST failed: %s\n", http.errorToString(httpCode).c_str());
     }
 
     http.end();

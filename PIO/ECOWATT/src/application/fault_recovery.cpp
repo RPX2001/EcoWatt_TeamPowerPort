@@ -37,7 +37,7 @@ void FaultRecovery::logFault(FaultType type, const char* description,
     totalFaults++;
     
     // Print fault notification
-    debug.log("\n⚠️ FAULT DETECTED ⚠️\n");
+    debug.log("\n FAULT DETECTED \n");
     debug.log("Type: %s\n", getFaultTypeDescription(type));
     debug.log("Time: %lu ms\n", event.timestamp);
     debug.log("Description: %s\n", description);
@@ -312,7 +312,7 @@ bool FaultRecovery::handleTimeout(uint16_t regAddr, uint8_t retryCount) {
     }
     
     if (retryCount >= MAX_TIMEOUT_RETRIES) {
-        debug.log("❌ Timeout retry limit exceeded for register 0x%04X\n", regAddr);
+        debug.log("Timeout retry limit exceeded for register 0x%04X\n", regAddr);
         return false;
     }
     
@@ -345,7 +345,7 @@ bool FaultRecovery::handleCRCError(const uint8_t* frame, size_t length, uint8_t 
     }
     
     if (retryCount >= MAX_CRC_RETRIES) {
-        debug.log("❌ CRC error retry limit exceeded\n");
+        debug.log("CRC error retry limit exceeded\n");
         return false;
     }
     
@@ -385,13 +385,13 @@ bool FaultRecovery::handleModbusException(uint8_t exceptionCode, uint8_t slaveAd
         case MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS:
         case MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE:
             // These are configuration errors - not recoverable by retry
-            debug.log("❌ Non-recoverable exception: %s\n", getExceptionDescription(exceptionCode));
+            debug.log("Non-recoverable exception: %s\n", getExceptionDescription(exceptionCode));
             return false;
             
         case MODBUS_EXCEPTION_SLAVE_DEVICE_BUSY:
         case MODBUS_EXCEPTION_ACKNOWLEDGE:
             // Device is temporarily busy - can retry
-            debug.log("⚠️ Recoverable exception: %s - will retry\n", getExceptionDescription(exceptionCode));
+            debug.log("Recoverable exception: %s - will retry\n", getExceptionDescription(exceptionCode));
             delay(500);  // Wait for device to become ready
             return true;
             
@@ -400,11 +400,11 @@ bool FaultRecovery::handleModbusException(uint8_t exceptionCode, uint8_t slaveAd
         case MODBUS_EXCEPTION_GATEWAY_PATH_UNAVAILABLE:
         case MODBUS_EXCEPTION_GATEWAY_TARGET_FAILED:
             // Hardware/communication issues - limited retries
-            debug.log("⚠️ Hardware exception: %s - limited retries\n", getExceptionDescription(exceptionCode));
+            debug.log("Hardware exception: %s - limited retries\n", getExceptionDescription(exceptionCode));
             return true;
             
         default:
-            debug.log("❓ Unknown exception code: 0x%02X\n", exceptionCode);
+            debug.log("Unknown exception code: 0x%02X\n", exceptionCode);
             return false;
     }
 }
@@ -446,5 +446,5 @@ void FaultRecovery::persistCriticalFault(const FaultEvent& event) {
     
     prefs.end();
     
-    debug.log("💾 Critical fault persisted to NVS\n");
+    debug.log("Critical fault persisted to NVS\n");
 }
