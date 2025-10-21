@@ -1,4 +1,5 @@
 #include "peripheral/acquisition.h"
+#include "application/fault_recovery.h"
 
 ProtocolAdapter adapter;
 
@@ -158,7 +159,7 @@ bool buildWriteFrame(uint8_t slave, uint16_t regAddr, uint16_t value, char* outH
 /**
  * @fn bool setPower(uint16_t powerValue)
  * 
- * @brief Set the power output.
+ * @brief Set the power output with fault recovery.
  * 
  * @param powerValue Power value to set.
  * 
@@ -176,43 +177,75 @@ bool setPower(uint16_t powerValue)
   debug.log("Sending write frame: %s\n", frame);
 
   char responseFrame[128];
+  uint8_t retryCount = 0;
+  bool success = false;
 
-  bool okReq;
+  while (retryCount <= FaultRecovery::MAX_TIMEOUT_RETRIES && !success)
+  {
+    // Check WiFi connectivity
+    if (WiFi.status() != WL_CONNECTED)
+    {
+      debug.log("WiFi not connected\n");
+      FaultRecovery::logFault(FAULT_TIMEOUT, "WiFi disconnected during write request",
+                              0, 0x11, 0x06, 8);
+      return false;
+    }
 
-  if (WiFi.status() != WL_CONNECTED)
-  {
-    debug.log("WiFi not connected\n");
-    okReq = false;
-  }
-  else
-  {
-    okReq = adapter.writeRegister(frame, responseFrame, sizeof(responseFrame));
+    bool okReq = adapter.writeRegister(frame, responseFrame, sizeof(responseFrame));
+
+    if (!okReq) 
+    {
+      // Log timeout and retry
+      if (FaultRecovery::handleTimeout(8, retryCount)) {
+        retryCount++;
+        continue;
+      } else {
+        debug.log("Write request failed after %d retries.\n", retryCount);
+        return false;
+      }
+    }
+
+    // Validate response
+    if (strcmp(responseFrame, frame) == 0) 
+    {
+      success = true;
+      
+      if (retryCount > 0) {
+        FaultRecovery::markRecovered();
+        debug.log("✓ Write recovered after %d retries\n", retryCount);
+      }
+      
+      debug.log("Power set to %u successfully\n", powerValue);
+      return true;
+    } 
+    else 
+    {
+      debug.log("Failed to set power, response mismatch\n");
+      debug.log("Expected: %s\n", frame);
+      debug.log("Received: %s\n", responseFrame);
+      
+      FaultRecovery::logFault(FAULT_CORRUPT_RESPONSE, 
+                              "Write response mismatch",
+                              0, 0x11, 0x06, 8);
+      
+      if (retryCount < FaultRecovery::MAX_TIMEOUT_RETRIES) {
+        retryCount++;
+        delay(FaultRecovery::getRetryDelay(retryCount));
+        continue;
+      } else {
+        return false;
+      }
+    }
   }
 
-  if (!okReq) 
-  {
-    debug.log("Write request failed after retries.\n");
-    return false;
-  }
-
-  if (strcmp(responseFrame, frame) == 0) 
-  {
-    debug.log("Power set to %u successfully\n", powerValue);
-    return true;
-  } 
-  else 
-  {
-    debug.log("Failed to set power, response mismatch\n");
-    debug.log("Raw response frame: %s\n", responseFrame);
-    return false;
-  }
+  return false;
 }
 
 
 /**
  * @fn DecodedValues readRequest(const RegID* regs, size_t regCount)
  * 
- * @brief Read specified registers from the inverter.
+ * @brief Read specified registers from the inverter with fault recovery.
  * 
  * @param regs Array of RegIDs to read.
  * @param regCount Number of registers to read.
@@ -237,31 +270,124 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
     return result;
   }
 
-  // send request
+  // Retry loop with fault recovery
+  uint8_t retryCount = 0;
+  bool success = false;
   char responseFrame[256];
   
-  bool ok;
+  while (retryCount <= FaultRecovery::MAX_TIMEOUT_RETRIES && !success) 
+  {
+    // Check WiFi connectivity
+    if (WiFi.status() != WL_CONNECTED)
+    {
+      debug.log("WiFi not connected\n");
+      FaultRecovery::logFault(FAULT_TIMEOUT, "WiFi disconnected during read request", 
+                              0, 0x11, 0x03, startAddr);
+      result.values[0] = 0xFFFF;
+      result.count = 1;
+      return result;
+    }
 
-  if (WiFi.status() != WL_CONNECTED)
-  {
-    debug.log("WiFi not connected\n");
-    ok =  false;
-  }
-  else
-  {
-    ok = adapter.readRegister(frame, responseFrame, sizeof(responseFrame));
+    // Send Modbus request
+    unsigned long requestStartTime = millis();
+    bool ok = adapter.readRegister(frame, responseFrame, sizeof(responseFrame));
+    unsigned long requestDuration = millis() - requestStartTime;
+    
+    // Check for excessive delay (>2 seconds)
+    if (requestDuration > 2000) {
+      FaultRecovery::handleDelay(1000, requestDuration);
+    }
+
+    if (!ok) 
+    {
+      // Log timeout and determine if should retry
+      if (FaultRecovery::handleTimeout(startAddr, retryCount)) {
+        retryCount++;
+        continue;  // Retry
+      } else {
+        // Max retries exceeded
+        debug.log("Read request failed after %d retries.\n", retryCount);
+        result.values[0] = 0xFFFF;
+        result.count = 1;
+        return result;
+      }
+    }
+
+    // Convert hex string to bytes for validation
+    size_t frameLength = strlen(responseFrame) / 2;
+    uint8_t frameBytes[128];
+    
+    if (frameLength > sizeof(frameBytes)) {
+      FaultRecovery::logFault(FAULT_BUFFER_OVERFLOW, 
+                              "Response frame too large", 
+                              0, 0x11, 0x03, startAddr);
+      result.values[0] = 0xFFFF;
+      result.count = 1;
+      return result;
+    }
+
+    // Convert hex string to bytes
+    for (size_t i = 0; i < frameLength; i++) {
+      char buf[3] = {responseFrame[i*2], responseFrame[i*2+1], '\0'};
+      frameBytes[i] = (uint8_t)strtol(buf, NULL, 16);
+    }
+
+    // Check for malformed frame
+    if (FaultRecovery::isMalformedFrame(frameBytes, frameLength)) {
+      FaultRecovery::logFault(FAULT_MALFORMED_FRAME, 
+                              "Invalid frame structure detected",
+                              0, 0x11, 0x03, startAddr);
+      
+      if (retryCount < FaultRecovery::MAX_TIMEOUT_RETRIES) {
+        retryCount++;
+        delay(FaultRecovery::getRetryDelay(retryCount));
+        continue;
+      } else {
+        result.values[0] = 0xFFFF;
+        result.count = 1;
+        return result;
+      }
+    }
+
+    // Check for Modbus exception
+    uint8_t exceptionCode = 0;
+    if (FaultRecovery::isModbusException(frameBytes, frameLength, &exceptionCode)) {
+      bool shouldRetry = FaultRecovery::handleModbusException(exceptionCode, 0x11, 0x03, startAddr);
+      
+      if (shouldRetry && retryCount < FaultRecovery::MAX_EXCEPTION_RETRIES) {
+        retryCount++;
+        continue;
+      } else {
+        result.values[0] = 0xFFFF;
+        result.count = 1;
+        return result;
+      }
+    }
+
+    // Validate CRC
+    if (!FaultRecovery::validateCRC(frameBytes, frameLength)) {
+      if (FaultRecovery::handleCRCError(frameBytes, frameLength, retryCount)) {
+        retryCount++;
+        continue;
+      } else {
+        result.values[0] = 0xFFFF;
+        result.count = 1;
+        return result;
+      }
+    }
+
+    // If we got here, response is valid
+    success = true;
+    
+    // Mark recovery if there were previous retries
+    if (retryCount > 0) {
+      FaultRecovery::markRecovered();
+      debug.log("✓ Successfully recovered after %d retries\n", retryCount);
+    }
   }
 
-  //if response is error return error values to main code
-  if (!ok) 
-  {
-    debug.log("Read request failed after retries.\n");
-    result.values[0] = 0xFFFF; // Indicate error
-    result.count = 1;
-    return result;
-  }
+  // Decode valid response
   const char* response_frame = responseFrame;
-  // decode response
   result = decodeReadResponse(response_frame, startAddr, count, regs, regCount);
 
   return result;
