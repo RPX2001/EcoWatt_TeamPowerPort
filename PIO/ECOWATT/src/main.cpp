@@ -12,6 +12,7 @@
 #include "application/security.h"
 #include "application/power_management.h"
 #include "application/peripheral_power.h"
+#include "application/fault_recovery.h"
 
 Arduino_Wifi Wifi;
 RingBuffer<SmartCompressedData, 20> smartRingBuffer;
@@ -20,6 +21,7 @@ const char* dataPostURL = FLASK_SERVER_URL "/process";
 const char* fetchChangesURL = FLASK_SERVER_URL "/changes";
 const char* commandPollURL = FLASK_SERVER_URL "/command/poll";
 const char* commandResultURL = FLASK_SERVER_URL "/command/result";
+const char* faultLogURL = FLASK_SERVER_URL "/faults";
 
 void Wifi_init();
 void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* sensorData);
@@ -43,6 +45,7 @@ void updateSmartPerformanceStatistics(const char* method, float academicRatio, u
 bool readMultipleRegisters(const RegID* selection, size_t count, uint16_t* data);
 void enhanceDictionaryForOptimalCompression();
 void checkChanges(bool* registers_uptodate, bool* pollFreq_uptodate, bool* uploadFreq_uptodate);
+void uploadFaultLogToCloud();
 
 hw_timer_t *poll_timer = NULL;
 volatile bool poll_token = false;
@@ -86,6 +89,15 @@ volatile bool ota_token = false;
 
 void IRAM_ATTR onOTATimer() {
     ota_token = true;
+}
+
+// Fault Log Upload Timer (Timer 4) - Upload every 60 seconds if faults exist
+hw_timer_t* fault_log_timer = NULL;
+volatile bool fault_log_token = false;
+#define FAULT_LOG_UPLOAD_INTERVAL 60000000ULL  // 60 seconds in microseconds
+
+void IRAM_ATTR onFaultLogTimer() {
+    fault_log_token = true;
 }
 
 // Define registers to read
@@ -138,6 +150,10 @@ void setup()
   print("Initializing Security Layer...\n");
   SecurityLayer::init();
 
+  // Initialize Fault Recovery System
+  print("Initializing Fault Recovery System...\n");
+  FaultRecovery::init();
+
   // Initialize OTA Manager
   print("Initializing OTA Manager...\n");
   otaManager = new OTAManager(
@@ -189,6 +205,13 @@ void setup()
   timerAttachInterrupt(changes_timer,  &set_changes_token, true);
   timerAlarmWrite(changes_timer, checkChangesFreq, true);
   timerAlarmEnable(changes_timer); // Enable the alarm
+
+  // Setup Timer 4 for Fault Log uploads (60 seconds)
+  fault_log_timer = timerBegin(4, 80, true);
+  timerAttachInterrupt(fault_log_timer, &onFaultLogTimer, true);
+  timerAlarmWrite(fault_log_timer, FAULT_LOG_UPLOAD_INTERVAL, true);
+  timerAlarmEnable(fault_log_timer);
+  print("Fault log upload timer configured (60-second interval)\n");
 
 
   enhanceDictionaryForOptimalCompression();
@@ -274,6 +297,19 @@ void setup()
     if (ota_token) {
         ota_token = false;
         performOTAUpdate();
+    }
+
+    // Handle Fault Log Upload
+    if (fault_log_token) {
+        fault_log_token = false;
+        
+        // Only upload if there are faults to report
+        uint32_t totalFaults = 0;
+        FaultRecovery::getFaultStatistics(&totalFaults, nullptr, nullptr);
+        
+        if (totalFaults > 0) {
+            uploadFaultLogToCloud();
+        }
     }
     
     // Small yield to prevent watchdog triggers
@@ -596,6 +632,24 @@ bool executeCommand(const char* commandId, const char* commandType, const char* 
         print("Resetting peripheral power gating statistics...\n");
         PeripheralPower::resetStats();
         PeripheralPower::printStats();
+        return true;
+        
+    } else if (strcmp(commandType, "get_fault_log") == 0) {
+        // Print fault recovery log
+        print("Displaying fault recovery log...\n");
+        FaultRecovery::printFaultLog();
+        return true;
+        
+    } else if (strcmp(commandType, "clear_fault_log") == 0) {
+        // Clear fault recovery log
+        print("Clearing fault recovery log...\n");
+        FaultRecovery::clearFaultLog();
+        return true;
+        
+    } else if (strcmp(commandType, "upload_fault_log") == 0) {
+        // Manually trigger fault log upload
+        print("Manually uploading fault log...\n");
+        uploadFaultLogToCloud();
         return true;
         
     } else {
@@ -1198,3 +1252,77 @@ bool readMultipleRegisters(const RegID* selection, size_t count, uint16_t* data)
     return true;
 }
 
+
+/**
+ * @fn void uploadFaultLogToCloud()
+ * 
+ * @brief Upload fault recovery log to the cloud server.
+ * 
+ * This function formats the fault log as JSON and sends it to the cloud
+ * for monitoring and analysis. The log includes all fault events with
+ * timestamps, types, exception codes, and recovery status.
+ */
+void uploadFaultLogToCloud() 
+{
+    print("\n╔══════════════════════════════════════╗\n");
+    print("║   UPLOADING FAULT LOG TO CLOUD       ║\n");
+    print("╚══════════════════════════════════════╝\n");
+
+    // Get fault statistics
+    uint32_t totalFaults = 0, recoveredFaults = 0, unresolvedFaults = 0;
+    FaultRecovery::getFaultStatistics(&totalFaults, &recoveredFaults, &unresolvedFaults);
+
+    // Skip upload if no faults
+    if (totalFaults == 0) {
+        print("No faults to upload. Skipping.\n");
+        return;
+    }
+
+    print("Total faults: %u (Recovered: %u, Unresolved: %u)\n", 
+          totalFaults, recoveredFaults, unresolvedFaults);
+
+    // Format fault log as JSON
+    char* faultLogJson = new char[8192];  // Large buffer for fault log
+    if (!FaultRecovery::getFaultLogJSON(faultLogJson, 8192)) {
+        print("❌ Failed to format fault log as JSON\n");
+        delete[] faultLogJson;
+        return;
+    }
+
+    // Check WiFi connectivity
+    if (WiFi.status() != WL_CONNECTED) {
+        print("❌ WiFi not connected. Cannot upload fault log.\n");
+        delete[] faultLogJson;
+        return;
+    }
+
+    // Send to cloud
+    HTTPClient http;
+    http.begin(faultLogURL);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(10000);  // 10 second timeout
+
+    print("Sending fault log (%d bytes)...\n", strlen(faultLogJson));
+    
+    int httpCode = http.POST(faultLogJson);
+
+    if (httpCode > 0) {
+        if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
+            print("✓ Fault log uploaded successfully (HTTP %d)\n", httpCode);
+            
+            // Clear log after successful upload (optional - keep for debugging)
+            // FaultRecovery::clearFaultLog();
+        } else {
+            print("⚠️ Server returned HTTP %d\n", httpCode);
+            String response = http.getString();
+            print("Response: %s\n", response.c_str());
+        }
+    } else {
+        print("❌ HTTP POST failed: %s\n", http.errorToString(httpCode).c_str());
+    }
+
+    http.end();
+    delete[] faultLogJson;
+    
+    print("Fault log upload complete.\n\n");
+}
