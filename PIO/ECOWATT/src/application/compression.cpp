@@ -1031,6 +1031,229 @@ bool DataCompression::hasError()
     return lastErrorType != ERROR_NONE;
 }
 
+// ==================== DECOMPRESSION METHODS ====================
+
+/**
+ * @fn std::vector<uint16_t> DataCompression::decompressBinary(const std::vector<uint8_t>& compressed)
+ * 
+ * @brief Decompress binary data compressed with compressBinary.
+ * 
+ * @param compressed Compressed data as byte vector.
+ * 
+ * @return std::vector<uint16_t> Decompressed data values.
+ */
+std::vector<uint16_t> DataCompression::decompressBinary(const std::vector<uint8_t>& compressed) 
+{
+    if (compressed.empty()) {
+        setError("Empty compressed data");
+        return std::vector<uint16_t>();
+    }
+    
+    // Check if it's raw binary (small dataset without header)
+    if (compressed.size() % 2 == 0 && compressed.size() <= 16) {
+        return decompressRawBinary(compressed);
+    }
+    
+    // Check method marker
+    uint8_t marker = compressed[0];
+    
+    if (marker == 0x00) {
+        // Raw binary with header
+        return decompressRawBinary(compressed);
+    } 
+    else if (marker == 0x01) {
+        // Bit-packed
+        return decompressBinaryBitPacked(compressed);
+    }
+    else {
+        // Unknown marker, try raw binary
+        return decompressRawBinary(compressed);
+    }
+}
+
+/**
+ * @fn std::vector<uint16_t> DataCompression::decompressRawBinary(const std::vector<uint8_t>& compressed)
+ * 
+ * @brief Decompress raw binary data.
+ * 
+ * @param compressed Compressed data as byte vector.
+ * 
+ * @return std::vector<uint16_t> Decompressed data values.
+ */
+std::vector<uint16_t> DataCompression::decompressRawBinary(const std::vector<uint8_t>& compressed) 
+{
+    std::vector<uint16_t> result;
+    
+    size_t offset = 0;
+    size_t count = 0;
+    
+    // Check if has header (marker 0x00)
+    if (compressed.size() >= 2 && compressed[0] == 0x00) {
+        count = compressed[1];
+        offset = 2;
+    } else {
+        // No header, all bytes are data
+        count = compressed.size() / 2;
+        offset = 0;
+    }
+    
+    // Extract uint16_t values (little-endian)
+    for (size_t i = 0; i < count && (offset + 2) <= compressed.size(); i++) {
+        uint16_t value = compressed[offset] | (compressed[offset + 1] << 8);
+        result.push_back(value);
+        offset += 2;
+    }
+    
+    return result;
+}
+
+/**
+ * @fn std::vector<uint16_t> DataCompression::decompressBinaryBitPacked(const std::vector<uint8_t>& compressed)
+ * 
+ * @brief Decompress bit-packed binary data.
+ * 
+ * @param compressed Compressed data as byte vector.
+ * 
+ * @return std::vector<uint16_t> Decompressed data values.
+ */
+std::vector<uint16_t> DataCompression::decompressBinaryBitPacked(const std::vector<uint8_t>& compressed) 
+{
+    std::vector<uint16_t> result;
+    
+    if (compressed.size() < 3) {
+        setError("Bit-packed data too short");
+        return result;
+    }
+    
+    uint8_t marker = compressed[0];
+    if (marker != 0x01) {
+        setError("Invalid bit-packed marker");
+        return result;
+    }
+    
+    uint8_t bitsPerValue = compressed[1];
+    size_t count = compressed[2];
+    
+    if (bitsPerValue == 0 || bitsPerValue > 16) {
+        setError("Invalid bits per value in bit-packed data");
+        return result;
+    }
+    
+    // Unpack bits
+    size_t bitOffset = 0;
+    size_t byteOffset = 3;
+    
+    for (size_t i = 0; i < count; i++) {
+        uint16_t value = unpackBitsFromBuffer(compressed.data() + byteOffset, bitOffset, bitsPerValue);
+        result.push_back(value);
+        
+        bitOffset += bitsPerValue;
+        byteOffset += bitOffset / 8;
+        bitOffset = bitOffset % 8;
+    }
+    
+    return result;
+}
+
+/**
+ * @fn uint16_t DataCompression::unpackBitsFromBuffer(const uint8_t* buffer, size_t bitOffset, uint8_t numBits)
+ * 
+ * @brief Unpack bits from a byte buffer.
+ * 
+ * @param buffer Pointer to byte buffer.
+ * @param bitOffset Bit offset within the buffer.
+ * @param numBits Number of bits to extract.
+ * 
+ * @return uint16_t Extracted value.
+ */
+uint16_t DataCompression::unpackBitsFromBuffer(const uint8_t* buffer, size_t bitOffset, uint8_t numBits) 
+{
+    uint16_t value = 0;
+    uint8_t bitPos = bitOffset % 8;
+    
+    if (bitPos + numBits <= 8) {
+        // Value fits within single byte
+        value = (buffer[0] >> (8 - bitPos - numBits)) & ((1 << numBits) - 1);
+    } 
+    else {
+        // Value spans multiple bytes
+        uint8_t firstBits = 8 - bitPos;
+        uint8_t remainingBits = numBits - firstBits;
+        
+        value = (buffer[0] & ((1 << firstBits) - 1)) << remainingBits;
+        value |= (buffer[1] >> (8 - remainingBits)) & ((1 << remainingBits) - 1);
+    }
+    
+    return value;
+}
+
+/**
+ * @fn std::vector<uint16_t> DataCompression::decompressBinaryDelta(const std::vector<uint8_t>& compressed)
+ * 
+ * @brief Decompress delta-encoded binary data.
+ * 
+ * @param compressed Compressed data as byte vector.
+ * 
+ * @return std::vector<uint16_t> Decompressed data values.
+ */
+std::vector<uint16_t> DataCompression::decompressBinaryDelta(const std::vector<uint8_t>& compressed) 
+{
+    std::vector<uint16_t> result;
+    
+    if (compressed.size() < 4) {
+        setError("Delta data too short");
+        return result;
+    }
+    
+    // Read base value
+    uint16_t baseValue = compressed[0] | (compressed[1] << 8);
+    size_t count = compressed[2];
+    result.push_back(baseValue);
+    
+    // Reconstruct from deltas
+    size_t offset = 3;
+    for (size_t i = 1; i < count && offset < compressed.size(); i++) {
+        int8_t delta = (int8_t)compressed[offset++];
+        uint16_t value = result.back() + delta;
+        result.push_back(value);
+    }
+    
+    return result;
+}
+
+/**
+ * @fn std::vector<uint16_t> DataCompression::decompressBinaryRLE(const std::vector<uint8_t>& compressed)
+ * 
+ * @brief Decompress RLE-encoded binary data.
+ * 
+ * @param compressed Compressed data as byte vector.
+ * 
+ * @return std::vector<uint16_t> Decompressed data values.
+ */
+std::vector<uint16_t> DataCompression::decompressBinaryRLE(const std::vector<uint8_t>& compressed) 
+{
+    std::vector<uint16_t> result;
+    
+    if (compressed.size() < 2) {
+        setError("RLE data too short");
+        return result;
+    }
+    
+    size_t offset = 0;
+    while (offset + 3 <= compressed.size()) {
+        uint16_t value = compressed[offset] | (compressed[offset + 1] << 8);
+        uint8_t count = compressed[offset + 2];
+        
+        for (uint8_t i = 0; i < count; i++) {
+            result.push_back(value);
+        }
+        
+        offset += 3;
+    }
+    
+    return result;
+}
+
 // ==================== LEGACY COMPATIBILITY ====================
 /**
  * @fn void DataCompression::compressRegisterData(uint16_t* data, size_t count, char* result, size_t resultSize)
@@ -1064,6 +1287,93 @@ void DataCompression::compressRegisterData(uint16_t* data, size_t count, char* r
     {
         result[0] = '\0';
     }
+}
+
+
+/**
+ * @fn size_t DataCompression::decompressRegisterData(const char* compressed, uint16_t* result, size_t maxCount)
+ * 
+ * @brief Decompress register data from base64 encoded string.
+ * 
+ * @param compressed Base64 encoded compressed string (with "BINARY:" prefix).
+ * @param result Buffer to store the decompressed uint16_t values.
+ * @param maxCount Maximum number of values that can be stored in result buffer.
+ * 
+ * @return size_t Number of values decompressed, or 0 on error.
+ */
+size_t DataCompression::decompressRegisterData(const char* compressed, uint16_t* result, size_t maxCount) 
+{
+    if (compressed == nullptr || result == nullptr || maxCount == 0) {
+        setError("Invalid input for decompression");
+        return 0;
+    }
+    
+    // Check for BINARY: prefix
+    const char* dataStart = compressed;
+    if (strncmp(compressed, "BINARY:", 7) == 0) {
+        dataStart = compressed + 7;
+    }
+    
+    // Decode base64
+    std::vector<uint8_t> binaryData = base64Decode(dataStart);
+    
+    if (binaryData.empty()) {
+        setError("Base64 decode failed");
+        return 0;
+    }
+    
+    // Decompress binary
+    std::vector<uint16_t> decompressed = decompressBinary(binaryData);
+    
+    // Copy to output buffer
+    size_t copyCount = (decompressed.size() < maxCount) ? decompressed.size() : maxCount;
+    for (size_t i = 0; i < copyCount; i++) {
+        result[i] = decompressed[i];
+    }
+    
+    return copyCount;
+}
+
+
+/**
+ * @fn std::vector<uint8_t> DataCompression::base64Decode(const String& encoded)
+ * 
+ * @brief Decode base64 string to binary data.
+ * 
+ * @param encoded Base64 encoded string.
+ * 
+ * @return std::vector<uint8_t> Decoded binary data.
+ */
+std::vector<uint8_t> DataCompression::base64Decode(const String& encoded) 
+{
+    std::vector<uint8_t> result;
+    
+    const char* chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t len = encoded.length();
+    
+    for (size_t i = 0; i < len; i += 4) {
+        uint32_t value = 0;
+        int padding = 0;
+        
+        for (int j = 0; j < 4 && (i + j) < len; j++) {
+            char c = encoded.charAt(i + j);
+            if (c == '=') {
+                padding++;
+                continue;
+            }
+            
+            const char* pos = strchr(chars, c);
+            if (pos != nullptr) {
+                value = (value << 6) | (pos - chars);
+            }
+        }
+        
+        result.push_back((value >> 16) & 0xFF);
+        if (padding < 2) result.push_back((value >> 8) & 0xFF);
+        if (padding < 1) result.push_back(value & 0xFF);
+    }
+    
+    return result;
 }
 
 
