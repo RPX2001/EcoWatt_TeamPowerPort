@@ -36,43 +36,48 @@ def receive_aggregated_data(device_id: str):
         if 'compressed_data' in data:
             # Handle compressed data
             compressed_data = data['compressed_data']
-            method = data.get('method', 'auto')
             
-            success, decompressed, error = handle_compressed_data(
-                compressed_data, 
-                method
-            )
+            decompressed, stats = handle_compressed_data(compressed_data)
             
-            if success:
+            if decompressed is not None and stats.get('success'):
                 return jsonify({
                     'success': True,
                     'device_id': device_id,
                     'message': 'Compressed data processed',
-                    'samples_count': len(decompressed) if decompressed else 0
+                    'samples_count': len(decompressed) if decompressed else 0,
+                    'stats': stats
                 }), 200
             else:
                 return jsonify({
                     'success': False,
-                    'error': error or 'Decompression failed'
+                    'error': stats.get('error', 'Decompression failed')
                 }), 400
         
         elif 'aggregated_data' in data:
-            # Handle aggregated data
+            # Handle aggregated data (JSON list format)
             aggregated_data = data['aggregated_data']
             
-            success, samples, error = handle_aggregated_data(aggregated_data)
-            
-            if success:
-                return jsonify({
-                    'success': True,
-                    'device_id': device_id,
-                    'message': 'Aggregated data processed',
-                    'samples_count': len(samples) if samples else 0
-                }), 200
+            # Simple handler for JSON list of samples
+            if isinstance(aggregated_data, list):
+                try:
+                    # Process the list of sample dictionaries
+                    sample_count = len(aggregated_data)
+                    
+                    return jsonify({
+                        'success': True,
+                        'device_id': device_id,
+                        'message': 'Aggregated data processed',
+                        'samples_count': sample_count
+                    }), 200
+                except Exception as e:
+                    return jsonify({
+                        'success': False,
+                        'error': f'Failed to process aggregated data: {str(e)}'
+                    }), 400
             else:
                 return jsonify({
                     'success': False,
-                    'error': error or 'Aggregation processing failed'
+                    'error': 'aggregated_data must be a list'
                 }), 400
         
         else:
@@ -148,21 +153,19 @@ def get_compression_stats():
 def reset_compression_stats():
     """Reset compression statistics"""
     try:
-        success = reset_compression_statistics()
+        reset_compression_statistics()
         
-        if success:
-            return jsonify({
-                'success': True,
-                'message': 'Compression statistics reset'
-            }), 200
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Failed to reset statistics'
-            }), 500
+        return jsonify({
+            'success': True,
+            'message': 'Compression statistics reset'
+        }), 200
         
     except Exception as e:
         logger.error(f"Error resetting compression stats: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
         return jsonify({
             'success': False,
             'error': str(e)
