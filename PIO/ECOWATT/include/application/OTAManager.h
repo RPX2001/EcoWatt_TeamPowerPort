@@ -36,6 +36,16 @@ enum OTAState {
     OTA_ROLLBACK
 };
 
+// OTA Fault Test Types (for testing robustness)
+enum OTAFaultType {
+    OTA_FAULT_NONE = 0,
+    OTA_FAULT_CORRUPT_CHUNK,      // Simulate corrupted chunk data
+    OTA_FAULT_BAD_HMAC,            // Simulate HMAC verification failure
+    OTA_FAULT_BAD_HASH,            // Simulate hash mismatch
+    OTA_FAULT_NETWORK_TIMEOUT,     // Simulate network timeout
+    OTA_FAULT_INCOMPLETE_DOWNLOAD  // Simulate incomplete download
+};
+
 // Firmware manifest structure
 struct FirmwareManifest {
     String version;
@@ -89,6 +99,13 @@ public:
     // Configuration methods
     void setServerURL(const String& url);
     void setCheckInterval(unsigned long intervalMs);
+    
+    // Fault testing methods (for robustness testing)
+    void enableTestMode(OTAFaultType faultType);
+    void disableTestMode();
+    bool isTestMode() const { return testModeEnabled; }
+    OTAFaultType getTestFaultType() const { return testFaultType; }
+    void getOTAStatistics(uint32_t& successCount, uint32_t& failureCount, uint32_t& rollbackCount);
 
 private:
     // Configuration
@@ -116,6 +133,13 @@ private:
     uint8_t* decryptBuffer;
     static const size_t DECRYPT_BUFFER_SIZE = 2048;
     
+    // Fault testing variables
+    bool testModeEnabled;
+    OTAFaultType testFaultType;
+    uint32_t otaSuccessCount;
+    uint32_t otaFailureCount;
+    uint32_t otaRollbackCount;
+    
     // Private methods - Network operations
     bool requestManifest();
     bool downloadChunk(uint16_t chunkNumber);
@@ -128,6 +152,10 @@ private:
     bool verifyRSASignature(const uint8_t* hash, const uint8_t* signature);
     bool verifyChunkHMAC(const uint8_t* chunkData, size_t len, uint16_t chunkNum, const String& expectedHMAC);
     String calculateSHA256(const uint8_t* data, size_t len);
+    
+    // Private methods - Fault injection (for testing)
+    bool simulateFault(OTAFaultType faultType);
+    bool shouldInjectFault();
     
     // Private methods - Progress and state management
     void saveProgress();

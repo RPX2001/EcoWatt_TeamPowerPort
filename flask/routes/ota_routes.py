@@ -13,7 +13,10 @@ from handlers import (
     complete_ota_session,
     get_ota_status,
     get_ota_stats,
-    cancel_ota_session
+    cancel_ota_session,
+    enable_ota_fault_injection,
+    disable_ota_fault_injection,
+    get_ota_fault_status
 )
 
 logger = logging.getLogger(__name__)
@@ -244,6 +247,90 @@ def get_ota_statistics():
         
     except Exception as e:
         logger.error(f"Error getting OTA stats: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# ==============================================================================
+# FOTA FAULT INJECTION ENDPOINTS (For Testing)
+# ==============================================================================
+
+@ota_bp.route('/ota/test/enable', methods=['POST'])
+def enable_fault_injection():
+    """Enable OTA fault injection for testing"""
+    try:
+        data = request.get_json()
+        
+        fault_type = data.get('fault_type')
+        target_device = data.get('target_device')
+        target_chunk = data.get('target_chunk')
+        
+        if not fault_type:
+            return jsonify({
+                'success': False,
+                'error': 'fault_type is required'
+            }), 400
+        
+        success, message = enable_ota_fault_injection(fault_type, target_device, target_chunk)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': message,
+                'fault_config': {
+                    'fault_type': fault_type,
+                    'target_device': target_device,
+                    'target_chunk': target_chunk
+                }
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': message
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"Error enabling fault injection: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@ota_bp.route('/ota/test/disable', methods=['POST'])
+def disable_fault_injection():
+    """Disable OTA fault injection"""
+    try:
+        success, message = disable_ota_fault_injection()
+        
+        return jsonify({
+            'success': True,
+            'message': message
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error disabling fault injection: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@ota_bp.route('/ota/test/status', methods=['GET'])
+def get_fault_injection_status():
+    """Get current fault injection status"""
+    try:
+        status = get_ota_fault_status()
+        
+        return jsonify({
+            'success': True,
+            'fault_injection': status
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting fault injection status: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

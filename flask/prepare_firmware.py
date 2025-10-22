@@ -3,8 +3,13 @@
 Prepare firmware for OTA update
 """
 
-from firmware_manager import FirmwareManager
 import sys
+from pathlib import Path
+
+# Add legacy directory to path
+sys.path.insert(0, str(Path(__file__).parent / 'legacy'))
+
+from firmware_manager import FirmwareManager
 
 def main():
     # Initialize firmware manager

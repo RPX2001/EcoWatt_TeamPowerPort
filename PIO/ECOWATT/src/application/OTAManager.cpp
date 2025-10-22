@@ -2,7 +2,8 @@
 
 // Constructor
 OTAManager::OTAManager(const String& serverURL, const String& deviceID, const String& currentVersion)
-    : serverURL(serverURL), deviceID(deviceID), currentVersion(currentVersion), checkInterval(3600000), state(OTA_IDLE) // 1 hour default
+    : serverURL(serverURL), deviceID(deviceID), currentVersion(currentVersion), checkInterval(3600000), state(OTA_IDLE), // 1 hour default
+      testModeEnabled(false), testFaultType(OTA_FAULT_NONE), otaSuccessCount(0), otaFailureCount(0), otaRollbackCount(0)
 {
     Serial.println("=== OTA Manager Initialization ===");
     
@@ -1009,5 +1010,123 @@ void OTAManager::loadProgress()
                       progress.chunks_received, progress.total_chunks, 
                       (float)progress.percentage);
         Serial.printf("Previous OTA version: %s\n", manifest.version.c_str());
+    }
+}// OTA Fault Testing Implementation
+// Add to the end of OTAManager.cpp
+
+/**
+ * @brief Enable OTA fault testing mode
+ * @param faultType Type of fault to simulate
+ */
+void OTAManager::enableTestMode(OTAFaultType faultType)
+{
+    testModeEnabled = true;
+    testFaultType = faultType;
+    
+    Serial.println("\n=== OTA FAULT TESTING MODE ENABLED ===");
+    Serial.printf("Fault Type: ");
+    switch (faultType) {
+        case OTA_FAULT_CORRUPT_CHUNK:
+            Serial.println("CORRUPT_CHUNK - Will corrupt chunk data");
+            break;
+        case OTA_FAULT_BAD_HMAC:
+            Serial.println("BAD_HMAC - Will fail HMAC verification");
+            break;
+        case OTA_FAULT_BAD_HASH:
+            Serial.println("BAD_HASH - Will fail hash verification");
+            break;
+        case OTA_FAULT_NETWORK_TIMEOUT:
+            Serial.println("NETWORK_TIMEOUT - Will simulate network timeout");
+            break;
+        case OTA_FAULT_INCOMPLETE_DOWNLOAD:
+            Serial.println("INCOMPLETE_DOWNLOAD - Will simulate incomplete download");
+            break;
+        default:
+            Serial.println("NONE");
+            break;
+    }
+    Serial.println("======================================\n");
+}
+
+/**
+ * @brief Disable OTA fault testing mode
+ */
+void OTAManager::disableTestMode()
+{
+    if (testModeEnabled) {
+        Serial.println("=== OTA FAULT TESTING MODE DISABLED ===");
+    }
+    testModeEnabled = false;
+    testFaultType = OTA_FAULT_NONE;
+}
+
+/**
+ * @brief Get OTA statistics
+ * @param successCount Number of successful OTA updates
+ * @param failureCount Number of failed OTA updates
+ * @param rollbackCount Number of rollbacks
+ */
+void OTAManager::getOTAStatistics(uint32_t& successCount, uint32_t& failureCount, uint32_t& rollbackCount)
+{
+    successCount = otaSuccessCount;
+    failureCount = otaFailureCount;
+    rollbackCount = otaRollbackCount;
+}
+
+/**
+ * @brief Check if fault should be injected
+ * @return true if fault should be injected
+ */
+bool OTAManager::shouldInjectFault()
+{
+    return testModeEnabled && testFaultType != OTA_FAULT_NONE;
+}
+
+/**
+ * @brief Simulate a fault for testing
+ * @param faultType Type of fault to simulate
+ * @return false to indicate fault was simulated
+ */
+bool OTAManager::simulateFault(OTAFaultType faultType)
+{
+    if (!testModeEnabled || testFaultType != faultType) {
+        return true; // No fault, proceed normally
+    }
+    
+    Serial.printf("\n⚠️  FAULT INJECTED: ");
+    
+    switch (faultType) {
+        case OTA_FAULT_CORRUPT_CHUNK:
+            Serial.println("Corrupting chunk data");
+            // This will be handled in downloadChunk()
+            return false;
+            
+        case OTA_FAULT_BAD_HMAC:
+            Serial.println("Failing HMAC verification");
+            setError("HMAC verification failed (TEST MODE)");
+            otaFailureCount++;
+            return false;
+            
+        case OTA_FAULT_BAD_HASH:
+            Serial.println("Failing hash verification");
+            setError("Hash verification failed (TEST MODE)");
+            otaFailureCount++;
+            return false;
+            
+        case OTA_FAULT_NETWORK_TIMEOUT:
+            Serial.println("Simulating network timeout");
+            delay(OTA_TIMEOUT_MS + 1000); // Force timeout
+            setError("Network timeout (TEST MODE)");
+            otaFailureCount++;
+            return false;
+            
+        case OTA_FAULT_INCOMPLETE_DOWNLOAD:
+            Serial.println("Simulating incomplete download");
+            setError("Incomplete download (TEST MODE)");
+            otaFailureCount++;
+            return false;
+            
+        default:
+            return true; // No fault
     }
 }

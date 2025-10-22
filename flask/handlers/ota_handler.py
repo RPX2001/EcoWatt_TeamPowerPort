@@ -401,6 +401,126 @@ def cancel_ota_session(device_id: str) -> bool:
         return False
 
 
+# ==============================================================================
+# FOTA FAULT INJECTION (For Testing)
+# ==============================================================================
+
+# Fault injection state
+ota_fault_injection = {
+    'enabled': False,
+    'fault_type': None,
+    'target_device': None,
+    'target_chunk': None,
+    'fault_count': 0
+}
+
+ota_fault_lock = threading.Lock()
+
+
+def enable_ota_fault_injection(fault_type: str, target_device: Optional[str] = None, 
+                               target_chunk: Optional[int] = None) -> Tuple[bool, str]:
+    """
+    Enable OTA fault injection for testing
+    
+    Args:
+        fault_type: Type of fault ('corrupt_chunk', 'bad_hash', 'bad_hmac', 'timeout')
+        target_device: Optional device ID to target (None = all devices)
+        target_chunk: Optional chunk number to corrupt (None = random)
+        
+    Returns:
+        tuple: (success, message)
+    """
+    with ota_fault_lock:
+        valid_types = ['corrupt_chunk', 'bad_hash', 'bad_hmac', 'timeout', 'incomplete']
+        
+        if fault_type not in valid_types:
+            return False, f"Invalid fault type. Must be one of: {valid_types}"
+        
+        ota_fault_injection['enabled'] = True
+        ota_fault_injection['fault_type'] = fault_type
+        ota_fault_injection['target_device'] = target_device
+        ota_fault_injection['target_chunk'] = target_chunk
+        ota_fault_injection['fault_count'] = 0
+        
+        logger.warning(f"⚠️  OTA Fault Injection ENABLED: {fault_type}")
+        if target_device:
+            logger.warning(f"   Target Device: {target_device}")
+        if target_chunk is not None:
+            logger.warning(f"   Target Chunk: {target_chunk}")
+        
+        return True, f"Fault injection enabled: {fault_type}"
+
+
+def disable_ota_fault_injection() -> Tuple[bool, str]:
+    """Disable OTA fault injection"""
+    with ota_fault_lock:
+        was_enabled = ota_fault_injection['enabled']
+        fault_count = ota_fault_injection['fault_count']
+        
+        ota_fault_injection['enabled'] = False
+        ota_fault_injection['fault_type'] = None
+        ota_fault_injection['target_device'] = None
+        ota_fault_injection['target_chunk'] = None
+        ota_fault_injection['fault_count'] = 0
+        
+        if was_enabled:
+            logger.info(f"✓ OTA Fault Injection DISABLED (Faults injected: {fault_count})")
+            return True, f"Fault injection disabled (Faults injected: {fault_count})"
+        else:
+            return True, "Fault injection was not enabled"
+
+
+def get_ota_fault_status() -> Dict:
+    """Get current fault injection status"""
+    with ota_fault_lock:
+        return {
+            'enabled': ota_fault_injection['enabled'],
+            'fault_type': ota_fault_injection['fault_type'],
+            'target_device': ota_fault_injection['target_device'],
+            'target_chunk': ota_fault_injection['target_chunk'],
+            'fault_count': ota_fault_injection['fault_count']
+        }
+
+
+def _should_inject_fault(device_id: str, chunk_number: Optional[int] = None) -> bool:
+    """Check if fault should be injected for this request"""
+    if not ota_fault_injection['enabled']:
+        return False
+    
+    # Check device filter
+    if ota_fault_injection['target_device'] and ota_fault_injection['target_device'] != device_id:
+        return False
+    
+    # Check chunk filter
+    if chunk_number is not None:
+        if ota_fault_injection['target_chunk'] is not None:
+            if ota_fault_injection['target_chunk'] != chunk_number:
+                return False
+    
+    return True
+
+
+def _inject_chunk_corruption(chunk_data: Dict) -> Dict:
+    """Corrupt chunk data for testing"""
+    import base64
+    import random
+    
+    ota_fault_injection['fault_count'] += 1
+    logger.warning(f"⚠️  Injecting chunk corruption (fault #{ota_fault_injection['fault_count']})")
+    
+    # Corrupt the data
+    data_bytes = base64.b64decode(chunk_data['data'])
+    corrupted = bytearray(data_bytes)
+    
+    # Flip some random bits
+    for _ in range(5):
+        pos = random.randint(0, len(corrupted) - 1)
+        corrupted[pos] ^= 0xFF
+    
+    chunk_data['data'] = base64.b64encode(bytes(corrupted)).decode('utf-8')
+    return chunk_data
+
+
 # Export functions
 __all__ = [
     'check_for_update',
@@ -409,5 +529,9 @@ __all__ = [
     'complete_ota_session',
     'get_ota_status',
     'get_ota_stats',
-    'cancel_ota_session'
+    'cancel_ota_session',
+    'enable_ota_fault_injection',
+    'disable_ota_fault_injection',
+    'get_ota_fault_status'
 ]
+
