@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <vector>
+#include "peripheral/acquisition.h"
 
 struct SmartCompressedData {
     std::vector<uint8_t> binaryData;

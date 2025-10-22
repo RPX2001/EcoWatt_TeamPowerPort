@@ -7,7 +7,14 @@
 #include <Preferences.h>
 #include <WiFi.h>
 #include <esp_ota_ops.h>
+// Undef print macro before including ArduinoJson to avoid conflicts
+#ifdef print
+#undef print
 #include <ArduinoJson.h>
+#define print(...) debug.log(__VA_ARGS__)
+#else
+#include <ArduinoJson.h>
+#endif
 #include <base64.h>
 
 // mbedtls includes for cryptographic functions

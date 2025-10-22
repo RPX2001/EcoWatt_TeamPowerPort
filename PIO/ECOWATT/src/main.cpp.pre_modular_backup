@@ -1,39 +1,129 @@
+/**
+ * @file main.cpp
+ * @brief EcoWatt ESP32 Main Firmware - Smart Energy Monitoring System
+ * @version 1.0.4
+ * 
+ * @note This file contains the legacy monolithic implementation.
+ *       New modular components are available in src/application/:
+ *       - command_executor.cpp: Remote command handling
+ *       - config_manager.cpp: Dynamic configuration updates  
+ *       - data_pipeline.cpp: Data acquisition and batching
+ *       - data_uploader.cpp: Cloud upload and ring buffer
+ *       - statistics_manager.cpp: Performance tracking
+ *       - system_initializer.cpp: Boot sequence
+ *       - task_coordinator.cpp: Timer and task management
+ * 
+ * @author Team PowerPort
+ * @date 2025-10-22
+ */
+
 #include <Arduino.h>
 #include "peripheral/acquisition.h"
 #include "peripheral/print.h"
 #include "peripheral/formatted_print.h"
 #include "peripheral/arduino_wifi.h"
-
-// New modular application components
-#include "application/system_initializer.h"
-#include "application/task_coordinator.h"
-#include "application/data_pipeline.h"
-#include "application/data_uploader.h"
-#include "application/command_executor.h"
-#include "application/config_manager.h"
-#include "application/statistics_manager.h"
-
-// Legacy includes still needed
+#include "application/ringbuffer.h"
+#include "application/compression.h"
+#include "application/compression_benchmark.h"
 #include "application/nvs.h"
 #include "application/OTAManager.h"
 #include "application/credentials.h"
-#include "application/compression.h"
+#include "application/security.h"
+#include "application/power_management.h"
+#include "application/peripheral_power.h"
 
+// ============================================
+// Global Objects
+// ============================================
 Arduino_Wifi Wifi;
+RingBuffer<SmartCompressedData, 20> smartRingBuffer;
 
-// Global OTA Manager (needs to persist)
+// ============================================
+// Server Endpoints
+// ============================================
+const char* dataPostURL = FLASK_SERVER_URL "/process";
+const char* fetchChangesURL = FLASK_SERVER_URL "/changes";
+const char* commandPollURL = FLASK_SERVER_URL "/command/poll";
+const char* commandResultURL = FLASK_SERVER_URL "/command/result";
+
+// ============================================
+// Function Declarations
+// ============================================
+void Wifi_init();
+void poll_and_save(const RegID* selection, size_t registerCount, uint16_t* sensorData);
+void upload_data();
+void checkForCommands();
+bool executeCommand(const char* commandId, const char* commandType, const char* parameters);
+void sendCommandResult(const char* commandId, bool success, const char* result);
+std::vector<uint8_t> compressWithSmartSelection(uint16_t* data, const RegID* selection, size_t count, 
+                                               unsigned long& compressionTime, char* methodUsed, size_t methodSize,
+                                               float& academicRatio, float& traditionalRatio);
+void printSmartPerformanceStatistics();
+void uploadSmartCompressedDataToCloud();
+std::vector<uint8_t> compressBatchWithSmartSelection(const SampleBatch& batch, 
+                                                   const RegID* selection, size_t registerCount,
+                                                   unsigned long& compressionTime, 
+                                                   char* methodUsed, size_t methodSize,
+                                                   float& academicRatio, 
+                                                   float& traditionalRatio);
+void convertBinaryToBase64(const std::vector<uint8_t>& binaryData, char* result, size_t resultSize);
+void updateSmartPerformanceStatistics(const char* method, float academicRatio, unsigned long timeUs);
+bool readMultipleRegisters(const RegID* selection, size_t count, uint16_t* data);
+void enhanceDictionaryForOptimalCompression();
+void checkChanges(bool* registers_uptodate, bool* pollFreq_uptodate, bool* uploadFreq_uptodate);
+
+// ============================================
+// Hardware Timers and ISRs
+// ============================================
+
+// Timer 0: Data Polling
+hw_timer_t *poll_timer = NULL;
+volatile bool poll_token = false;
+
+void IRAM_ATTR set_poll_token() {
+  poll_token = true;
+}
+
+// Timer 1: Data Upload
+hw_timer_t *upload_timer = NULL;
+volatile bool upload_token = false;
+
+void IRAM_ATTR set_upload_token() {
+  upload_token = true;
+}
+
+// Timer 2: Configuration Changes Check
+hw_timer_t *changes_timer = NULL;
+volatile bool changes_token = false;
+
+void IRAM_ATTR set_changes_token() {
+  changes_token = true;
+}
+
+// Timer 3: OTA Update Check
 OTAManager* otaManager = nullptr;
+hw_timer_t* ota_timer = NULL;
+volatile bool ota_token = false;
 
-// Command poll counter (check every 2nd config check = every 10s)
+#define OTA_CHECK_INTERVAL 60000000ULL  // 1 minute in microseconds
+#define FIRMWARE_VERSION "1.0.4"
+
+void IRAM_ATTR onOTATimer() {
+    ota_token = true;
+}
+
+// ============================================
+// State Variables
+// ============================================
+SmartPerformanceStats smartStats;
+SampleBatch currentBatch;
+
+// Counter for command polling (check every 2nd config check = every 10s)
 static uint8_t command_poll_counter = 0;
 
-#define FIRMWARE_VERSION "1.0.4"
-#define OTA_CHECK_INTERVAL 60000000ULL  // 1 min in microseconds
-
-// Legacy function declarations (to be removed gradually)
-void enhanceDictionaryForOptimalCompression();
-bool readMultipleRegisters(const RegID* selection, size_t count, uint16_t* data);
-
+// ============================================
+// OTA Update Handler
+// ============================================
 void performOTAUpdate()
 {
     print("=== OTA UPDATE CHECK INITIATED ===\n");
@@ -42,8 +132,10 @@ void performOTAUpdate()
         print("Firmware update available!\n");
         print("Pausing normal operations...\n");
         
-        // Pause all tasks
-        TaskCoordinator::pauseAllTasks();
+        // Disable other timers
+        timerAlarmDisable(poll_timer);
+        timerAlarmDisable(upload_timer);
+        timerAlarmDisable(changes_timer);
         
         if (otaManager->downloadAndApplyFirmware()) {
             // This will reboot if successful, so code below won't execute
@@ -52,8 +144,9 @@ void performOTAUpdate()
             print("OTA download/apply failed\n");
             print("Will retry on next check\n");
             
-            // Resume tasks
-            TaskCoordinator::resumeAllTasks();
+            // Re-enable timers
+            timerAlarmEnable(poll_timer);
+            timerAlarmEnable(upload_timer);
             timerAlarmEnable(changes_timer);
         }
     } else {
@@ -61,133 +154,177 @@ void performOTAUpdate()
     }
 }
 
+// ============================================
+// Main Setup and Loop
+// ============================================
+
 void setup() 
 {
-  // Initialize all core systems
-  SystemInitializer::initializeAll();
+  print_init();
+  print("Starting ECOWATT\n");
+
+  Wifi_init();
+
+  // Initialize Power Management
+  PowerManagement::init();
+
+  // Initialize Peripheral Power Gating
+  PeripheralPower::init();
+
+  // Initialize Security Layer
+  print("Initializing Security Layer...\n");
+  SecurityLayer::init();
 
   // Initialize OTA Manager
   print("Initializing OTA Manager...\n");
   otaManager = new OTAManager(
-      FLASK_SERVER_URL,
-      "ESP32_EcoWatt_Smart",
-      FIRMWARE_VERSION
+      FLASK_SERVER_URL ":5001",    // Flask server URL
+      "ESP32_EcoWatt_Smart",         // Device ID
+      FIRMWARE_VERSION               // Current version
   );
-  
+
   // Check for rollback (MUST be early in setup)
   otaManager->handleRollback();
 
-  // Load initial configuration from NVS
-  const SystemConfig& config = ConfigManager::getCurrentConfig();
+  // Setup Timer 3 for OTA checks
+  ota_timer = timerBegin(3, 80, true);
+  timerAttachInterrupt(ota_timer, &onOTATimer, true);
+  timerAlarmWrite(ota_timer, OTA_CHECK_INTERVAL, true);
+  timerAlarmEnable(ota_timer);
   
-  // Initialize all application modules
-  print("Initializing application modules...\n");
+  print("OTA timer configured (6-hour interval)\n");
+
+  // Reading values from the nvs
+  size_t registerCount = nvs::getReadRegCount();
+  const RegID* selection = nvs::getReadRegs();
+  bool registers_uptodate = true;
+  uint16_t* sensorData = nullptr;
+  sensorData = new uint16_t[registerCount];
+
+  uint64_t pollFreq = nvs::getPollFreq();
+  bool pollFreq_uptodate = true;
+
+  uint64_t uploadFreq = nvs::getUploadFreq();
+  bool uploadFreq_uptodate = true;
   
-  // Task Coordinator: manages timers and scheduling
-  uint64_t pollFreq = config.pollFrequency;
-  uint64_t uploadFreq = config.uploadFrequency;
-  uint64_t changesFreq = 5000000;  // 5 seconds
-  TaskCoordinator::init(pollFreq, uploadFreq, changesFreq, OTA_CHECK_INTERVAL);
+  uint64_t checkChangesFreq = 5000000;
   
-  // Configuration Manager
-  ConfigManager::init(FLASK_SERVER_URL "/changes", "ESP32_EcoWatt_Smart");
-  
-  // Data Pipeline: handles sensor reading and compression
-  DataPipeline::init(config.registers, config.registerCount);
-  
-  // Data Uploader: manages cloud uploads
-  DataUploader::init(FLASK_SERVER_URL "/process", "ESP32_EcoWatt_Smart");
-  
-  // Command Executor: handles remote commands
-  CommandExecutor::init(
-    FLASK_SERVER_URL "/command/poll",
-    FLASK_SERVER_URL "/command/result",
-    "ESP32_EcoWatt_Smart"
-  );
-  
-  // Statistics Manager
-  StatisticsManager::init();
-  
-  // Enhance dictionary for optimal compression
+  // Set up the poll timer
+  poll_timer = timerBegin(0, 80, true); // Timer 0, prescaler 80 (1us per tick)
+  timerAttachInterrupt(poll_timer, &set_poll_token, true);
+  timerAlarmWrite(poll_timer, pollFreq, true);
+  timerAlarmEnable(poll_timer); // Enable the alarm
+
+  // Set up the upload timer
+  upload_timer = timerBegin(1, 80, true); // Timer 1, prescaler 80 (1us per tick)
+  timerAttachInterrupt(upload_timer,  &set_upload_token, true);
+  timerAlarmWrite(upload_timer, uploadFreq, true);
+  timerAlarmEnable(upload_timer); // Enable the alarm
+
+  // Set up the changes check timer
+  changes_timer = timerBegin(2, 80, true); // Timer 2, prescaler 80 (1us per tick)
+  timerAttachInterrupt(changes_timer,  &set_changes_token, true);
+  timerAlarmWrite(changes_timer, checkChangesFreq, true);
+  timerAlarmEnable(changes_timer); // Enable the alarm
+
+
   enhanceDictionaryForOptimalCompression();
+  // Print initial memory status
   DataCompression::printMemoryUsage();
-  
-  print("\n========================================\n");
-  print("  ECOWATT SYSTEM READY\n");
-  print("========================================\n\n");
-}
 
-void loop()
-{
-  // Poll and save sensor data
-  if (TaskCoordinator::isPollReady()) {
-    TaskCoordinator::resetPollToken();
-    DataPipeline::pollAndProcess();
+/*
+  //set power to 50W out
+  bool ok = setPower(50); // set Pac = 50W
+  if (ok) 
+  {
+    print("Output power register updated!\n");
   }
-  
-  // Upload queued data
-  if (TaskCoordinator::isUploadReady()) {
-    TaskCoordinator::resetUploadToken();
-    DataUploader::uploadPendingData();
+  else 
+  {
+    print("Failed to set output power register!\n");
+  }*/
+
+
+  while(true) 
+  {
+    // NOTE: CPU frequency scaling disabled due to WiFi stability issues
+    // ESP32 WiFi requires 240 MHz to maintain stable connection
+    // Frequency scaling causes BEACON_TIMEOUT errors and disconnections
     
-    // Apply any pending configuration changes
-    bool regChanged = false, pollChanged = false, uploadChanged = false;
-    
-    if (regChanged) {
-      const RegID* newRegs;
-      size_t newCount;
-      ConfigManager::applyRegisterChanges(&newRegs, &newCount);
-      DataPipeline::updateRegisterSelection(newRegs, newCount);
+    if (poll_token) 
+    {
+      poll_token = false;
+      poll_and_save(selection, registerCount, sensorData);
     }
     
-    if (pollChanged) {
-      uint64_t newPollFreq;
-      ConfigManager::applyPollFrequencyChange(&newPollFreq);
-      TaskCoordinator::updatePollFrequency(newPollFreq);
-    }
-    
-    if (uploadChanged) {
-      uint64_t newUploadFreq;
-      ConfigManager::applyUploadFrequencyChange(&newUploadFreq);
-      TaskCoordinator::updateUploadFrequency(newUploadFreq);
-    }
-  }
-  
-  // Check for configuration changes and commands
-  if (TaskCoordinator::isChangesReady()) {
-    TaskCoordinator::resetChangesToken();
-    
-    bool regChanged = false, pollChanged = false, uploadChanged = false;
-    ConfigManager::checkForChanges(&regChanged, &pollChanged, &uploadChanged);
-    
-    // Check for commands every 2nd iteration (10s instead of 5s)
-    command_poll_counter++;
-    if (command_poll_counter >= 2) {
-      command_poll_counter = 0;
-      CommandExecutor::checkAndExecuteCommands();
-    }
-  }
-  
-  // Handle OTA updates
-  if (TaskCoordinator::isOTAReady()) {
-    TaskCoordinator::resetOTAToken();
-    performOTAUpdate();
-  }
-  
-  yield();
-}
+    if (upload_token) 
+    {
+      upload_token = false;
+      upload_data();
+
+      // Applying the changes
+      if (!pollFreq_uptodate)
+      {
+        pollFreq = nvs::getPollFreq();
+        timerAlarmWrite(poll_timer, pollFreq, true);
+        pollFreq_uptodate = true;
         print("Poll frequency updated to %llu\n", pollFreq);
-      // ============================================
-// Legacy Functions (to be removed gradually)
-// ============================================
+      }
 
-void Wifi_init()
-{
-  Wifi.init();
+      if (!uploadFreq_uptodate)
+      {
+        uploadFreq = nvs::getUploadFreq();
+        timerAlarmWrite(upload_timer, uploadFreq, true);
+        uploadFreq_uptodate = true;
+        print("Upload frequency updated to %llu\n", uploadFreq);
+      }
+
+      if (!registers_uptodate)
+      {
+        selection = nvs::getReadRegs();
+        registerCount = nvs::getReadRegCount();
+        delete[] sensorData;
+        sensorData = new uint16_t[registerCount];
+        registers_uptodate = true;
+        print("Registers updated! Now reading %d registers:\n", registerCount);
+        // Print which registers we're now reading
+        for (size_t i = 0; i < registerCount && i < REGISTER_COUNT; i++) {
+            print("  [%zu] %s (ID: %d)\n", i, REGISTER_MAP[selection[i]].name, selection[i]);
+        }
+      }
+    }
+
+    if (changes_token)
+    {
+        changes_token = false;
+        checkChanges(&registers_uptodate, &pollFreq_uptodate, &uploadFreq_uptodate);
+        
+        // Check for commands every 2nd config check (every 10s instead of every 5s)
+        command_poll_counter++;
+        if (command_poll_counter >= 2) {
+            command_poll_counter = 0;
+            checkForCommands();
+        }
+    }
+
+    // Handle OTA check
+    if (ota_token) {
+        ota_token = false;
+        performOTAUpdate();
+    }
+    
+    // Small yield to prevent watchdog triggers
+    // NOTE: Sleep disabled due to watchdog compatibility
+    // WiFi requires 240 MHz, so frequency scaling also disabled
+    delay(1);  // Minimal delay to yield to system tasks
+  }
 }
 
 void loop() {}
 
+// ============================================
+// Configuration Management
+// ============================================
 
 void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploadFreq_uptodate)
 {
@@ -297,6 +434,10 @@ void checkChanges(bool *registers_uptodate, bool *pollFreq_uptodate, bool *uploa
     }
 }
 
+// ============================================
+// Network Initialization
+// ============================================
+
 /**
  * @fn void Wifi_init()
  * 
@@ -315,6 +456,9 @@ void Wifi_init()
   print("WiFi power save disabled for stability\n");
 }
 
+// ============================================
+// Remote Command Execution
+// ============================================
 
 /**
  * @fn void checkForCommands()
@@ -545,6 +689,9 @@ void sendCommandResult(const char* commandId, bool success, const char* result)
     http.end();
 }
 
+// ============================================
+// Data Acquisition and Processing
+// ============================================
 
 /**
  * @fn void poll_and_save()
@@ -706,42 +853,17 @@ std::vector<uint8_t> compressWithSmartSelection(uint16_t* data, const RegID* sel
  */
 void updateSmartPerformanceStatistics(const char* method, float academicRatio, 
                                      unsigned long timeUs) {
-    // Bounds checking to prevent invalid data
-    if (academicRatio < 0.0f || academicRatio > 10.0f) {
-        print("[WARNING] Invalid academic ratio: %.3f, skipping statistics update\n", academicRatio);
-        return;
-    }
-    
-    if (timeUs == 0 || timeUs > 10000000UL) { // 10 seconds max
-        print("[WARNING] Invalid compression time: %lu μs, skipping statistics update\n", timeUs);
-        return;
-    }
-    
     smartStats.totalSmartCompressions++;
     smartStats.totalCompressionTime += timeUs;
+    smartStats.averageAcademicRatio = 
+        (smartStats.averageAcademicRatio * (smartStats.totalSmartCompressions - 1) + academicRatio) / 
+        smartStats.totalSmartCompressions;
     
-    // Running average formula: new_avg = (old_avg * (n-1) + new_value) / n
-    // This is mathematically correct for incremental mean calculation
-    if (smartStats.totalSmartCompressions > 0) {
-        smartStats.averageAcademicRatio = 
-            (smartStats.averageAcademicRatio * (smartStats.totalSmartCompressions - 1) + academicRatio) / 
-            smartStats.totalSmartCompressions;
-    } else {
-        smartStats.averageAcademicRatio = academicRatio;
-    }
-    
-    // Update best ratio if this is better (lower is better)
+    // Update best ratio if this is better
     if (academicRatio < smartStats.bestAcademicRatio) {
         smartStats.bestAcademicRatio = academicRatio;
         strncpy(smartStats.currentOptimalMethod, method, sizeof(smartStats.currentOptimalMethod) - 1);
         smartStats.currentOptimalMethod[sizeof(smartStats.currentOptimalMethod) - 1] = '\0';
-    }
-    
-    // Track worst ratio (for debugging/monitoring)
-    if (smartStats.totalSmartCompressions == 1) {
-        smartStats.worstAcademicRatio = academicRatio;
-    } else if (academicRatio > smartStats.worstAcademicRatio) {
-        smartStats.worstAcademicRatio = academicRatio;
     }
     
     // Update quality distribution
@@ -756,16 +878,14 @@ void updateSmartPerformanceStatistics(const char* method, float academicRatio,
     }
     
     // Update fastest compression time
-    if (smartStats.fastestCompressionTime == 0 || timeUs < smartStats.fastestCompressionTime) {
+    if (timeUs < smartStats.fastestCompressionTime) {
         smartStats.fastestCompressionTime = timeUs;
-    }
-    
-    // Track slowest compression time
-    if (timeUs > smartStats.slowestCompressionTime) {
-        smartStats.slowestCompressionTime = timeUs;
     }
 }
 
+// ============================================
+// Compression and Statistics
+// ============================================
 
 /**
  * @fn void enhanceDictionaryForOptimalCompression()

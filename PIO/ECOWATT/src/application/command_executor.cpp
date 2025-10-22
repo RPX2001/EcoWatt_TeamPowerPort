@@ -9,12 +9,18 @@
 #include "application/command_executor.h"
 #include "peripheral/print.h"
 #include "peripheral/formatted_print.h"
+// Temporarily undef print macro before any ArduinoJson includes (via acquisition.h)
+#ifdef print
+#undef print
+#endif
 #include "peripheral/acquisition.h"
 #include "application/power_management.h"
 #include "application/peripheral_power.h"
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
+// Redefine print macro after all ArduinoJson includes
+#define print(...) debug.log(__VA_ARGS__)
 
 // Initialize static members
 char CommandExecutor::pollURL[256] = "";

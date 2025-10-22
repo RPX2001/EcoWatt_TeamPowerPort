@@ -14,6 +14,15 @@
 #include "application/peripheral_power.h"
 #include "application/compression.h"
 
+// Forward declarations of functions from main.cpp
+extern bool readMultipleRegisters(const RegID* selection, size_t count, uint16_t* data);
+extern std::vector<uint8_t> compressBatchWithSmartSelection(const SampleBatch& batch, 
+                                                   const RegID* selection, size_t registerCount,
+                                                   unsigned long& compressionTime, 
+                                                   char* methodUsed, size_t methodSize,
+                                                   float& academicRatio, 
+                                                   float& traditionalRatio);
+
 // Initialize static members
 const RegID* DataPipeline::activeRegisters = nullptr;
 size_t DataPipeline::activeRegisterCount = 0;
@@ -72,8 +81,8 @@ bool DataPipeline::compressAndQueue() {
     char methodUsed[32];
     float academicRatio, traditionalRatio;
     
-    // Compress the entire batch
-    std::vector<uint8_t> compressedBinary = DataCompression::compressBatchWithSmartSelection(
+    // Compress the entire batch using the function from main.cpp
+    std::vector<uint8_t> compressedBinary = compressBatchWithSmartSelection(
         currentBatch, activeRegisters, activeRegisterCount, 
         compressionTime, methodUsed, sizeof(methodUsed),
         academicRatio, traditionalRatio);
@@ -130,14 +139,14 @@ void DataPipeline::updateRegisterSelection(const RegID* newSelection, size_t new
 }
 
 void DataPipeline::getBatchInfo(size_t& samplesInBatch, size_t& batchSize) {
-    samplesInBatch = currentBatch.getSampleCount();
-    batchSize = currentBatch.getMaxSamples();
+    samplesInBatch = currentBatch.sampleCount;
+    batchSize = SampleBatch::MAX_SAMPLES;
 }
 
 bool DataPipeline::forceCompressBatch() {
-    if (currentBatch.getSampleCount() > 0) {
+    if (currentBatch.sampleCount > 0) {
         print("[DataPipeline] Force compressing batch with %zu samples\n", 
-              currentBatch.getSampleCount());
+              currentBatch.sampleCount);
         return compressAndQueue();
     }
     return false;
