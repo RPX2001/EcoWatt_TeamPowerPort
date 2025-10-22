@@ -52,8 +52,18 @@ MQTT_CLIENT_ID = f"flask_ecowatt_smart_server_{int(time.time())}"
 settings_lock = threading.Lock()
 
 
+# Track if blueprints have been registered
+_blueprints_registered = False
+
+
 def register_blueprints():
-    """Register all route blueprints"""
+    """Register all route blueprints (only once)"""
+    global _blueprints_registered
+    
+    if _blueprints_registered:
+        logger.debug("Blueprints already registered, skipping")
+        return True
+    
     try:
         # Register blueprints with optional URL prefixes
         app.register_blueprint(general_bp)
@@ -64,12 +74,17 @@ def register_blueprints():
         app.register_blueprint(command_bp)
         app.register_blueprint(fault_bp)
         
+        _blueprints_registered = True
         logger.info("✓ All blueprints registered successfully")
         return True
         
     except Exception as e:
         logger.error(f"Failed to register blueprints: {e}")
         return False
+
+
+# Register blueprints immediately when module is imported (for testing)
+register_blueprints()
 
 
 def print_startup_banner():
