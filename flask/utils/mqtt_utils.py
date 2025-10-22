@@ -168,17 +168,31 @@ def on_message(client, userdata, msg):
         logger.error(f"Error in on_message settings handler: {e}")
 
 
-def init_mqtt(client_id=None):
+def init_mqtt(broker=None, port=None, client_id=None, data_topic=None, settings_topic=None):
     """
     Initialize MQTT client and connect to broker
     
     Args:
+        broker: MQTT broker address (uses default if not provided)
+        port: MQTT broker port (uses default if not provided)
         client_id: Optional client ID (generated if not provided)
+        data_topic: Data topic (uses default if not provided)
+        settings_topic: Settings topic (uses default if not provided)
         
     Returns:
         bool: True if connection successful, False otherwise
     """
-    global mqtt_client, mqtt_connected
+    global mqtt_client, mqtt_connected, MQTT_BROKER, MQTT_PORT, MQTT_TOPIC, MQTT_SETTINGS_TOPIC
+    
+    # Use provided values or defaults
+    if broker:
+        MQTT_BROKER = broker
+    if port:
+        MQTT_PORT = port
+    if data_topic:
+        MQTT_TOPIC = data_topic
+    if settings_topic:
+        MQTT_SETTINGS_TOPIC = settings_topic
     
     if client_id is None:
         client_id = f"flask_ecowatt_smart_server_{int(time.time())}"

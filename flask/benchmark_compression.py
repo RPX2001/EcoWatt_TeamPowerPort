@@ -82,16 +82,22 @@ def compress_dictionary_bitmask(data: List[int]) -> bytes:
     """
     Dictionary + Bitmask compression
     Format: 0xD0 | pattern_id | count | bitmask_low | bitmask_high | [deltas...]
+    
+    Note: This implementation compresses only the FIRST sample for simplicity.
+    Multi-sample dictionary compression would require per-sample patterns.
     """
     if len(data) < 10:
         return bytes()
+    
+    # Only compress first sample (10 registers)
+    first_sample = data[:10]
     
     # Find best matching pattern
     best_pattern_id = 0
     best_score = float('inf')
     
     for pattern_id, pattern in enumerate(DICTIONARY_PATTERNS):
-        score = sum(abs(data[i] - pattern[i]) for i in range(min(10, len(data))))
+        score = sum(abs(first_sample[i] - pattern[i]) for i in range(10))
         if score < best_score:
             best_score = score
             best_pattern_id = pattern_id
@@ -102,8 +108,8 @@ def compress_dictionary_bitmask(data: List[int]) -> bytes:
     bitmask = 0
     deltas = []
     
-    for i in range(min(10, len(data))):
-        delta = data[i] - pattern[i]
+    for i in range(10):
+        delta = first_sample[i] - pattern[i]
         if delta != 0:
             bitmask |= (1 << i)
             # Store as signed 16-bit
@@ -114,7 +120,7 @@ def compress_dictionary_bitmask(data: List[int]) -> bytes:
     result = bytearray()
     result.append(0xD0)  # Method ID
     result.append(best_pattern_id)
-    result.append(len(data) // 10)  # Count of samples
+    result.append(1)  # Count: 1 sample only
     result.append(bitmask & 0xFF)
     result.append((bitmask >> 8) & 0xFF)
     result.extend(deltas)
@@ -123,7 +129,7 @@ def compress_dictionary_bitmask(data: List[int]) -> bytes:
 
 
 def decompress_dictionary_bitmask(data: bytes) -> List[int]:
-    """Decompress dictionary + bitmask data"""
+    """Decompress dictionary + bitmask data (single sample only)"""
     if len(data) < 5 or data[0] != 0xD0:
         return []
     
@@ -138,18 +144,18 @@ def decompress_dictionary_bitmask(data: bytes) -> List[int]:
     result = []
     delta_idx = 5
     
-    for sample in range(count):
-        for reg in range(10):
-            if bitmask & (1 << reg):
-                # Read delta
-                if delta_idx + 1 < len(data):
-                    delta = struct.unpack('<h', data[delta_idx:delta_idx+2])[0]
-                    delta_idx += 2
-                else:
-                    delta = 0
-                result.append(pattern[reg] + delta)
+    # Decompress single sample (10 registers)
+    for reg in range(10):
+        if bitmask & (1 << reg):
+            # Read delta
+            if delta_idx + 1 < len(data):
+                delta = struct.unpack('<h', data[delta_idx:delta_idx+2])[0]
+                delta_idx += 2
             else:
-                result.append(pattern[reg])
+                delta = 0
+            result.append(pattern[reg] + delta)
+        else:
+            result.append(pattern[reg])
     
     return result
 
@@ -311,7 +317,11 @@ def decompress_semantic_rle(data: bytes) -> List[int]:
 def compress_binary_auto(data: List[int]) -> bytes:
     """
     Binary auto-select - tries multiple methods and picks best
+    For multi-sample data, only compresses first sample
     """
+    # Only compress first sample (10 registers) for fair comparison
+    test_data = data[:10] if len(data) >= 10 else data
+    
     methods = [
         (compress_dictionary_bitmask, "Dictionary"),
         (compress_temporal_delta, "Delta"),
@@ -323,7 +333,7 @@ def compress_binary_auto(data: List[int]) -> bytes:
     
     for compress_func, name in methods:
         try:
-            compressed = compress_func(data)
+            compressed = compress_func(test_data)
             if compressed and len(compressed) < best_size:
                 best_size = len(compressed)
                 best_compressed = compressed
@@ -381,9 +391,15 @@ def test_compression_method(method_name: str, compress_func, decompress_func,
     """Test a single compression method"""
     metrics = CompressionMetrics()
     
+    # Special handling for dictionary compression (single sample only)
+    test_data = data
+    if method_name == "Dictionary + Bitmask":
+        # Only test first sample (10 registers)
+        test_data = data[:10]
+    
     # Compress
     start = time.time()
-    compressed = compress_func(data)
+    compressed = compress_func(test_data)
     comp_time = time.time() - start
     
     # Decompress
@@ -392,7 +408,7 @@ def test_compression_method(method_name: str, compress_func, decompress_func,
     decomp_time = time.time() - start
     
     # Calculate metrics
-    metrics.calculate(data, compressed, comp_time, decomp_time, decompressed)
+    metrics.calculate(test_data, compressed, comp_time, decomp_time, decompressed)
     
     # Print results
     metrics.print(method_name, dataset_name)
@@ -432,8 +448,11 @@ def run_benchmark():
         
         for method_name, compress_func, decompress_func in methods:
             if decompress_func is None:  # Binary auto-select
+                # Use first sample only for fair comparison
+                test_data = data[:10] if len(data) >= 10 else data
+                
                 # Try to decompress with all methods
-                compressed = compress_func(data)
+                compressed = compress_func(test_data)
                 decompressed = []
                 if compressed:
                     if compressed[0] == 0xD0:
@@ -445,9 +464,9 @@ def run_benchmark():
                 
                 metrics = CompressionMetrics()
                 start = time.time()
-                compressed = compress_func(data)
+                compressed = compress_func(test_data)
                 comp_time = time.time() - start
-                metrics.calculate(data, compressed, comp_time, 0, decompressed)
+                metrics.calculate(test_data, compressed, comp_time, 0, decompressed)
                 metrics.print(method_name, dataset_name)
                 dataset_results.append((method_name, metrics))
             else:

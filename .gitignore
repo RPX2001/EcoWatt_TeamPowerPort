@@ -1,15 +1,109 @@
-Milestone1/cpp/build/
-Milestone1/cpp/.vscode/
+# ===================================
+# EcoWatt Project - Comprehensive .gitignore
+# ===================================
+
+#vscode
+.vscode/
+
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Flask
+instance/
+.webassets-cache
+flask/diagnostics_data/*.json
+flask/diagnostics_data/*.csv
+
+# PlatformIO
+.pio/
+.vscode/.browse.c_cpp.db*
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/ipch
+
+# CMake Build
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+Makefile
+*.exe
+*.bin
+
+# Sensitive Data (Keys)
+flask/keys/*.pem
+flask/keys/*.bin
+flask/keys/keys.h
+!flask/keys/.gitkeep
+
+# Firmware Files
+flask/firmware/*.bin
+flask/firmware/*.json
+!flask/firmware/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# OS Files
 .DS_Store
-Milestone1/.DS_Store
-Milestone1/cpp/.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor Files
+*.swp
+*.swo
+*~
+.vscode/settings.json
+
+# Backup Files
+*_BACKUP_*
+*.bak
+.flows.json.backup
+
+# Node (if ever used)
 node_modules/
-package.json
 package-lock.json
-flask/.venv/
-build
+
+# Documentation (moved to plans_and_progress)
 SECURITY_IMPLEMENTATION_COMPLETE.md
 SECURITY_INTEGRATION_VISUAL.md
 STACK_OVERFLOW_FIX.md
 README_SECURITY_FINAL.md
 QUICK_START_SECURITY.md
+
+# Legacy/Milestone Archives
+Previous\ Milestones/
+Milestone*/
