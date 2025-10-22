@@ -55,5 +55,9 @@
     [ "r2:2", "esp:D4", "red", [] ],
     [ "error_led:C", "esp:GND.2", "black", [] ]
   ],
+  "serialMonitor": {
+    "display": "always",
+    "newline": "lf"
+  },
   "dependencies": {}
 }
