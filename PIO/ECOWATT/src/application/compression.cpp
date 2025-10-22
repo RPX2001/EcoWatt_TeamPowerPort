@@ -848,15 +848,28 @@ void DataCompression::packBitsIntoBuffer(uint16_t value, uint8_t* buffer, size_t
     
     if (bitPos + numBits <= 8) 
     {
+        // Value fits within single byte
         buffer[byteOffset] |= (value << (8 - bitPos - numBits));
     } 
-    else 
+    else if (bitPos + numBits <= 16)
     {
+        // Value spans 2 bytes
         uint8_t firstBits = 8 - bitPos;
         uint8_t remainingBits = numBits - firstBits;
         
         buffer[byteOffset] |= (value >> remainingBits);
         buffer[byteOffset + 1] |= ((value & ((1 << remainingBits) - 1)) << (8 - remainingBits));
+    }
+    else
+    {
+        // Value spans 3 bytes
+        uint8_t firstBits = 8 - bitPos;
+        uint8_t secondBits = 8;
+        uint8_t thirdBits = numBits - firstBits - secondBits;
+        
+        buffer[byteOffset] |= (value >> (secondBits + thirdBits));
+        buffer[byteOffset + 1] |= (value >> thirdBits) & 0xFF;
+        buffer[byteOffset + 2] |= ((value & ((1 << thirdBits) - 1)) << (8 - thirdBits));
     }
 }
 
@@ -1139,17 +1152,19 @@ std::vector<uint16_t> DataCompression::decompressBinaryBitPacked(const std::vect
         return result;
     }
     
-    // Unpack bits
-    size_t bitOffset = 0;
-    size_t byteOffset = 3;
+    // Unpack bits using absolute bit offset from start of buffer
+    // Header is 3 bytes = 24 bits
+    size_t totalBitOffset = 24;  // Skip 3-byte header
     
     for (size_t i = 0; i < count; i++) {
+        // Calculate byte position and bit position within that byte
+        size_t byteOffset = totalBitOffset / 8;
+        size_t bitOffset = totalBitOffset % 8;
+        
         uint16_t value = unpackBitsFromBuffer(compressed.data() + byteOffset, bitOffset, bitsPerValue);
         result.push_back(value);
         
-        bitOffset += bitsPerValue;
-        byteOffset += bitOffset / 8;
-        bitOffset = bitOffset % 8;
+        totalBitOffset += bitsPerValue;
     }
     
     return result;
@@ -1175,13 +1190,23 @@ uint16_t DataCompression::unpackBitsFromBuffer(const uint8_t* buffer, size_t bit
         // Value fits within single byte
         value = (buffer[0] >> (8 - bitPos - numBits)) & ((1 << numBits) - 1);
     } 
-    else {
-        // Value spans multiple bytes
+    else if (bitPos + numBits <= 16) {
+        // Value spans 2 bytes
         uint8_t firstBits = 8 - bitPos;
         uint8_t remainingBits = numBits - firstBits;
         
         value = (buffer[0] & ((1 << firstBits) - 1)) << remainingBits;
         value |= (buffer[1] >> (8 - remainingBits)) & ((1 << remainingBits) - 1);
+    }
+    else {
+        // Value spans 3 bytes
+        uint8_t firstBits = 8 - bitPos;
+        uint8_t secondBits = 8;
+        uint8_t thirdBits = numBits - firstBits - secondBits;
+        
+        value = (buffer[0] & ((1 << firstBits) - 1)) << (secondBits + thirdBits);
+        value |= buffer[1] << thirdBits;
+        value |= (buffer[2] >> (8 - thirdBits)) & ((1 << thirdBits) - 1);
     }
     
     return value;
