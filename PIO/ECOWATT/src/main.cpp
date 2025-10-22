@@ -803,17 +803,42 @@ std::vector<uint8_t> compressWithSmartSelection(uint16_t* data, const RegID* sel
  */
 void updateSmartPerformanceStatistics(const char* method, float academicRatio, 
                                      unsigned long timeUs) {
+    // Bounds checking to prevent invalid data
+    if (academicRatio < 0.0f || academicRatio > 10.0f) {
+        print("[WARNING] Invalid academic ratio: %.3f, skipping statistics update\n", academicRatio);
+        return;
+    }
+    
+    if (timeUs == 0 || timeUs > 10000000UL) { // 10 seconds max
+        print("[WARNING] Invalid compression time: %lu μs, skipping statistics update\n", timeUs);
+        return;
+    }
+    
     smartStats.totalSmartCompressions++;
     smartStats.totalCompressionTime += timeUs;
-    smartStats.averageAcademicRatio = 
-        (smartStats.averageAcademicRatio * (smartStats.totalSmartCompressions - 1) + academicRatio) / 
-        smartStats.totalSmartCompressions;
     
-    // Update best ratio if this is better
+    // Running average formula: new_avg = (old_avg * (n-1) + new_value) / n
+    // This is mathematically correct for incremental mean calculation
+    if (smartStats.totalSmartCompressions > 0) {
+        smartStats.averageAcademicRatio = 
+            (smartStats.averageAcademicRatio * (smartStats.totalSmartCompressions - 1) + academicRatio) / 
+            smartStats.totalSmartCompressions;
+    } else {
+        smartStats.averageAcademicRatio = academicRatio;
+    }
+    
+    // Update best ratio if this is better (lower is better)
     if (academicRatio < smartStats.bestAcademicRatio) {
         smartStats.bestAcademicRatio = academicRatio;
         strncpy(smartStats.currentOptimalMethod, method, sizeof(smartStats.currentOptimalMethod) - 1);
         smartStats.currentOptimalMethod[sizeof(smartStats.currentOptimalMethod) - 1] = '\0';
+    }
+    
+    // Track worst ratio (for debugging/monitoring)
+    if (smartStats.totalSmartCompressions == 1) {
+        smartStats.worstAcademicRatio = academicRatio;
+    } else if (academicRatio > smartStats.worstAcademicRatio) {
+        smartStats.worstAcademicRatio = academicRatio;
     }
     
     // Update quality distribution
@@ -828,8 +853,13 @@ void updateSmartPerformanceStatistics(const char* method, float academicRatio,
     }
     
     // Update fastest compression time
-    if (timeUs < smartStats.fastestCompressionTime) {
+    if (smartStats.fastestCompressionTime == 0 || timeUs < smartStats.fastestCompressionTime) {
         smartStats.fastestCompressionTime = timeUs;
+    }
+    
+    // Track slowest compression time
+    if (timeUs > smartStats.slowestCompressionTime) {
+        smartStats.slowestCompressionTime = timeUs;
     }
 }
 

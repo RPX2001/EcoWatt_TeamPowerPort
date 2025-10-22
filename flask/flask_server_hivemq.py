@@ -16,6 +16,12 @@ from firmware_manager import FirmwareManager
 # Import command manager for command execution
 from command_manager import CommandManager
 
+# Import fault injector for testing
+from fault_injector import (
+    enable_fault_injection, disable_fault_injection, 
+    get_fault_status, reset_statistics, inject_fault
+)
+
 app = Flask(__name__)
 
 # Configure logging
@@ -174,6 +180,138 @@ def init_command_manager():
     except Exception as e:
         logger.error(f"Failed to initialize command manager: {e}")
         return False
+
+# ============================================================================
+# AGGREGATION / DEAGGREGATION FUNCTIONS
+# ============================================================================
+
+def deserialize_aggregated_sample(binary_data):
+    """
+    Deserialize aggregated sample data from binary format.
+    
+    Format:
+    - Marker: 0xAG (1 byte)
+    - Sample Count: uint8 (1 byte)
+    - Timestamp Start: uint32 (4 bytes)
+    - Timestamp End: uint32 (4 bytes)
+    - Min values: uint16[10] (20 bytes)
+    - Avg values: uint16[10] (20 bytes)
+    - Max values: uint16[10] (20 bytes)
+    Total: 70 bytes
+    
+    Returns:
+    {
+        'is_aggregated': True,
+        'sample_count': 5,
+        'timestamp_start': 12340,
+        'timestamp_end': 12345,
+        'min_values': [2400, 170, ...],
+        'avg_values': [2405, 172, ...],
+        'max_values': [2410, 175, ...]
+    }
+    """
+    try:
+        if len(binary_data) < 70:
+            return None
+        
+        # Check marker (0xAG = 0xA6 in hex)
+        if binary_data[0] != 0xA6:
+            return None
+        
+        idx = 1
+        
+        # Extract header
+        sample_count = binary_data[idx]
+        idx += 1
+        
+        # Timestamps (4 bytes each, little-endian)
+        timestamp_start = struct.unpack('<I', binary_data[idx:idx+4])[0]
+        idx += 4
+        timestamp_end = struct.unpack('<I', binary_data[idx:idx+4])[0]
+        idx += 4
+        
+        # Extract min/avg/max arrays (10 values each)
+        min_values = []
+        avg_values = []
+        max_values = []
+        
+        # Min values
+        for i in range(10):
+            val = struct.unpack('<H', binary_data[idx:idx+2])[0]
+            min_values.append(val)
+            idx += 2
+        
+        # Avg values
+        for i in range(10):
+            val = struct.unpack('<H', binary_data[idx:idx+2])[0]
+            avg_values.append(val)
+            idx += 2
+        
+        # Max values
+        for i in range(10):
+            val = struct.unpack('<H', binary_data[idx:idx+2])[0]
+            max_values.append(val)
+            idx += 2
+        
+        return {
+            'is_aggregated': True,
+            'sample_count': sample_count,
+            'timestamp_start': timestamp_start,
+            'timestamp_end': timestamp_end,
+            'min_values': min_values,
+            'avg_values': avg_values,
+            'max_values': max_values
+        }
+    
+    except Exception as e:
+        logger.error(f"Error deserializing aggregated sample: {e}")
+        return None
+
+
+def expand_aggregated_to_samples(aggregated_data):
+    """
+    Expand aggregated data back to individual samples for storage/analysis.
+    Uses average values as representative samples.
+    
+    Returns:
+    {
+        'type': 'aggregated',
+        'sample_count': 5,
+        'samples': [[avg1, avg2, ...], ...],  # For compatibility
+        'aggregation': {
+            'min': [2400, 170, ...],
+            'avg': [2405, 172, ...],
+            'max': [2410, 175, ...]
+        }
+    }
+    """
+    try:
+        if not aggregated_data or not aggregated_data.get('is_aggregated'):
+            return None
+        
+        return {
+            'type': 'aggregated',
+            'sample_count': aggregated_data['sample_count'],
+            'timestamp_start': aggregated_data['timestamp_start'],
+            'timestamp_end': aggregated_data['timestamp_end'],
+            'samples': [aggregated_data['avg_values']],  # Use avg as representative
+            'aggregation': {
+                'min': aggregated_data['min_values'],
+                'avg': aggregated_data['avg_values'],
+                'max': aggregated_data['max_values']
+            },
+            'flat_data': aggregated_data['avg_values'],
+            'first_sample': aggregated_data['avg_values']
+        }
+    
+    except Exception as e:
+        logger.error(f"Error expanding aggregated data: {e}")
+        return None
+
+
+# ============================================================================
+# COMPRESSION / DECOMPRESSION FUNCTIONS
+# ============================================================================
 
 def decompress_dictionary_bitmask(binary_data):
     """
@@ -362,7 +500,7 @@ def unpack_bits_from_buffer(buffer, bit_offset, num_bits):
 
 def decompress_smart_binary_data(base64_data):
     """
-    Main decompression function with enhanced debugging
+    Main decompression function with enhanced debugging and aggregation support
     """
     try:
         # Decode base64 to binary
@@ -373,8 +511,17 @@ def decompress_smart_binary_data(base64_data):
         
         method_id = binary_data[0]
         
+        # Check for aggregated data first (0xA6)
+        if method_id == 0xA6:
+            aggregated = deserialize_aggregated_sample(binary_data)
+            if aggregated:
+                return expand_aggregated_to_samples(aggregated)
+            else:
+                logger.warning("Failed to deserialize aggregated data")
+                return []
+        
         # Try Dictionary first (most common)
-        if method_id == 0xD0:
+        elif method_id == 0xD0:
             return decompress_dictionary_bitmask(binary_data)
         
         # Try other methods
@@ -1405,6 +1552,468 @@ def export_command_logs():
 
 
 # ============================================================================
+# FAULT INJECTION ENDPOINTS (TESTING ONLY)
+# ============================================================================
+
+@app.route('/fault/enable', methods=['POST'])
+def enable_fault():
+    """
+    Enable fault injection for testing.
+    
+    Request body:
+    {
+        "fault_type": "corrupt_crc | truncate | garbage | timeout | exception",
+        "probability": 0-100 (percentage),
+        "duration": seconds (0 = infinite)
+    }
+    
+    Response:
+    {
+        "success": true,
+        "message": "Fault injection enabled",
+        "config": {...}
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'Missing request body'}), 400
+        
+        fault_type = data.get('fault_type')
+        probability = data.get('probability', 100)
+        duration = data.get('duration', 0)
+        
+        if not fault_type:
+            return jsonify({'error': 'Missing fault_type parameter'}), 400
+        
+        result = enable_fault_injection(fault_type, probability, duration)
+        
+        if result['success']:
+            return jsonify(result), 200
+        else:
+            return jsonify(result), 400
+    
+    except Exception as e:
+        logger.error(f"Error in /fault/enable: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/fault/disable', methods=['POST'])
+def disable_fault():
+    """
+    Disable fault injection.
+    
+    Response:
+    {
+        "success": true,
+        "message": "Fault injection disabled",
+        "statistics": {...}
+    }
+    """
+    try:
+        result = disable_fault_injection()
+        return jsonify(result), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /fault/disable: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/fault/status', methods=['GET'])
+def fault_status():
+    """
+    Get fault injection status and statistics.
+    
+    Response:
+    {
+        "enabled": true/false,
+        "fault_type": "...",
+        "probability": 0-100,
+        "faults_injected": 123,
+        "requests_processed": 456,
+        "detailed_stats": {...}
+    }
+    """
+    try:
+        status = get_fault_status()
+        return jsonify(status), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /fault/status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/fault/reset', methods=['POST'])
+def fault_reset():
+    """
+    Reset fault injection statistics.
+    
+    Response:
+    {
+        "success": true,
+        "message": "Statistics reset"
+    }
+    """
+    try:
+        result = reset_statistics()
+        return jsonify(result), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /fault/reset: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# DIAGNOSTICS ENDPOINTS
+# ============================================================================
+
+@app.route('/diagnostics/<device_id>', methods=['POST'])
+def receive_diagnostics(device_id):
+    """
+    Receive diagnostics data from ESP32 device.
+    
+    Request body:
+    {
+        "uptime": 12345,
+        "error_counts": {
+            "read_errors": 5,
+            "write_errors": 2,
+            "timeouts": 3,
+            "crc_errors": 1,
+            "malformed_frames": 0,
+            "compression_failures": 0,
+            "upload_failures": 1,
+            "security_violations": 0
+        },
+        "recent_events": [
+            {
+                "timestamp": 12340,
+                "type": "ERROR",
+                "message": "Read failed",
+                "error_code": 1001
+            }
+        ],
+        "success_rate": 95.5
+    }
+    
+    Response:
+    {
+        "success": true,
+        "message": "Diagnostics received",
+        "stored_file": "diagnostics/ESP32_EcoWatt_Smart.json"
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'Missing diagnostics data'}), 400
+        
+        # Create diagnostics directory if it doesn't exist
+        import os
+        os.makedirs('diagnostics', exist_ok=True)
+        
+        # Add timestamp and device_id
+        from datetime import datetime
+        data['device_id'] = device_id
+        data['received_at'] = datetime.utcnow().isoformat()
+        
+        # Store diagnostics to JSON file
+        filename = f'diagnostics/{device_id}.json'
+        
+        # Load existing diagnostics history
+        history = []
+        if os.path.exists(filename):
+            try:
+                with open(filename, 'r') as f:
+                    history = json.load(f)
+                    if not isinstance(history, list):
+                        history = [history]
+            except:
+                history = []
+        
+        # Add new entry to history
+        history.append(data)
+        
+        # Keep only last 100 entries
+        if len(history) > 100:
+            history = history[-100:]
+        
+        # Save to file
+        with open(filename, 'w') as f:
+            json.dump(history, f, indent=2)
+        
+        logger.info(f"Diagnostics received from {device_id}")
+        logger.info(f"  Uptime: {data.get('uptime', 'N/A')}s")
+        logger.info(f"  Success Rate: {data.get('success_rate', 'N/A')}%")
+        logger.info(f"  Total Errors: {sum(data.get('error_counts', {}).values())}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Diagnostics received',
+            'stored_file': filename,
+            'history_entries': len(history)
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /diagnostics/{device_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/diagnostics/<device_id>', methods=['GET'])
+def get_diagnostics(device_id):
+    """
+    Retrieve diagnostics history for a device.
+    
+    Query parameters:
+    - limit: Maximum number of entries to return (default: 10)
+    - format: 'summary' or 'full' (default: 'summary')
+    
+    Response:
+    {
+        "device_id": "ESP32_EcoWatt_Smart",
+        "total_entries": 50,
+        "entries": [...]
+    }
+    """
+    try:
+        import os
+        filename = f'diagnostics/{device_id}.json'
+        
+        if not os.path.exists(filename):
+            return jsonify({
+                'error': f'No diagnostics found for device {device_id}'
+            }), 404
+        
+        # Load diagnostics
+        with open(filename, 'r') as f:
+            history = json.load(f)
+            if not isinstance(history, list):
+                history = [history]
+        
+        # Get query parameters
+        limit = int(request.args.get('limit', 10))
+        format_type = request.args.get('format', 'summary')
+        
+        # Get last N entries
+        entries = history[-limit:]
+        
+        if format_type == 'summary':
+            # Provide summary only
+            if entries:
+                latest = entries[-1]
+                return jsonify({
+                    'device_id': device_id,
+                    'total_entries': len(history),
+                    'latest_uptime': latest.get('uptime'),
+                    'latest_success_rate': latest.get('success_rate'),
+                    'total_errors': sum(latest.get('error_counts', {}).values()),
+                    'error_counts': latest.get('error_counts'),
+                    'last_updated': latest.get('received_at'),
+                    'available_entries': len(history)
+                }), 200
+            else:
+                return jsonify({'error': 'No entries found'}), 404
+        else:
+            # Full history
+            return jsonify({
+                'device_id': device_id,
+                'total_entries': len(history),
+                'entries': entries
+            }), 200
+    
+    except Exception as e:
+        logger.error(f"Error in GET /diagnostics/{device_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/diagnostics', methods=['GET'])
+def list_devices_with_diagnostics():
+    """
+    List all devices that have diagnostics data.
+    
+    Response:
+    {
+        "devices": [
+            {
+                "device_id": "ESP32_EcoWatt_Smart",
+                "entries": 50,
+                "last_updated": "2025-10-22T10:00:00"
+            }
+        ]
+    }
+    """
+    try:
+        import os
+        import glob
+        
+        devices = []
+        
+        if os.path.exists('diagnostics'):
+            for filepath in glob.glob('diagnostics/*.json'):
+                device_id = os.path.basename(filepath).replace('.json', '')
+                
+                try:
+                    with open(filepath, 'r') as f:
+                        history = json.load(f)
+                        if not isinstance(history, list):
+                            history = [history]
+                        
+                        if history:
+                            latest = history[-1]
+                            devices.append({
+                                'device_id': device_id,
+                                'entries': len(history),
+                                'last_updated': latest.get('received_at', 'Unknown'),
+                                'success_rate': latest.get('success_rate', 0),
+                                'total_errors': sum(latest.get('error_counts', {}).values())
+                            })
+                except:
+                    pass
+        
+        return jsonify({
+            'device_count': len(devices),
+            'devices': devices
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error in GET /diagnostics: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# AGGREGATION STATISTICS ENDPOINT
+# ============================================================================
+
+# Global aggregation statistics
+aggregation_stats = {
+    'total_aggregated_uploads': 0,
+    'total_samples_aggregated': 0,
+    'total_bandwidth_saved': 0,
+    'device_stats': {}
+}
+aggregation_stats_lock = threading.Lock()
+
+@app.route('/aggregation/stats', methods=['GET'])
+def get_aggregation_stats():
+    """
+    Get aggregation statistics across all devices.
+    
+    Response:
+    {
+        "total_aggregated_uploads": 100,
+        "total_samples_aggregated": 500,
+        "total_bandwidth_saved_bytes": 5000,
+        "device_stats": {
+            "ESP32_EcoWatt_Smart": {
+                "aggregated_uploads": 50,
+                "samples_aggregated": 250,
+                "bandwidth_saved": 2500
+            }
+        }
+    }
+    """
+    try:
+        with aggregation_stats_lock:
+            stats = dict(aggregation_stats)
+        
+        return jsonify(stats), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /aggregation/stats: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/aggregation/stats/<device_id>', methods=['GET'])
+def get_device_aggregation_stats(device_id):
+    """
+    Get aggregation statistics for a specific device.
+    
+    Response:
+    {
+        "device_id": "ESP32_EcoWatt_Smart",
+        "aggregated_uploads": 50,
+        "samples_aggregated": 250,
+        "bandwidth_saved_bytes": 2500,
+        "compression_ratio_with_aggregation": 0.020
+    }
+    """
+    try:
+        with aggregation_stats_lock:
+            device_stats = aggregation_stats['device_stats'].get(device_id, {
+                'aggregated_uploads': 0,
+                'samples_aggregated': 0,
+                'bandwidth_saved': 0
+            })
+        
+        return jsonify({
+            'device_id': device_id,
+            **device_stats
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /aggregation/stats/{device_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# SECURITY STATISTICS ENDPOINTS
+# ============================================================================
+
+@app.route('/security/stats', methods=['GET'])
+def get_security_stats_all():
+    """
+    Get security statistics for all devices.
+    
+    Response:
+    {
+        "total_requests": 1000,
+        "valid_requests": 950,
+        "replay_blocked": 30,
+        "mac_failed": 15,
+        "malformed_requests": 5,
+        "device_stats": {...}
+    }
+    """
+    try:
+        from server_security_layer import get_security_stats
+        stats = get_security_stats()
+        return jsonify(stats), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /security/stats: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/security/stats/<device_id>', methods=['GET'])
+def get_security_stats_device(device_id):
+    """
+    Get security statistics for a specific device.
+    
+    Response:
+    {
+        "device_id": "ESP32_EcoWatt_Smart",
+        "first_seen": "2025-10-22T10:00:00",
+        "total_requests": 100,
+        "valid_requests": 95,
+        "replay_blocked": 3,
+        "mac_failed": 1,
+        "malformed_requests": 1,
+        "last_valid_request": "2025-10-22T12:00:00"
+    }
+    """
+    try:
+        from server_security_layer import get_security_stats
+        stats = get_security_stats(device_id)
+        return jsonify(stats), 200
+    
+    except Exception as e:
+        logger.error(f"Error in /security/stats/{device_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
 # END OF COMMAND EXECUTION ENDPOINTS
 # ============================================================================
 
@@ -1438,6 +2047,10 @@ if __name__ == '__main__':
     print("Starting Flask server with comprehensive batch logging...")
     print("OTA endpoints available: /ota/check, /ota/chunk, /ota/verify, /ota/complete, /ota/status")
     print("Command endpoints: /command/queue, /command/poll, /command/result, /command/status, /command/history")
+    print("Fault injection endpoints: /fault/enable, /fault/disable, /fault/status, /fault/reset")
+    print("Diagnostics endpoints: /diagnostics, /diagnostics/<device_id> (GET/POST)")
+    print("Aggregation endpoints: /aggregation/stats, /aggregation/stats/<device_id>")
+    print("Security endpoints: /security/stats, /security/stats/<device_id>")
     print("="*60)
     
     app.run(host='0.0.0.0', port=5001, debug=True)

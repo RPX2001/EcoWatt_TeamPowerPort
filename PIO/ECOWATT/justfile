@@ -1,0 +1,151 @@
+# ESP32 EcoWatt Justfile
+# Build and test automation for PlatformIO project
+# Usage: just <recipe>
+
+# Default recipe - list all commands
+default:
+    @just --list
+
+# Build firmware for ESP32
+build:
+    platformio run
+
+# Upload firmware to device
+upload:
+    platformio run --target upload
+
+# Clean build artifacts
+clean:
+    platformio run --target clean
+    rm -rf .pio/build
+
+# Run all unit tests
+test:
+    platformio test
+
+# Run specific test suites
+test-diagnostics:
+    platformio test --filter test_diagnostics*
+
+test-compression:
+    platformio test --filter test_compression*
+
+test-aggregation:
+    platformio test --filter test_aggregation*
+
+test-security:
+    platformio test --filter test_security*
+
+test-protocol:
+    platformio test --filter test_protocol*
+
+# Run all tests with verbose output
+test-verbose:
+    platformio test -v
+
+# Build with diagnostics enabled
+build-with-diagnostics:
+    platformio run -D ENABLE_DIAGNOSTICS=1
+
+# Build for Wokwi simulator
+build-wokwi:
+    platformio run -e wokwi
+
+# Monitor serial output
+monitor:
+    platformio device monitor --baud 115200
+
+# Upload and immediately monitor
+flash-monitor: upload
+    platformio device monitor --baud 115200
+
+# Format code with clang-format
+format:
+    find src/ include/ -name "*.cpp" -o -name "*.h" | xargs clang-format -i --style=Google
+
+# Run static analysis
+lint:
+    @echo "Running cppcheck..."
+    cppcheck src/ include/ --enable=warning,performance,portability --suppress=missingIncludeSystem
+    @echo "✅ Lint complete"
+
+# Check code size
+size:
+    platformio run --target size
+
+# Generate documentation with Doxygen
+docs:
+    @if [ -f Doxyfile ]; then \
+        doxygen Doxyfile; \
+        echo "✅ Documentation generated in docs/html/"; \
+    else \
+        echo "❌ Doxyfile not found"; \
+    fi
+
+# Quick development cycle (build + test)
+quick: build test
+    @echo "✅ Quick cycle complete!"
+
+# Full validation (clean + build + all tests + lint)
+validate: clean build test-verbose lint
+    @echo "✅ Full validation complete!"
+
+# Update dependencies
+update-deps:
+    platformio pkg update
+
+# List all connected devices
+devices:
+    platformio device list
+
+# Create test report
+test-report:
+    @echo "Generating test report..."
+    platformio test --json-output-path test_report.json
+    @echo "✅ Test report saved to test_report.json"
+
+# Continuous testing (watch mode)
+watch:
+    @echo "Watching for changes... (Ctrl+C to stop)"
+    @while true; do \
+        inotifywait -r -e modify src/ include/ test/; \
+        clear; \
+        just test; \
+        sleep 1; \
+    done
+
+# Debug build (with debug symbols)
+debug-build:
+    platformio run --environment esp32dev --build-type debug
+
+# Profile memory usage
+memory-profile:
+    @platformio run --target size --environment esp32dev
+    @echo "\n=== Memory Usage Analysis ==="
+    @echo "Run after building to see RAM/Flash usage"
+
+# Backup source code
+backup:
+    @echo "Creating backup..."
+    @tar -czf ../ecowatt_backup_$(date +%Y%m%d_%H%M%S).tar.gz src/ include/ platformio.ini
+    @echo "✅ Backup created in parent directory"
+
+# Clean everything including dependencies
+distclean: clean
+    rm -rf .pio
+    @echo "✅ Complete clean done"
+
+# Help message
+help:
+    @echo "EcoWatt ESP32 Build System"
+    @echo ""
+    @echo "Common commands:"
+    @echo "  just build              - Build firmware"
+    @echo "  just upload             - Upload to device"
+    @echo "  just test               - Run all tests"
+    @echo "  just test-compression   - Test compression only"
+    @echo "  just monitor            - Serial monitor"
+    @echo "  just validate           - Full validation"
+    @echo "  just build-wokwi        - Build for simulator"
+    @echo ""
+    @echo "Run 'just --list' for all commands"

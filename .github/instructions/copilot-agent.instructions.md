@@ -1,0 +1,17 @@
+---
+applyTo: '**'
+---
+Provide project context and coding guidelines that AI should follow when generating code, answering questions, or reviewing changes.
+
+
+Do not create .md files without being asked directly.
+
+Do not create summary documents or summary text at each executions.
+
+Do iterative approach when doing code creation or modifications.
+
+Try to do minimal changes to codes at each iterations.
+
+Make sure the code you are creating/modifying will work at each itreration (by having a parella test scheme).
+
+Ask me if you have any questions or want clarifications.

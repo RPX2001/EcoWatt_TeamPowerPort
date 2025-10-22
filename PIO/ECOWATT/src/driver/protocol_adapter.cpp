@@ -210,20 +210,40 @@ bool ProtocolAdapter::parseResponse(const char* response, char* outFrameHex, siz
   memcpy(outFrameHex, frame, len + 1);
   debug.log("Received frame: %s\n", frame);
 
-  // Modbus function code check
-  if (len < 6) return false;
-  char buf[3]; buf[2] = '\0';
-  memcpy(buf, frame + 2, 2);
-  int funcCode = (int)strtol(buf, NULL, 16);
-  if (funcCode & 0x80) {
-    memcpy(buf, frame + 4, 2);
-    int errorCode = (int)strtol(buf, NULL, 16);
-    debug.log("Modbus Exception: ");
-    printErrorCode(errorCode);
-    return false;
-  } else {
-    debug.log("Valid Modbus frame.\n");
-    return true;
+  // Use enhanced validation with CRC checking
+  ParseResult validationResult = validateModbusFrame(frame);
+  
+  switch (validationResult) {
+    case PARSE_OK:
+      debug.log("Valid Modbus frame (CRC verified).\n");
+      return true;
+      
+    case PARSE_CRC_ERROR:
+      debug.log("Frame validation failed: CRC error\n");
+      return false;
+      
+    case PARSE_MALFORMED:
+      debug.log("Frame validation failed: Malformed frame\n");
+      return false;
+      
+    case PARSE_TRUNCATED:
+      debug.log("Frame validation failed: Truncated frame\n");
+      return false;
+      
+    case PARSE_EXCEPTION:
+      // Extract error code from exception frame
+      if (len >= 6) {
+        char buf[3]; buf[2] = '\0';
+        memcpy(buf, frame + 4, 2);
+        int errorCode = (int)strtol(buf, NULL, 16);
+        debug.log("Modbus Exception: ");
+        printErrorCode(errorCode);
+      }
+      return false;
+      
+    default:
+      debug.log("Frame validation failed: Unknown error\n");
+      return false;
   }
 }
 
@@ -273,6 +293,97 @@ void ProtocolAdapter::printErrorCode(int code)
     case 0x0B: debug.log("0B - Gateway Target Device Failed to Respond\n"); break;
     default:   debug.log("Unknown error code\n"); break;
   }
+}
+
+
+/**
+ * @fn ParseResult ProtocolAdapter::validateModbusFrame(const char* frameHex)
+ * 
+ * @brief Validate Modbus frame with detailed CRC and structure checking.
+ * 
+ * @param frameHex Hexadecimal frame string to validate.
+ * @return ParseResult indicating specific validation result.
+ */
+ParseResult ProtocolAdapter::validateModbusFrame(const char* frameHex) 
+{
+  if (!frameHex) {
+    debug.log("Frame validation: NULL frame\n");
+    return PARSE_MALFORMED;
+  }
+  
+  size_t len = strlen(frameHex);
+  
+  // Check minimum length (at least: SlaveID(2) + Function(2) + CRC(4) = 8 hex chars)
+  if (len < 8) {
+    debug.log("Frame validation: Too short (%zu bytes)\n", len);
+    return PARSE_TRUNCATED;
+  }
+  
+  // Check for valid hex characters
+  for (size_t i = 0; i < len; i++) {
+    char c = frameHex[i];
+    if (!isxdigit(c)) {
+      debug.log("Frame validation: Invalid character at position %zu: '%c'\n", i, c);
+      return PARSE_MALFORMED;
+    }
+  }
+  
+  // Check if length is even (each byte = 2 hex chars)
+  if (len % 2 != 0) {
+    debug.log("Frame validation: Odd length (%zu)\n", len);
+    return PARSE_MALFORMED;
+  }
+  
+  // Convert hex string to bytes for CRC calculation
+  size_t byteLen = len / 2;
+  uint8_t* bytes = new uint8_t[byteLen];
+  
+  for (size_t i = 0; i < byteLen; i++) {
+    char byteStr[3] = {frameHex[i*2], frameHex[i*2+1], '\0'};
+    bytes[i] = (uint8_t)strtol(byteStr, NULL, 16);
+  }
+  
+  // Check for Modbus exception (function code & 0x80)
+  if (byteLen >= 2 && (bytes[1] & 0x80)) {
+    debug.log("Frame validation: Modbus exception detected (function code: 0x%02X)\n", bytes[1]);
+    delete[] bytes;
+    return PARSE_EXCEPTION;
+  }
+  
+  // Extract CRC from frame (last 2 bytes, little-endian)
+  if (byteLen < 4) {
+    debug.log("Frame validation: Frame too short for CRC\n");
+    delete[] bytes;
+    return PARSE_TRUNCATED;
+  }
+  
+  uint16_t receivedCRC = bytes[byteLen-2] | (bytes[byteLen-1] << 8);
+  
+  // Calculate CRC for frame data (excluding CRC bytes)
+  uint16_t calculatedCRC = 0xFFFF;
+  for (size_t i = 0; i < byteLen - 2; i++) {
+    calculatedCRC ^= bytes[i];
+    for (int j = 0; j < 8; j++) {
+      if (calculatedCRC & 0x0001) {
+        calculatedCRC >>= 1;
+        calculatedCRC ^= 0xA001;
+      } else {
+        calculatedCRC >>= 1;
+      }
+    }
+  }
+  
+  delete[] bytes;
+  
+  // Compare CRCs
+  if (calculatedCRC != receivedCRC) {
+    debug.log("Frame validation: CRC mismatch (calculated: 0x%04X, received: 0x%04X)\n", 
+              calculatedCRC, receivedCRC);
+    return PARSE_CRC_ERROR;
+  }
+  
+  debug.log("Frame validation: OK (CRC: 0x%04X)\n", calculatedCRC);
+  return PARSE_OK;
 }
 
 

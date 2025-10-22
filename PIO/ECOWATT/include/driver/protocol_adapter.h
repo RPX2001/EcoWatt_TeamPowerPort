@@ -12,6 +12,16 @@
 #include "delay.h"
 #include "debug.h"
 
+// Parse result enum for detailed error reporting
+enum ParseResult {
+    PARSE_OK = 0,
+    PARSE_CRC_ERROR = 1,
+    PARSE_MALFORMED = 2,
+    PARSE_TRUNCATED = 3,
+    PARSE_EXCEPTION = 4,
+    PARSE_INVALID_JSON = 5
+};
+
 class ProtocolAdapter 
 {
   public:
@@ -19,6 +29,9 @@ class ProtocolAdapter
     bool writeRegister(const char* frameHex, char* outFrameHex, size_t outSize); // send write and return extracted frame
     bool readRegister(const char* frameHex, char* outFrameHex, size_t outSize);  // send read and return extracted frame  
     bool parseResponse(const char* responseJson, char* outFrameHex, size_t outSize); // parse JSON response
+    
+    // Enhanced validation with detailed error reporting
+    ParseResult validateModbusFrame(const char* frameHex);
     
     
     //setters

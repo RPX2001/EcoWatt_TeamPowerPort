@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "author": "Team PowerPort - EcoWatt",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-esp32-devkit-v1",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "status_led",
+      "top": -30,
+      "left": 120,
+      "attrs": { 
+        "color": "green",
+        "label": "Status"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "error_led",
+      "top": 10,
+      "left": 120,
+      "attrs": { 
+        "color": "red",
+        "label": "Error"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": -30,
+      "left": 180,
+      "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r2",
+      "top": 10,
+      "left": 180,
+      "attrs": { "value": "220" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "green", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "green", [] ],
+    [ "status_led:A", "r1:1", "", [] ],
+    [ "r1:2", "esp:D2", "green", [] ],
+    [ "status_led:C", "esp:GND.1", "black", [] ],
+    [ "error_led:A", "r2:1", "", [] ],
+    [ "r2:2", "esp:D4", "red", [] ],
+    [ "error_led:C", "esp:GND.2", "black", [] ]
+  ],
+  "dependencies": {}
+}

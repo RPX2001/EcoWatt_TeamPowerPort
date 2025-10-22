@@ -12,6 +12,8 @@ import hmac
 import hashlib
 import base64
 import json
+import os
+from datetime import datetime
 from threading import Lock
 from typing import Tuple, Optional
 
@@ -34,8 +36,129 @@ AES_IV = bytes([
 ])
 
 # Nonce tracking for anti-replay protection
+NONCE_STATE_FILE = 'nonce_state.json'
 last_valid_nonce = {}
 nonce_lock = Lock()
+
+
+def load_nonce_state():
+    """Load nonce state from persistent storage"""
+    global last_valid_nonce
+    
+    try:
+        if os.path.exists(NONCE_STATE_FILE):
+            with open(NONCE_STATE_FILE, 'r') as f:
+                data = json.load(f)
+                with nonce_lock:
+                    last_valid_nonce = data.get('nonces', {})
+                    # Convert string keys back to proper format if needed
+                    for device_id in last_valid_nonce:
+                        if isinstance(last_valid_nonce[device_id], dict):
+                            last_valid_nonce[device_id] = last_valid_nonce[device_id].get('last_nonce', 0)
+                print(f"✓ Loaded nonce state for {len(last_valid_nonce)} device(s)")
+    except Exception as e:
+        print(f"Warning: Could not load nonce state: {e}")
+        last_valid_nonce = {}
+
+
+def save_nonce_state():
+    """Save nonce state to persistent storage"""
+    try:
+        with nonce_lock:
+            data = {
+                'nonces': last_valid_nonce,
+                'last_updated': datetime.utcnow().isoformat()
+            }
+        
+        with open(NONCE_STATE_FILE, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+    except Exception as e:
+        print(f"Warning: Could not save nonce state: {e}")
+
+
+# Load nonce state on module import
+load_nonce_state()
+
+# Security statistics tracking
+security_stats = {
+    'total_requests': 0,
+    'valid_requests': 0,
+    'replay_blocked': 0,
+    'mac_failed': 0,
+    'malformed_requests': 0,
+    'device_stats': {}
+}
+security_stats_lock = Lock()
+
+
+def log_security_event(event_type: str, device_id: str, details: str = ""):
+    """
+    Log a security event and update statistics.
+    
+    Args:
+        event_type: 'VALID', 'REPLAY', 'MAC_FAIL', 'MALFORMED'
+        device_id: Device identifier
+        details: Additional event details
+    """
+    with security_stats_lock:
+        security_stats['total_requests'] += 1
+        
+        if device_id not in security_stats['device_stats']:
+            security_stats['device_stats'][device_id] = {
+                'first_seen': datetime.utcnow().isoformat(),
+                'total_requests': 0,
+                'valid_requests': 0,
+                'replay_blocked': 0,
+                'mac_failed': 0,
+                'malformed_requests': 0,
+                'last_valid_request': None
+            }
+        
+        device_stats = security_stats['device_stats'][device_id]
+        device_stats['total_requests'] += 1
+        
+        if event_type == 'VALID':
+            security_stats['valid_requests'] += 1
+            device_stats['valid_requests'] += 1
+            device_stats['last_valid_request'] = datetime.utcnow().isoformat()
+        elif event_type == 'REPLAY':
+            security_stats['replay_blocked'] += 1
+            device_stats['replay_blocked'] += 1
+        elif event_type == 'MAC_FAIL':
+            security_stats['mac_failed'] += 1
+            device_stats['mac_failed'] += 1
+        elif event_type == 'MALFORMED':
+            security_stats['malformed_requests'] += 1
+            device_stats['malformed_requests'] += 1
+    
+    # Log to file
+    try:
+        with open('security_audit.log', 'a') as f:
+            timestamp = datetime.utcnow().isoformat()
+            f.write(f"{timestamp} | {device_id} | {event_type} | {details}\n")
+    except:
+        pass  # Don't fail if logging fails
+
+
+def get_security_stats(device_id: Optional[str] = None) -> dict:
+    """
+    Get security statistics.
+    
+    Args:
+        device_id: Optional device ID to get device-specific stats
+        
+    Returns:
+        Dictionary of statistics
+    """
+    with security_stats_lock:
+        if device_id:
+            return {
+                'device_id': device_id,
+                **security_stats['device_stats'].get(device_id, {})
+            }
+        else:
+            return dict(security_stats)
 
 
 class SecurityError(Exception):
@@ -64,6 +187,7 @@ def verify_secured_payload(secured_data: str, device_id: str) -> str:
         # Validate required fields
         required_fields = ['nonce', 'payload', 'mac']
         if not all(field in data for field in required_fields):
+            log_security_event('MALFORMED', device_id, "Missing required fields")
             raise SecurityError(f"Missing required security fields. Required: {required_fields}")
         
         nonce = data['nonce']
@@ -77,6 +201,7 @@ def verify_secured_payload(secured_data: str, device_id: str) -> str:
         with nonce_lock:
             if device_id in last_valid_nonce:
                 if nonce <= last_valid_nonce[device_id]:
+                    log_security_event('REPLAY', device_id, f"Nonce {nonce} <= {last_valid_nonce[device_id]}")
                     raise SecurityError(
                         f"Replay attack detected! Nonce {nonce} <= last valid nonce {last_valid_nonce[device_id]}"
                     )
@@ -115,6 +240,7 @@ def verify_secured_payload(secured_data: str, device_id: str) -> str:
         
         # Step 5: Verify HMAC
         if not hmac.compare_digest(mac_calculated, mac_received):
+            log_security_event('MAC_FAIL', device_id, f"MAC mismatch")
             raise SecurityError(
                 f"HMAC verification failed! Calculated: {mac_calculated[:16]}..., "
                 f"Received: {mac_received[:16]}..."
@@ -123,6 +249,12 @@ def verify_secured_payload(secured_data: str, device_id: str) -> str:
         # Step 6: Update nonce tracker
         with nonce_lock:
             last_valid_nonce[device_id] = nonce
+        
+        # Save nonce state to persistent storage (async to not block)
+        save_nonce_state()
+        
+        # Log successful verification
+        log_security_event('VALID', device_id, f"Nonce: {nonce}")
         
         print(f"[Security] ✓ Verification successful: nonce={nonce}")
         return payload_str
