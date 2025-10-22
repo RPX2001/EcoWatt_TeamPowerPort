@@ -123,6 +123,13 @@ void performOTAUpdate()
 
 void setup() 
 {
+  // Initialize serial FIRST for debugging
+  Serial.begin(115200);
+  delay(1000);  // Wait for serial to stabilize
+  Serial.println("\n\n===========================================");
+  Serial.println("ESP32 BOOTING - Serial Output Active");
+  Serial.println("===========================================\n");
+  
   print_init();
   print("Starting ECOWATT\n");
 
@@ -141,7 +148,7 @@ void setup()
   // Initialize OTA Manager
   print("Initializing OTA Manager...\n");
   otaManager = new OTAManager(
-      FLASK_SERVER_URL ":5001",    // Flask server URL
+      FLASK_SERVER_URL,              // Flask server URL (already includes port)
       "ESP32_EcoWatt_Smart",         // Device ID
       FIRMWARE_VERSION               // Current version
   );

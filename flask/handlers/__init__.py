@@ -37,7 +37,10 @@ from .ota_handler import (
     complete_ota_session,
     get_ota_status,
     get_ota_stats,
-    cancel_ota_session
+    cancel_ota_session,
+    enable_ota_fault_injection,
+    disable_ota_fault_injection,
+    get_ota_fault_status
 )
 
 from .command_handler import (

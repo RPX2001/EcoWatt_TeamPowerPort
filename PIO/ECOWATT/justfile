@@ -2,58 +2,77 @@
 # Build and test automation for PlatformIO project
 # Usage: just <recipe>
 
+# Use local PlatformIO installation
+pio := "~/.platformio/penv/bin/platformio"
+
 # Default recipe - list all commands
 default:
     @just --list
 
 # Build firmware for ESP32
 build:
-    platformio run
+    {{pio}} run
 
 # Upload firmware to device
 upload:
-    platformio run --target upload
+    {{pio}} run --target upload
 
 # Clean build artifacts
 clean:
-    platformio run --target clean
+    {{pio}} run --target clean
     rm -rf .pio/build
 
 # Run all unit tests
 test:
-    platformio test
+    {{pio}} test
 
 # Run specific test suites
 test-diagnostics:
-    platformio test --filter test_diagnostics*
+    {{pio}} test --filter test_diagnostics*
 
 test-compression:
-    platformio test --filter test_compression*
+    {{pio}} test --filter test_compression*
 
 test-aggregation:
-    platformio test --filter test_aggregation*
+    {{pio}} test --filter test_aggregation*
 
 test-security:
-    platformio test --filter test_security*
+    {{pio}} test --filter test_security*
 
 test-protocol:
-    platformio test --filter test_protocol*
+    {{pio}} test --filter test_protocol*
 
 # Run all tests with verbose output
 test-verbose:
-    platformio test -v
+    {{pio}} test -v
 
 # Build with diagnostics enabled
 build-with-diagnostics:
-    platformio run -D ENABLE_DIAGNOSTICS=1
+    {{pio}} run -D ENABLE_DIAGNOSTICS=1
 
 # Build for Wokwi simulator
 build-wokwi:
-    platformio run -e wokwi
+    {{pio}} run -e wokwi
+
+# Run Wokwi simulator (requires VS Code Wokwi extension)
+# Open VS Code, press F1, type "Wokwi: Start Simulator"
+# Or use: code --open-url "vscode://wokwi.wokwi-vscode/start"
+run-wokwi: build-wokwi
+    @echo "✅ Firmware built successfully!"
+    @echo ""
+    @echo "📱 To run in Wokwi simulator:"
+    @echo "   1. Make sure VS Code Wokwi extension is installed"
+    @echo "   2. Press F1 in VS Code"
+    @echo "   3. Type 'Wokwi: Start Simulator'"
+    @echo ""
+    @echo "Or open the simulation directly in your browser:"
+    @echo "   https://wokwi.com/vscode"
+    @echo ""
+    @echo "Firmware location: .pio/build/wokwi/firmware.bin"
 
 # Monitor serial output
 monitor:
-    platformio device monitor --baud 115200
+    {{pio}} device monitor --baud 115200
 
 # Upload and immediately monitor
 flash-monitor: upload

@@ -3,10 +3,11 @@
 
 #warning: Check WiFi and server credentials in credentials.h before compiling!
 
-// Wifi Credentials
-#define WIFI_SSID "YasiruDEX"
-#define WIFI_PASSWORD "freewifi"
+// Wifi Credentials (Wokwi WiFi)
+#define WIFI_SSID "Wokwi-GUEST"
+#define WIFI_PASSWORD ""
 
-#define FLASK_SERVER_URL "http://192.168.1.141:5001"
+// Flask Server URL (localhost for Wokwi)
+#define FLASK_SERVER_URL "http://localhost:5001"
 
 #endif // CREDENTIALS_H
