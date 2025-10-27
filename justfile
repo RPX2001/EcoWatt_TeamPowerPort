@@ -41,10 +41,6 @@ test-protocol:
 build-diagnostics:
     cd PIO/ECOWATT && platformio run -D ENABLE_DIAGNOSTICS=1
 
-# Build for Wokwi simulator
-build-wokwi:
-    cd PIO/ECOWATT && platformio run -e wokwi
-
 # Run all tests
 test-all:
     cd PIO/ECOWATT && platformio test && echo "✅ All tests passed!"
