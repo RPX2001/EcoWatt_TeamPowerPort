@@ -242,10 +242,19 @@ def verify_secured_payload_core(secured_data: str, device_id: str) -> str:
         except Exception as e:
             raise SecurityError(f"Failed to decode payload to UTF-8: {e}")
         
+        # Debug logging
+        logger.info(f"[Security Debug] Device: {device_id}")
+        logger.info(f"[Security Debug] Nonce: {nonce}")
+        logger.info(f"[Security Debug] Payload (decoded): {payload_str[:100]}...")
+        logger.info(f"[Security Debug] Payload length: {len(payload_str)}")
+        
         # Step 4: Calculate HMAC for verification
         nonce_bytes = nonce.to_bytes(4, 'big')
         data_to_sign = nonce_bytes + payload_str.encode('utf-8')
         mac_calculated = hmac.new(PSK_HMAC, data_to_sign, hashlib.sha256).hexdigest()
+        
+        logger.info(f"[Security Debug] HMAC calculated: {mac_calculated}")
+        logger.info(f"[Security Debug] HMAC received: {mac_received}")
         
         # Step 5: Verify HMAC
         if not hmac.compare_digest(mac_calculated, mac_received):

@@ -143,3 +143,81 @@ def ping():
         'response': 'pong',
         'timestamp': datetime.now().isoformat()
     }), 200
+
+
+@general_bp.route('/integration/test/sync', methods=['POST'])
+def integration_test_sync():
+    """
+    Integration test synchronization endpoint
+    Used by ESP32 integration tests to report test progress
+    """
+    from flask import request
+    
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No data provided'
+            }), 400
+        
+        test_number = data.get('test_number')
+        test_name = data.get('test_name')
+        status = data.get('status')
+        result = data.get('result')
+        
+        logger.info(f"[Test Sync] Test {test_number}: {test_name} - {status} ({result})")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Test sync received',
+            'test_number': test_number,
+            'test_name': test_name,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in test sync: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@general_bp.route('/config', methods=['GET'])
+def get_device_config():
+    """
+    Get device configuration
+    Used for remote configuration updates
+    """
+    from flask import request
+    
+    try:
+        device_id = request.args.get('device_id', 'default')
+        
+        # Return default configuration
+        # In production, this would be stored in database per device
+        config = {
+            'poll_frequency': 30,      # seconds
+            'upload_frequency': 300,   # seconds (5 minutes)
+            'register_list': [40001, 40002, 40003, 40004, 40005],
+            'compression_enabled': True,
+            'security_enabled': True
+        }
+        
+        logger.info(f"[Config] Configuration requested for device: {device_id}")
+        
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'config': config,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting config: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

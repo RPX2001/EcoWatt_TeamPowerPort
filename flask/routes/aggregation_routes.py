@@ -35,6 +35,33 @@ def receive_aggregated_data(device_id: str):
         
         data = request.get_json()
         
+        # Check if data is a secured payload (has nonce, payload, mac fields)
+        if 'nonce' in data and 'payload' in data and 'mac' in data:
+            # This is a secured payload - validate it first
+            from handlers import validate_secured_payload
+            
+            # Convert dict to JSON string for validation
+            secured_payload_str = json.dumps(data)
+            success, decrypted_payload, error = validate_secured_payload(device_id, secured_payload_str)
+            
+            if not success:
+                logger.warning(f"Security validation failed for {device_id}: {error}")
+                return jsonify({
+                    'success': False,
+                    'error': f'Security validation failed: {error}'
+                }), 401
+            
+            # Parse the decrypted payload
+            try:
+                data = json.loads(decrypted_payload)
+                logger.info(f"Secured payload validated for {device_id}")
+            except Exception as e:
+                logger.error(f"Failed to parse decrypted payload: {e}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Failed to parse decrypted payload'
+                }), 400
+        
         # Check if data contains compressed payload
         if 'compressed_data' in data:
             # Handle compressed data
