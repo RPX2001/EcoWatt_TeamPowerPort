@@ -19,10 +19,11 @@
 #include "application/config_manager.h"
 #include "application/nvs.h"
 #include <Preferences.h>
+#include "config/test_config.h"  // Centralized configuration
 
-// Mock endpoint for testing
-const char* TEST_ENDPOINT = "http://test.local/config/check";
-const char* TEST_DEVICE_ID = "TEST_CONFIG_ESP32";
+// Test endpoint - use real Flask server endpoint
+const char* TEST_ENDPOINT = FLASK_CONFIG_CHECK_URL(TEST_DEVICE_ID_M4_CONFIG);
+const char* TEST_DEVICE_ID = TEST_DEVICE_ID_M4_CONFIG;
 
 // Preferences for manual NVS verification
 Preferences testPrefs;

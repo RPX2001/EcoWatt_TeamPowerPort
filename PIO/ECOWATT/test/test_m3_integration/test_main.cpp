@@ -21,35 +21,28 @@
 #include "application/compression.h"
 #include "peripheral/acquisition.h"
 #include "driver/protocol_adapter.h"
+#include "config/test_config.h"  // Centralized configuration
 
-// WiFi Configuration
-#define WIFI_SSID "Galaxy A32B46A"
-#define WIFI_PASSWORD "aubz5724"
-#define WIFI_TIMEOUT_MS 20000
+// Use WiFi configuration from centralized config
+// WIFI_SSID, WIFI_PASSWORD, WIFI_TIMEOUT_MS now come from test_config.h
 
-// Real Inverter API Configuration (from EN4440 API Documentation)
-#define INVERTER_API_BASE_URL "http://20.15.114.131:8080"
-#define INVERTER_READ_ENDPOINT "/api/inverter/read"
-#define INVERTER_API_KEY "NjhhZWIwNDU1ZDdmMzg3MzNiMTQ5YTFmOjY4YWViMDQ1NWQ3ZjM4NzMzYjE0OWExNQ=="  // TODO: Replace with actual API key from spreadsheet
+// Use Inverter API configuration from centralized config
+// INVERTER_API_BASE_URL, INVERTER_API_READ_ENDPOINT, INVERTER_API_KEY now come from test_config.h
 
 // Modbus Configuration
-#define MODBUS_SLAVE_ADDRESS 0x11  // Slave ID = 17
-#define MODBUS_FUNC_READ 0x03      // Read Holding Registers
 #define MODBUS_START_ADDR_VAC1 0x0000   // Vac1/L1 Phase voltage
 #define MODBUS_START_ADDR_IAC1 0x0001   // Iac1/L1 Phase current
 #define MODBUS_START_ADDR_PAC 0x0009    // Pac L/Inverter output power
 
-// Flask Server Configuration
-#define FLASK_SERVER_IP "192.168.242.249"
-#define FLASK_SERVER_PORT 5001
-#define FLASK_BASE_URL "http://192.168.242.249:5001"
-#define M3_TEST_DEVICE_ID "TEST_ESP32_INTEGRATION"
-#define AGGREGATED_DATA_ENDPOINT "/aggregated/" M3_TEST_DEVICE_ID
+// Flask Server Configuration - use from centralized config
+// FLASK_BASE_URL, FLASK_SERVER_IP, FLASK_SERVER_PORT now come from test_config.h
+#define M3_TEST_DEVICE_ID TEST_DEVICE_ID_M3
+#define AGGREGATED_DATA_ENDPOINT "/aggregated/" TEST_DEVICE_ID_M3
 
-// Test configuration
-#define M3_TEST_SAMPLES 60  // 1 minute of data for faster testing (normally 900 for 15 min)
+// Test configuration - use from centralized config
+// M3_TEST_SAMPLES now comes from test_config.h
 #define M3_EXPECTED_COMPRESSION_RATIO 0.5
-#define MAX_RETRY_ATTEMPTS 3
+// MAX_RETRY_ATTEMPTS now comes from test_config.h
 
 // Global WiFi status
 static bool wifiConnected = false;
@@ -177,7 +170,7 @@ static bool fetchRealSensorData(uint16_t* voltage, uint16_t* current, uint16_t* 
     }
     
     HTTPClient http;
-    String url = String(INVERTER_API_BASE_URL) + INVERTER_READ_ENDPOINT;
+    String url = String(INVERTER_API_BASE_URL) + INVERTER_API_READ_ENDPOINT;
     
     // Create Modbus frame to read 3 registers: Vac1 (addr 0), Iac1 (addr 1), and we'll read Pac separately
     String modbusFrame = createModbusReadFrame(MODBUS_SLAVE_ADDRESS, MODBUS_START_ADDR_VAC1, 2);

@@ -15,9 +15,10 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include "application/security.h"
+#include "config/test_config.h"  // Centralized configuration
 
-// Test configuration
-#define TEST_DEVICE_ID "TEST_SECURITY_ESP32"
+// Test configuration - use centralized device ID
+// TEST_DEVICE_ID_M4_SECURITY now comes from test_config.h
 #define NVS_NAMESPACE "security_test"
 
 // Global test variables
@@ -60,11 +61,11 @@ void test_duplicate_nonce_rejected(void) {
     uint32_t nonce = testNonce++;
     
     // First use of nonce - should be accepted
-    bool firstUse = Security::validateNonce(TEST_DEVICE_ID, nonce);
+    bool firstUse = Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, nonce);
     TEST_ASSERT_TRUE_MESSAGE(firstUse, "First use of nonce should be accepted");
     
     // Second use of same nonce - should be rejected
-    bool secondUse = Security::validateNonce(TEST_DEVICE_ID, nonce);
+    bool secondUse = Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, nonce);
     TEST_ASSERT_FALSE_MESSAGE(secondUse, "Duplicate nonce should be rejected");
     
     Serial.println("[PASS] Duplicate nonce correctly rejected");
@@ -81,16 +82,16 @@ void test_old_nonce_rejected(void) {
     uint32_t nonce3 = testNonce++;
     
     // Use nonces in order
-    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID, nonce1));
-    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID, nonce2));
-    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID, nonce3));
+    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, nonce1));
+    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, nonce2));
+    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, nonce3));
     
     // Try to use old nonce (nonce1) again - should be rejected
-    bool oldNonceResult = Security::validateNonce(TEST_DEVICE_ID, nonce1);
+    bool oldNonceResult = Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, nonce1);
     TEST_ASSERT_FALSE_MESSAGE(oldNonceResult, "Old nonce should be rejected");
     
     // Try nonce2 - should also be rejected
-    oldNonceResult = Security::validateNonce(TEST_DEVICE_ID, nonce2);
+    oldNonceResult = Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, nonce2);
     TEST_ASSERT_FALSE_MESSAGE(oldNonceResult, "Old nonce should be rejected");
     
     Serial.println("[PASS] Old nonces correctly rejected");
@@ -107,12 +108,12 @@ void test_nonce_ordering(void) {
     
     // Use nonces in ascending order - all should be accepted
     for (int i = 0; i < 5; i++) {
-        bool result = Security::validateNonce(TEST_DEVICE_ID, baseNonce + i);
+        bool result = Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, baseNonce + i);
         TEST_ASSERT_TRUE_MESSAGE(result, "Sequential nonce should be accepted");
     }
     
     // Try a nonce that's too old
-    bool oldResult = Security::validateNonce(TEST_DEVICE_ID, baseNonce - 1);
+    bool oldResult = Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, baseNonce - 1);
     TEST_ASSERT_FALSE_MESSAGE(oldResult, "Nonce older than current should be rejected");
     
     Serial.println("[PASS] Nonce ordering validated");
@@ -128,16 +129,16 @@ void test_nonce_window_tolerance(void) {
     testNonce += 100;
     
     // Establish current nonce
-    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID, currentNonce));
+    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, currentNonce));
     
     // Try nonce slightly in future (within window) - should be accepted
     uint32_t futureNonce = currentNonce + 50;
-    bool futureResult = Security::validateNonce(TEST_DEVICE_ID, futureNonce);
+    bool futureResult = Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, futureNonce);
     TEST_ASSERT_TRUE_MESSAGE(futureResult, "Future nonce within window should be accepted");
     
     // Try nonce far in past (outside window) - should be rejected
     uint32_t pastNonce = currentNonce - 100;
-    bool pastResult = Security::validateNonce(TEST_DEVICE_ID, pastNonce);
+    bool pastResult = Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, pastNonce);
     TEST_ASSERT_FALSE_MESSAGE(pastResult, "Nonce outside window should be rejected");
     
     Serial.println("[PASS] Nonce window tolerance validated");
@@ -152,7 +153,7 @@ void test_nonce_persistence(void) {
     uint32_t persistNonce = testNonce++;
     
     // Use nonce and ensure it's stored
-    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID, persistNonce));
+    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, persistNonce));
     
     // Force save to NVS
     Security::saveNonceState();
@@ -161,11 +162,11 @@ void test_nonce_persistence(void) {
     Security::init();
     
     // Try to use same nonce again - should still be rejected
-    bool afterReboot = Security::validateNonce(TEST_DEVICE_ID, persistNonce);
+    bool afterReboot = Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, persistNonce);
     TEST_ASSERT_FALSE_MESSAGE(afterReboot, "Nonce should persist across reboot");
     
     // Use next nonce - should be accepted
-    bool nextNonce = Security::validateNonce(TEST_DEVICE_ID, persistNonce + 1);
+    bool nextNonce = Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, persistNonce + 1);
     TEST_ASSERT_TRUE_MESSAGE(nextNonce, "Next nonce after reboot should be accepted");
     
     Serial.println("[PASS] Nonce persistence validated");
@@ -210,12 +211,12 @@ void test_nonce_rollover(void) {
     uint32_t maxNonce = 0xFFFFFFF0;
     
     // Use nonces near max
-    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID, maxNonce));
-    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID, maxNonce + 1));
-    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID, maxNonce + 2));
+    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, maxNonce));
+    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, maxNonce + 1));
+    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, maxNonce + 2));
     
     // Try old nonce near max - should be rejected
-    bool oldMax = Security::validateNonce(TEST_DEVICE_ID, maxNonce);
+    bool oldMax = Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, maxNonce);
     TEST_ASSERT_FALSE_MESSAGE(oldMax, "Old nonce near max should be rejected");
     
     Serial.println("[PASS] Nonce rollover handling validated");
@@ -235,7 +236,7 @@ void test_rapid_nonce_validation(void) {
     
     // Rapidly validate 50 sequential nonces
     for (int i = 0; i < 50; i++) {
-        if (Security::validateNonce(TEST_DEVICE_ID, baseNonce + i)) {
+        if (Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, baseNonce + i)) {
             successCount++;
         }
     }
@@ -295,11 +296,11 @@ void test_attack_statistics(void) {
     uint32_t validNonce = testNonce++;
     
     // Perform valid operation
-    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID, validNonce));
+    TEST_ASSERT_TRUE(Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, validNonce));
     
     // Perform multiple attacks
     for (int i = 0; i < 5; i++) {
-        Security::validateNonce(TEST_DEVICE_ID, validNonce); // Duplicate - rejected
+        Security::validateNonce(TEST_DEVICE_ID_M4_SECURITY, validNonce); // Duplicate - rejected
     }
     
     // Get statistics
