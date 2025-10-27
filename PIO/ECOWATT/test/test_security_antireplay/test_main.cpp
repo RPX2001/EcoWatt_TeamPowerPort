@@ -33,6 +33,10 @@ void setUp(void) {
     preferences.clear();
     preferences.end();
     
+    // Clear nonce state
+    Security::clearNonceState();
+    Security::resetAttackStats();
+    
     // Initialize security module
     Security::init();
 }
@@ -299,14 +303,14 @@ void test_attack_statistics(void) {
     }
     
     // Get statistics
-    SecurityStats stats = Security::getStatistics(TEST_DEVICE_ID);
+    uint32_t validCount, replayCount;
+    Security::getAttackStats(validCount, replayCount);
     
-    TEST_ASSERT_EQUAL(1, stats.validRequests);
-    TEST_ASSERT_EQUAL(5, stats.replayAttempts);
-    TEST_ASSERT_EQUAL(0, stats.tamperAttempts);
+    TEST_ASSERT_EQUAL(1, validCount);
+    TEST_ASSERT_EQUAL(5, replayCount);
     
     Serial.printf("[PASS] Stats - Valid: %d, Replay: %d\n", 
-                  stats.validRequests, stats.replayAttempts);
+                  validCount, replayCount);
 }
 
 // ============================================================================

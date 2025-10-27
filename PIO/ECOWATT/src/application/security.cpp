@@ -198,3 +198,77 @@ void SecurityLayer::bytesToHex(const uint8_t* data, size_t dataLen, char* hexStr
     }
     hexStr[dataLen * 2] = '\0';
 }
+
+// ============================================================================
+// Security Namespace - Anti-Replay Protection
+// ============================================================================
+
+// Track nonces per device (stored in NVS)
+static Preferences noncePrefs;
+static uint32_t validValidations = 0;
+static uint32_t replayAttempts = 0;
+
+void Security::init() {
+    SecurityLayer::init();
+    print("Security: Anti-replay protection initialized\n");
+}
+
+bool Security::validateNonce(const char* deviceId, uint32_t nonce) {
+    if (!deviceId) {
+        print("Security: Invalid device ID\n");
+        return false;
+    }
+    
+    // NVS keys are limited to 15 characters
+    // Hash the device ID to create a short unique key
+    uint32_t hash = 0;
+    for (int i = 0; deviceId[i] != '\0'; i++) {
+        hash = hash * 31 + deviceId[i];
+    }
+    char nvsKey[16];
+    snprintf(nvsKey, sizeof(nvsKey), "n%08X", hash);  // "n" + 8 hex digits = 9 chars
+    
+    noncePrefs.begin("antireplay", false);
+    uint32_t lastNonce = noncePrefs.getUInt(nvsKey, 0);
+    
+    // Check for replay attack
+    if (nonce <= lastNonce && lastNonce > 0) {
+        print("Security: Replay attack detected! Device=%s, Nonce=%u <= Last=%u\n", 
+              deviceId, nonce, lastNonce);
+        replayAttempts++;
+        noncePrefs.end();
+        return false;
+    }
+    
+    // Valid nonce - save it
+    noncePrefs.putUInt(nvsKey, nonce);
+    noncePrefs.end();
+    
+    validValidations++;
+    print("Security: Nonce validated. Device=%s, Nonce=%u (key=%s)\n", deviceId, nonce, nvsKey);
+    return true;
+}
+
+void Security::saveNonceState() {
+    // NVS is automatically persistent, so this is a no-op
+    // But we can force a commit if needed
+    print("Security: Nonce state saved to NVS\n");
+}
+
+void Security::clearNonceState() {
+    noncePrefs.begin("antireplay", false);
+    noncePrefs.clear();
+    noncePrefs.end();
+    print("Security: All nonce state cleared\n");
+}
+
+void Security::getAttackStats(uint32_t& validCount, uint32_t& replayCount) {
+    validCount = validValidations;
+    replayCount = replayAttempts;
+}
+
+void Security::resetAttackStats() {
+    validValidations = 0;
+    replayAttempts = 0;
+    print("Security: Attack statistics reset\n");
+}

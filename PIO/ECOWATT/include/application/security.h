@@ -120,4 +120,51 @@ private:
     static void bytesToHex(const uint8_t* data, size_t dataLen, char* hexStr, size_t hexStrSize);
 };
 
+/**
+ * @namespace Security
+ * @brief Anti-replay protection and nonce validation
+ * 
+ * Provides client-side anti-replay validation for testing and security
+ */
+namespace Security {
+    /**
+     * @brief Initialize security layer (wraps SecurityLayer::init)
+     */
+    void init();
+    
+    /**
+     * @brief Validate a nonce for anti-replay protection
+     * 
+     * Checks if a nonce has been used before for a given device.
+     * Tracks nonces in NVS to detect replay attacks.
+     * 
+     * @param deviceId Device identifier (e.g., "ESP32_001")
+     * @param nonce Nonce value to validate
+     * @return true if nonce is valid (not used before), false if replay detected
+     */
+    bool validateNonce(const char* deviceId, uint32_t nonce);
+    
+    /**
+     * @brief Save nonce state to NVS (for persistence testing)
+     */
+    void saveNonceState();
+    
+    /**
+     * @brief Clear all nonce state (for testing)
+     */
+    void clearNonceState();
+    
+    /**
+     * @brief Get attack statistics
+     * @param validCount Output: number of valid validations
+     * @param replayCount Output: number of replay attacks detected
+     */
+    void getAttackStats(uint32_t& validCount, uint32_t& replayCount);
+    
+    /**
+     * @brief Reset attack statistics
+     */
+    void resetAttackStats();
+}
+
 #endif // SECURITY_H
