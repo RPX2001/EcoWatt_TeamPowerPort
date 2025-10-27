@@ -1049,6 +1049,96 @@ void OTAManager::enableTestMode(OTAFaultType faultType)
 }
 
 /**
+ * @brief Get human-readable state string
+ * @return String representing current OTA state
+ */
+String OTAManager::getStateString()
+{
+    switch (progress.state) {
+        case OTA_IDLE: return "IDLE";
+        case OTA_CHECKING: return "CHECKING";
+        case OTA_DOWNLOADING: return "DOWNLOADING";
+        case OTA_VERIFYING: return "VERIFYING";
+        case OTA_APPLYING: return "APPLYING";
+        case OTA_COMPLETED: return "COMPLETED";
+        case OTA_ERROR: return "ERROR";
+        case OTA_ROLLBACK: return "ROLLBACK";
+        default: return "UNKNOWN";
+    }
+}
+
+/**
+ * @brief Check if OTA operation is in progress
+ * @return true if OTA is in progress
+ */
+bool OTAManager::isOTAInProgress()
+{
+    return (progress.state == OTA_CHECKING ||
+            progress.state == OTA_DOWNLOADING ||
+            progress.state == OTA_VERIFYING ||
+            progress.state == OTA_APPLYING);
+}
+
+/**
+ * @brief Check if OTA download can be resumed
+ * @return true if resume is possible
+ */
+bool OTAManager::canResume()
+{
+    // Can resume if:
+    // 1. Progress exists (chunks_received > 0)
+    // 2. Not in error state
+    // 3. Total chunks is known
+    // 4. Current state is DOWNLOADING or IDLE
+    return (progress.chunks_received > 0 &&
+            progress.total_chunks > 0 &&
+            progress.chunks_received < progress.total_chunks &&
+            (progress.state == OTA_DOWNLOADING || progress.state == OTA_IDLE));
+}
+
+/**
+ * @brief Clear saved OTA progress
+ */
+void OTAManager::clearProgress()
+{
+    Serial.println("Clearing OTA progress...");
+    
+    // Reset progress structure
+    progress.chunks_received = 0;
+    progress.total_chunks = 0;
+    progress.bytes_downloaded = 0;
+    progress.percentage = 0;
+    progress.state = OTA_IDLE;
+    progress.error_message = "";
+    progress.last_activity = 0;
+    
+    // Clear from NVS storage
+    nvs.clear();
+    
+    Serial.println("OTA progress cleared");
+}
+
+/**
+ * @brief Set OTA server URL
+ * @param url New server URL
+ */
+void OTAManager::setServerURL(const String& url)
+{
+    Serial.printf("Updating OTA server URL: %s -> %s\n", serverURL.c_str(), url.c_str());
+    serverURL = url;
+}
+
+/**
+ * @brief Set update check interval
+ * @param intervalMs Interval in milliseconds
+ */
+void OTAManager::setCheckInterval(unsigned long intervalMs)
+{
+    Serial.printf("Updating OTA check interval: %lu -> %lu ms\n", checkInterval, intervalMs);
+    checkInterval = intervalMs;
+}
+
+/**
  * @brief Disable OTA fault testing mode
  */
 void OTAManager::disableTestMode()
