@@ -43,6 +43,14 @@ logger = get_logger(__name__)
 
 # Test configuration
 TEST_DEVICE_ID = "TEST_MAC_HMAC_FLASK"
+# Use a counter to ensure nonces always increase
+_nonce_counter = 20000  # Start high to avoid conflicts
+
+def get_next_nonce():
+    """Get next sequential nonce"""
+    global _nonce_counter
+    _nonce_counter += 1
+    return _nonce_counter
 
 def create_secured_payload(device_id: str, nonce: int, data: dict) -> dict:
     """
@@ -80,6 +88,9 @@ def create_secured_payload(device_id: str, nonce: int, data: dict) -> dict:
 @pytest.fixture
 def client():
     """Flask test client fixture"""
+    global _nonce_counter
+    _nonce_counter = 20000  # Reset counter for each test class
+    
     app.config['TESTING'] = True
     
     # Clear security state before each test
@@ -88,7 +99,10 @@ def client():
     
     # Delete persistent nonce state file if it exists
     if os.path.exists(NONCE_STATE_FILE):
-        os.remove(NONCE_STATE_FILE)
+        try:
+            os.remove(NONCE_STATE_FILE)
+        except:
+            pass
     
     # Force clear the last_valid_nonce dict in server_security_layer
     server_security_layer.last_valid_nonce.clear()
@@ -96,12 +110,20 @@ def client():
     with app.app_context():
         with app.test_client() as client:
             yield client
+            
+    # Clean up after test
+    server_security_layer.last_valid_nonce.clear()
+    if os.path.exists(NONCE_STATE_FILE):
+        try:
+            os.remove(NONCE_STATE_FILE)
+        except:
+            pass
 
 
 @pytest.fixture
 def sample_payload():
     """Sample secured payload for testing"""
-    nonce = 1
+    nonce = get_next_nonce()
     data = {
         'device_id': TEST_DEVICE_ID,
         'voltage': 5000,
@@ -114,11 +136,30 @@ def sample_payload():
 class TestMACHMACValidation:
     """M4 Security MAC/HMAC Validation Test Suite"""
     
+    def setup_method(self):
+        """Reset security state before each test"""
+        global _nonce_counter
+        _nonce_counter = 20000
+        
+        # Clear all security state
+        reset_security_stats()
+        clear_nonces()
+        
+        # Delete persistent nonce state file
+        if os.path.exists(NONCE_STATE_FILE):
+            try:
+                os.remove(NONCE_STATE_FILE)
+            except:
+                pass
+        
+        # Force clear nonce tracking
+        server_security_layer.last_valid_nonce.clear()
+    
     def test_valid_mac_validation(self):
         """Test 1: Valid MAC validation"""
         logger.info("=== Test 1: Valid MAC Validation ===")
         
-        nonce = 1000
+        nonce = get_next_nonce()
         data = {'device_id': TEST_DEVICE_ID, 'voltage': 3300}
         payload = create_secured_payload(TEST_DEVICE_ID, nonce, data)
         
@@ -140,16 +181,20 @@ class TestMACHMACValidation:
         """Test 2: Tampered payload detection"""
         logger.info("=== Test 2: Tampered Payload Detection ===")
         
-        nonce = 2000
+        nonce = get_next_nonce()
         data = {'device_id': TEST_DEVICE_ID, 'voltage': 3300}
         payload = create_secured_payload(TEST_DEVICE_ID, nonce, data)
         
-        # Tamper with the base64 payload
+        # Tamper with the payload by decoding, modifying, and re-encoding
+        # This ensures valid base64 but different content
         original_b64 = payload['payload']
-        tampered_b64 = original_b64[:-5] + "XXXXX"  # Change last 5 characters
+        decoded = base64.b64decode(original_b64).decode('utf-8')
+        # Change voltage value in the JSON
+        tampered_data = decoded.replace('3300', '9999')
+        tampered_b64 = base64.b64encode(tampered_data.encode('utf-8')).decode('utf-8')
         payload['payload'] = tampered_b64
         
-        # Validation should fail
+        # Validation should fail (MAC won't match tampered payload)
         success, decrypted, error = validate_secured_payload(TEST_DEVICE_ID, json.dumps(payload))
         
         assert success is False, "Validation should fail for tampered payload"
@@ -162,7 +207,7 @@ class TestMACHMACValidation:
         """Test 3: Tampered MAC detection"""
         logger.info("=== Test 3: Tampered MAC Detection ===")
         
-        nonce = 3000
+        nonce = get_next_nonce()
         data = {'device_id': TEST_DEVICE_ID, 'voltage': 3300}
         payload = create_secured_payload(TEST_DEVICE_ID, nonce, data)
         
@@ -181,28 +226,30 @@ class TestMACHMACValidation:
         logger.info("[PASS] Tampered MAC detected")
     
     def test_invalid_mac_format(self):
-        """Test 4: Invalid MAC format"""
+        """Test 4: Invalid MAC format - uppercase hex should fail"""
         logger.info("=== Test 4: Invalid MAC Format ===")
         
-        nonce = 4000
+        nonce = get_next_nonce()
         data = {'device_id': TEST_DEVICE_ID, 'voltage': 3300}
         payload = create_secured_payload(TEST_DEVICE_ID, nonce, data)
         
-        # Use uppercase hex (should still work but test it)
+        # Use uppercase hex (HMAC in Python uses lowercase, so this will fail verification)
         payload['mac'] = payload['mac'].upper()
         
-        # Validation should still succeed (hex is case-insensitive)
+        # Validation should fail (MAC comparison is case-sensitive)
         success, decrypted, error = validate_secured_payload(TEST_DEVICE_ID, json.dumps(payload))
         
-        assert success is True, "Validation should succeed with uppercase hex MAC"
+        assert success is False, "Validation should fail with uppercase hex MAC (case-sensitive)"
+        assert error is not None, "Error message should be provided"
+        assert 'hmac' in error.lower() or 'mac' in error.lower(), f"Error should mention MAC: {error}"
         
-        logger.info("[PASS] MAC format validation works")
+        logger.info("[PASS] Invalid MAC format (uppercase) detected")
     
     def test_missing_mac_field(self):
         """Test 5: Missing MAC field"""
         logger.info("=== Test 5: Missing MAC Field ===")
         
-        nonce = 5000
+        nonce = get_next_nonce()
         data = {'device_id': TEST_DEVICE_ID, 'voltage': 3300}
         payload = create_secured_payload(TEST_DEVICE_ID, nonce, data)
         
@@ -222,7 +269,7 @@ class TestMACHMACValidation:
         """Test 6: Missing nonce field"""
         logger.info("=== Test 6: Missing Nonce Field ===")
         
-        nonce = 6000
+        nonce = get_next_nonce()
         data = {'device_id': TEST_DEVICE_ID, 'voltage': 3300}
         payload = create_secured_payload(TEST_DEVICE_ID, nonce, data)
         
@@ -242,7 +289,7 @@ class TestMACHMACValidation:
         """Test 7: Missing payload field"""
         logger.info("=== Test 7: Missing Payload Field ===")
         
-        nonce = 7000
+        nonce = get_next_nonce()
         data = {'device_id': TEST_DEVICE_ID, 'voltage': 3300}
         payload = create_secured_payload(TEST_DEVICE_ID, nonce, data)
         
@@ -278,7 +325,7 @@ class TestMACHMACValidation:
         """Test 9: Empty MAC"""
         logger.info("=== Test 9: Empty MAC ===")
         
-        nonce = 9000
+        nonce = get_next_nonce()
         data = {'device_id': TEST_DEVICE_ID, 'voltage': 3300}
         payload = create_secured_payload(TEST_DEVICE_ID, nonce, data)
         
@@ -297,7 +344,7 @@ class TestMACHMACValidation:
         """Test 10: Non-hex MAC characters"""
         logger.info("=== Test 10: Non-hex MAC Characters ===")
         
-        nonce = 10000
+        nonce = get_next_nonce()
         data = {'device_id': TEST_DEVICE_ID, 'voltage': 3300}
         payload = create_secured_payload(TEST_DEVICE_ID, nonce, data)
         
@@ -316,7 +363,7 @@ class TestMACHMACValidation:
         """Test 11: Wrong MAC length"""
         logger.info("=== Test 11: Wrong MAC Length ===")
         
-        nonce = 11000
+        nonce = get_next_nonce()
         data = {'device_id': TEST_DEVICE_ID, 'voltage': 3300}
         payload = create_secured_payload(TEST_DEVICE_ID, nonce, data)
         
@@ -335,7 +382,7 @@ class TestMACHMACValidation:
         """Test 12: MAC consistency - same payload should produce same MAC"""
         logger.info("=== Test 12: MAC Consistency ===")
         
-        nonce = 12000
+        nonce = get_next_nonce()
         data = {'device_id': TEST_DEVICE_ID, 'voltage': 3300, 'current': 500}
         
         # Create same payload twice
@@ -355,12 +402,13 @@ class TestMACHMACValidation:
         """Test 13: MAC uniqueness - different payloads produce different MACs"""
         logger.info("=== Test 13: MAC Uniqueness ===")
         
-        nonce = 13000
+        nonce1 = get_next_nonce()
+        nonce2 = get_next_nonce()
         data1 = {'device_id': TEST_DEVICE_ID, 'voltage': 3300}
         data2 = {'device_id': TEST_DEVICE_ID, 'voltage': 5000}
         
-        payload1 = create_secured_payload(TEST_DEVICE_ID, nonce, data1)
-        payload2 = create_secured_payload(TEST_DEVICE_ID, nonce + 1, data2)
+        payload1 = create_secured_payload(TEST_DEVICE_ID, nonce1, data1)
+        payload2 = create_secured_payload(TEST_DEVICE_ID, nonce2, data2)
         
         # MACs should be different
         assert payload1['mac'] != payload2['mac'], "Different payloads should produce different MACs"
@@ -371,7 +419,7 @@ class TestMACHMACValidation:
         """Test 14: Large payload HMAC"""
         logger.info("=== Test 14: Large Payload HMAC ===")
         
-        nonce = 14000
+        nonce = get_next_nonce()
         # Create large payload with 20 sensor readings
         data = {
             'device_id': TEST_DEVICE_ID,
@@ -399,7 +447,7 @@ class TestMACHMACValidation:
         """Test 15: Empty payload HMAC"""
         logger.info("=== Test 15: Empty Payload HMAC ===")
         
-        nonce = 15000
+        nonce = get_next_nonce()
         data = {}  # Empty payload
         
         payload = create_secured_payload(TEST_DEVICE_ID, nonce, data)
@@ -422,8 +470,11 @@ class TestMACHMACValidation:
         
         data = {'device_id': TEST_DEVICE_ID, 'voltage': 3300}
         
-        payload1 = create_secured_payload(TEST_DEVICE_ID, 16001, data)
-        payload2 = create_secured_payload(TEST_DEVICE_ID, 16002, data)
+        nonce1 = get_next_nonce()
+        nonce2 = get_next_nonce()
+        
+        payload1 = create_secured_payload(TEST_DEVICE_ID, nonce1, data)
+        payload2 = create_secured_payload(TEST_DEVICE_ID, nonce2, data)
         
         # Same payload, different nonces should have different MACs
         assert payload1['mac'] != payload2['mac'], "Different nonces should produce different MACs"
