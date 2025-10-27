@@ -1,171 +1,357 @@
 """
 Fault injection handler for EcoWatt Flask server
 Manages fault injection for testing and diagnostics
+
+Provides fault injection for Modbus responses to test ESP32's error handling.
+
+Fault Types:
+- corrupt_crc: Flip bits in CRC to cause validation failure
+- truncate: Remove bytes from frame to simulate incomplete transmission
+- garbage: Replace frame with random hex to test malformed frame detection
+- timeout: Delay or drop response to test timeout handling
+- exception: Send valid Modbus exception frames
+
+Author: EcoWatt Team
+Date: October 28, 2025
 """
 
 import logging
 import threading
+import random
+import time
 from datetime import datetime
-from typing import Dict, Optional, List, Tuple
-
-# Import existing fault injector (if available)
-try:
-    from fault_injector import (
-        enable_fault as fi_enable_fault,
-        disable_fault as fi_disable_fault,
-        get_fault_status as fi_get_fault_status,
-        get_available_faults as fi_get_available_faults
-    )
-    FAULT_INJECTOR_AVAILABLE = True
-except ImportError:
-    FAULT_INJECTOR_AVAILABLE = False
-    logging.warning("fault_injector module not available, using fallback implementation")
+from typing import Dict, Optional, List, Tuple, Any
 
 logger = logging.getLogger(__name__)
 
-# Fault injection state
+# ============================================================================
+# FAULT INJECTION CORE (copied from fault_injector.py)
+# ============================================================================
+
+# Fault state (thread-safe)
 fault_state = {
     'enabled': False,
-    'active_faults': [],
-    'fault_history': []
+    'fault_type': None,
+    'probability': 100,  # Percentage (0-100)
+    'duration_seconds': 0,  # 0 = until disabled
+    'start_time': 0,
+    'faults_injected': 0,
+    'requests_processed': 0
 }
-
 fault_lock = threading.Lock()
 
 # Fault statistics
 fault_stats = {
-    'total_faults_enabled': 0,
-    'total_faults_triggered': 0,
-    'active_fault_count': 0,
-    'last_reset': datetime.now().isoformat()
+    'crc_corrupted': 0,
+    'frames_truncated': 0,
+    'garbage_sent': 0,
+    'timeouts_triggered': 0,
+    'exceptions_sent': 0
 }
+stats_lock = threading.Lock()
+
+
+def calculate_modbus_crc(data_hex: str) -> str:
+    """
+    Calculate Modbus CRC16 for hex string (without existing CRC).
+    
+    Args:
+        data_hex: Hex string of data (excluding CRC bytes)
+        
+    Returns:
+        4-character hex string of CRC (little-endian)
+    """
+    # Convert hex string to bytes
+    data_bytes = bytes.fromhex(data_hex)
+    
+    crc = 0xFFFF
+    for byte in data_bytes:
+        crc ^= byte
+        for _ in range(8):
+            if crc & 0x0001:
+                crc >>= 1
+                crc ^= 0xA001
+            else:
+                crc >>= 1
+    
+    # Return as little-endian hex (low byte first)
+    low_byte = crc & 0xFF
+    high_byte = (crc >> 8) & 0xFF
+    return f"{low_byte:02X}{high_byte:02X}"
+
+
+def corrupt_crc(frame_hex: str) -> str:
+    """
+    Corrupt the CRC of a Modbus frame by flipping bits.
+    
+    Args:
+        frame_hex: Complete Modbus frame with CRC
+        
+    Returns:
+        Frame with corrupted CRC
+    """
+    if len(frame_hex) < 8:
+        return frame_hex
+    
+    # Extract data and CRC
+    data_part = frame_hex[:-4]
+    crc_part = frame_hex[-4:]
+    
+    # Corrupt CRC by flipping random bits
+    crc_int = int(crc_part, 16)
+    bit_to_flip = random.randint(0, 15)
+    corrupted_crc = crc_int ^ (1 << bit_to_flip)
+    
+    corrupted_frame = f"{data_part}{corrupted_crc:04X}"
+    
+    with stats_lock:
+        fault_stats['crc_corrupted'] += 1
+    
+    logger.warning(f"💉 Fault Injected: CRC corrupted (bit {bit_to_flip} flipped)")
+    logger.debug(f"   Original: {frame_hex}")
+    logger.debug(f"   Corrupted: {corrupted_frame}")
+    
+    return corrupted_frame
+
+
+def truncate_frame(frame_hex: str) -> str:
+    """
+    Truncate frame by removing random number of bytes.
+    
+    Args:
+        frame_hex: Complete Modbus frame
+        
+    Returns:
+        Truncated frame
+    """
+    if len(frame_hex) < 8:
+        return frame_hex
+    
+    # Remove 1-4 bytes (2-8 hex chars)
+    bytes_to_remove = random.randint(1, min(4, len(frame_hex) // 2 - 2))
+    chars_to_remove = bytes_to_remove * 2
+    
+    truncated = frame_hex[:-chars_to_remove]
+    
+    with stats_lock:
+        fault_stats['frames_truncated'] += 1
+    
+    logger.warning(f"💉 Fault Injected: Frame truncated ({bytes_to_remove} bytes removed)")
+    logger.debug(f"   Original length: {len(frame_hex)} chars")
+    logger.debug(f"   Truncated length: {len(truncated)} chars")
+    
+    return truncated
+
+
+def generate_garbage(original_frame_hex: str) -> str:
+    """
+    Generate garbage data of similar length.
+    
+    Args:
+        original_frame_hex: Original frame (for length reference)
+        
+    Returns:
+        Random hex garbage
+    """
+    length = len(original_frame_hex)
+    garbage = ''.join(random.choice('0123456789ABCDEF') for _ in range(length))
+    
+    with stats_lock:
+        fault_stats['garbage_sent'] += 1
+    
+    logger.warning(f"💉 Fault Injected: Garbage data generated ({length} chars)")
+    logger.debug(f"   Garbage: {garbage[:32]}...")
+    
+    return garbage
+
+
+def generate_modbus_exception(function_code: int, exception_code: int = 0x01) -> str:
+    """
+    Generate valid Modbus exception frame.
+    
+    Args:
+        function_code: Original function code
+        exception_code: Exception code (default: 0x01 = Illegal Function)
+        
+    Returns:
+        Complete Modbus exception frame with CRC
+    """
+    # Modbus exception format: SlaveID + (FunctionCode | 0x80) + ExceptionCode + CRC
+    slave_id = 0x11  # Standard slave ID
+    exception_func = function_code | 0x80
+    
+    # Build frame without CRC
+    data = f"{slave_id:02X}{exception_func:02X}{exception_code:02X}"
+    
+    # Calculate and append CRC
+    crc = calculate_modbus_crc(data)
+    exception_frame = f"{data}{crc}"
+    
+    with stats_lock:
+        fault_stats['exceptions_sent'] += 1
+    
+    logger.warning(f"💉 Fault Injected: Modbus exception (code: 0x{exception_code:02X})")
+    logger.debug(f"   Exception frame: {exception_frame}")
+    
+    return exception_frame
+
+
+def simulate_timeout(delay_seconds: float = 5.0) -> None:
+    """
+    Simulate timeout by delaying response.
+    
+    Args:
+        delay_seconds: How long to delay
+    """
+    with stats_lock:
+        fault_stats['timeouts_triggered'] += 1
+    
+    logger.warning(f"💉 Fault Injected: Timeout simulation ({delay_seconds}s delay)")
+    time.sleep(delay_seconds)
+
+
+def should_inject_fault() -> bool:
+    """
+    Determine if fault should be injected based on configuration.
+    
+    Returns:
+        True if fault should be injected, False otherwise
+    """
+    with fault_lock:
+        if not fault_state['enabled']:
+            return False
+        
+        # Check duration
+        if fault_state['duration_seconds'] > 0:
+            elapsed = time.time() - fault_state['start_time']
+            if elapsed > fault_state['duration_seconds']:
+                fault_state['enabled'] = False
+                logger.info("⏰ Fault injection duration expired - disabled")
+                return False
+        
+        # Check probability
+        if random.randint(1, 100) > fault_state['probability']:
+            return False
+        
+        fault_state['requests_processed'] += 1
+        fault_state['faults_injected'] += 1
+        return True
+
+
+def inject_fault(frame_hex: str, function_code: int = 0x03) -> Optional[str]:
+    """
+    Main fault injection function.
+    
+    Args:
+        frame_hex: Original Modbus frame
+        function_code: Modbus function code (for exception generation)
+        
+    Returns:
+        Modified frame if fault injected, None if timeout, original if no fault
+    """
+    if not should_inject_fault():
+        with fault_lock:
+            fault_state['requests_processed'] += 1
+        return frame_hex
+    
+    fault_type = fault_state.get('fault_type', 'corrupt_crc')
+    
+    if fault_type == 'corrupt_crc':
+        return corrupt_crc(frame_hex)
+    
+    elif fault_type == 'truncate':
+        return truncate_frame(frame_hex)
+    
+    elif fault_type == 'garbage':
+        return generate_garbage(frame_hex)
+    
+    elif fault_type == 'timeout':
+        simulate_timeout()
+        return frame_hex  # Return original after delay
+    
+    elif fault_type == 'exception':
+        return generate_modbus_exception(function_code)
+    
+    else:
+        logger.error(f"Unknown fault type: {fault_type}")
+        return frame_hex
+
+
+# ============================================================================
+# HANDLER LAYER (wraps core fault injection functions)
+# ============================================================================
 
 
 def enable_fault_injection(
     fault_type: str,
-    parameters: Optional[Dict] = None
+    probability: int = 100,
+    duration: int = 0
 ) -> Tuple[bool, Optional[str]]:
     """
-    Enable a specific fault injection
+    Enable fault injection with specified parameters.
     
     Args:
-        fault_type: Type of fault to inject
-        parameters: Optional fault parameters
+        fault_type: Type of fault ('corrupt_crc', 'truncate', 'garbage', 'timeout', 'exception')
+        probability: Injection probability (0-100%)
+        duration: Duration in seconds (0 = infinite)
         
     Returns:
         tuple: (success, error_message)
     """
+    valid_types = ['corrupt_crc', 'truncate', 'garbage', 'timeout', 'exception']
+    
+    if fault_type not in valid_types:
+        error_msg = f'Invalid fault type. Valid types: {valid_types}'
+        logger.error(error_msg)
+        return False, error_msg
+    
+    if not (0 <= probability <= 100):
+        error_msg = 'Probability must be between 0 and 100'
+        logger.error(error_msg)
+        return False, error_msg
+    
     try:
-        if FAULT_INJECTOR_AVAILABLE:
-            # Use existing fault injector
-            result = fi_enable_fault(fault_type, parameters or {})
-            
-            if result.get('success'):
-                with fault_lock:
-                    fault_state['enabled'] = True
-                    fault_state['active_faults'].append({
-                        'type': fault_type,
-                        'parameters': parameters,
-                        'enabled_at': datetime.now().isoformat()
-                    })
-                    
-                    fault_stats['total_faults_enabled'] += 1
-                    fault_stats['active_fault_count'] += 1
-                
-                logger.info(f"Fault injection enabled: {fault_type}")
-                return True, None
-            else:
-                error_msg = result.get('error', 'Unknown error')
-                logger.error(f"Failed to enable fault injection: {error_msg}")
-                return False, error_msg
-        else:
-            # Fallback implementation
-            with fault_lock:
-                fault_state['enabled'] = True
-                fault_state['active_faults'].append({
-                    'type': fault_type,
-                    'parameters': parameters,
-                    'enabled_at': datetime.now().isoformat()
-                })
-                
-                fault_stats['total_faults_enabled'] += 1
-                fault_stats['active_fault_count'] += 1
-            
-            logger.info(f"Fault injection enabled (fallback): {fault_type}")
-            return True, None
+        with fault_lock:
+            fault_state['enabled'] = True
+            fault_state['fault_type'] = fault_type
+            fault_state['probability'] = probability
+            fault_state['duration_seconds'] = duration
+            fault_state['start_time'] = time.time()
+            fault_state['faults_injected'] = 0
+            fault_state['requests_processed'] = 0
+        
+        logger.info(f"✓ Fault injection ENABLED: type={fault_type}, "
+                    f"probability={probability}%, duration={duration}s")
+        
+        return True, None
         
     except Exception as e:
         logger.error(f"Error enabling fault injection: {e}")
         return False, str(e)
 
 
-def disable_fault_injection(fault_type: Optional[str] = None) -> bool:
+def disable_fault_injection() -> bool:
     """
-    Disable fault injection
+    Disable fault injection.
     
-    Args:
-        fault_type: Specific fault type to disable (None = disable all)
-        
     Returns:
         bool: True if disabled successfully
     """
     try:
-        if FAULT_INJECTOR_AVAILABLE:
-            # Use existing fault injector
-            result = fi_disable_fault(fault_type)
-            
-            if result.get('success'):
-                with fault_lock:
-                    if fault_type is None:
-                        # Disable all
-                        count = len(fault_state['active_faults'])
-                        fault_state['active_faults'] = []
-                        fault_state['enabled'] = False
-                        fault_stats['active_fault_count'] = 0
-                        
-                        logger.info(f"Disabled all fault injections ({count} total)")
-                    else:
-                        # Disable specific fault
-                        fault_state['active_faults'] = [
-                            f for f in fault_state['active_faults']
-                            if f['type'] != fault_type
-                        ]
-                        fault_stats['active_fault_count'] = len(fault_state['active_faults'])
-                        
-                        if not fault_state['active_faults']:
-                            fault_state['enabled'] = False
-                        
-                        logger.info(f"Disabled fault injection: {fault_type}")
-                
-                return True
-            else:
-                logger.error("Failed to disable fault injection")
-                return False
-        else:
-            # Fallback implementation
-            with fault_lock:
-                if fault_type is None:
-                    # Disable all
-                    count = len(fault_state['active_faults'])
-                    fault_state['active_faults'] = []
-                    fault_state['enabled'] = False
-                    fault_stats['active_fault_count'] = 0
-                    
-                    logger.info(f"Disabled all fault injections (fallback, {count} total)")
-                else:
-                    # Disable specific fault
-                    fault_state['active_faults'] = [
-                        f for f in fault_state['active_faults']
-                        if f['type'] != fault_type
-                    ]
-                    fault_stats['active_fault_count'] = len(fault_state['active_faults'])
-                    
-                    if not fault_state['active_faults']:
-                        fault_state['enabled'] = False
-                    
-                    logger.info(f"Disabled fault injection (fallback): {fault_type}")
-            
-            return True
+        with fault_lock:
+            was_enabled = fault_state['enabled']
+            fault_state['enabled'] = False
+            stats = {
+                'faults_injected': fault_state['faults_injected'],
+                'requests_processed': fault_state['requests_processed']
+            }
+        
+        if was_enabled:
+            logger.info(f"✓ Fault injection DISABLED - "
+                        f"Injected {stats['faults_injected']} faults "
+                        f"in {stats['requests_processed']} requests")
+        
+        return True
         
     except Exception as e:
         logger.error(f"Error disabling fault injection: {e}")
@@ -174,29 +360,32 @@ def disable_fault_injection(fault_type: Optional[str] = None) -> bool:
 
 def get_fault_status() -> Dict:
     """
-    Get current fault injection status
+    Get current fault injection status and statistics.
     
     Returns:
         dict: Fault injection status
     """
     try:
-        if FAULT_INJECTOR_AVAILABLE:
-            # Use existing fault injector
-            result = fi_get_fault_status()
-            
-            if result.get('success'):
-                return result.get('status', {})
-        
-        # Fallback or if fault injector doesn't provide detailed status
         with fault_lock:
-            status = {
-                'enabled': fault_state['enabled'],
-                'active_faults': fault_state['active_faults'].copy(),
-                'active_fault_count': fault_stats['active_fault_count']
-            }
+            status = dict(fault_state)
         
-        logger.debug(f"Retrieved fault status: {status}")
-        return status
+        with stats_lock:
+            stats = dict(fault_stats)
+        
+        if status['enabled'] and status['duration_seconds'] > 0:
+            elapsed = time.time() - status['start_time']
+            status['time_remaining'] = max(0, status['duration_seconds'] - elapsed)
+        
+        return {
+            'enabled': status['enabled'],
+            'fault_type': status['fault_type'],
+            'probability': status['probability'],
+            'duration_seconds': status['duration_seconds'],
+            'time_remaining': status.get('time_remaining'),
+            'faults_injected': status['faults_injected'],
+            'requests_processed': status['requests_processed'],
+            'detailed_stats': stats
+        }
         
     except Exception as e:
         logger.error(f"Error getting fault status: {e}")
@@ -211,43 +400,35 @@ def get_available_faults() -> List[Dict]:
         list: Available fault types with descriptions
     """
     try:
-        if FAULT_INJECTOR_AVAILABLE:
-            # Use existing fault injector
-            result = fi_get_available_faults()
-            
-            if result.get('success'):
-                return result.get('faults', [])
-        
-        # Fallback: return common fault types
         available_faults = [
             {
-                'type': 'network_delay',
-                'description': 'Introduce network latency',
-                'parameters': ['delay_ms']
+                'type': 'corrupt_crc',
+                'description': 'Flip bits in CRC to cause validation failure',
+                'parameters': []
             },
             {
-                'type': 'packet_loss',
-                'description': 'Drop packets randomly',
-                'parameters': ['loss_rate']
+                'type': 'truncate',
+                'description': 'Remove bytes from frame to simulate incomplete transmission',
+                'parameters': []
             },
             {
-                'type': 'memory_exhaustion',
-                'description': 'Simulate low memory conditions',
-                'parameters': ['threshold_bytes']
+                'type': 'garbage',
+                'description': 'Replace frame with random hex to test malformed frame detection',
+                'parameters': []
             },
             {
-                'type': 'cpu_spike',
-                'description': 'Simulate high CPU usage',
-                'parameters': ['duration_ms']
+                'type': 'timeout',
+                'description': 'Delay or drop response to test timeout handling',
+                'parameters': []
             },
             {
-                'type': 'invalid_data',
-                'description': 'Corrupt data packets',
-                'parameters': ['corruption_rate']
+                'type': 'exception',
+                'description': 'Send valid Modbus exception frames',
+                'parameters': []
             }
         ]
         
-        logger.debug("Retrieved available faults (fallback list)")
+        logger.debug("Retrieved available faults")
         return available_faults
         
     except Exception as e:
@@ -257,14 +438,18 @@ def get_available_faults() -> List[Dict]:
 
 def get_fault_statistics() -> Dict:
     """
-    Get fault injection statistics
+    Get fault injection statistics.
     
     Returns:
         dict: Fault statistics
     """
     try:
-        with fault_lock:
+        with stats_lock:
             stats_copy = fault_stats.copy()
+        
+        with fault_lock:
+            stats_copy['faults_injected'] = fault_state['faults_injected']
+            stats_copy['requests_processed'] = fault_state['requests_processed']
         
         logger.debug(f"Retrieved fault stats: {stats_copy}")
         return stats_copy
@@ -276,54 +461,26 @@ def get_fault_statistics() -> Dict:
 
 def reset_fault_statistics() -> bool:
     """
-    Reset fault injection statistics
+    Reset fault injection statistics.
     
     Returns:
         bool: True if reset successfully
     """
     try:
-        with fault_lock:
-            global fault_stats
-            fault_stats = {
-                'total_faults_enabled': 0,
-                'total_faults_triggered': 0,
-                'active_fault_count': len(fault_state['active_faults']),
-                'last_reset': datetime.now().isoformat()
-            }
+        with stats_lock:
+            for key in fault_stats:
+                fault_stats[key] = 0
         
-        logger.info("Fault statistics reset")
+        with fault_lock:
+            fault_state['faults_injected'] = 0
+            fault_state['requests_processed'] = 0
+        
+        logger.info("✓ Fault injection statistics reset")
         return True
         
     except Exception as e:
         logger.error(f"Error resetting fault statistics: {e}")
         return False
-
-
-def record_fault_trigger(fault_type: str):
-    """
-    Record that a fault was triggered (for statistics)
-    
-    Args:
-        fault_type: Type of fault that was triggered
-    """
-    try:
-        with fault_lock:
-            fault_stats['total_faults_triggered'] += 1
-            
-            # Add to history
-            fault_state['fault_history'].append({
-                'type': fault_type,
-                'triggered_at': datetime.now().isoformat()
-            })
-            
-            # Keep history limited to last 100 entries
-            if len(fault_state['fault_history']) > 100:
-                fault_state['fault_history'] = fault_state['fault_history'][-100:]
-        
-        logger.debug(f"Recorded fault trigger: {fault_type}")
-        
-    except Exception as e:
-        logger.error(f"Error recording fault trigger: {e}")
 
 
 # Export functions
@@ -334,5 +491,11 @@ __all__ = [
     'get_available_faults',
     'get_fault_statistics',
     'reset_fault_statistics',
-    'record_fault_trigger'
+    'inject_fault',
+    'calculate_modbus_crc',
+    'corrupt_crc',
+    'truncate_frame',
+    'generate_garbage',
+    'generate_modbus_exception',
+    'simulate_timeout'
 ]

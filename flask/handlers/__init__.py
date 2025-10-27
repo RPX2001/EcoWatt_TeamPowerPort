@@ -60,8 +60,7 @@ from .fault_handler import (
     get_fault_status,
     get_available_faults,
     get_fault_statistics,
-    reset_fault_statistics,
-    record_fault_trigger
+    reset_fault_statistics
 )
 
 # Export all handler functions
@@ -114,8 +113,7 @@ __all__ = [
     'get_fault_status',
     'get_available_faults',
     'get_fault_statistics',
-    'reset_fault_statistics',
-    'record_fault_trigger'
+    'reset_fault_statistics'
 ]
 
 

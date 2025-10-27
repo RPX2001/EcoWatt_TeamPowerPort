@@ -59,6 +59,7 @@
 // ============================================================================
 #define DEFAULT_DEVICE_ID "ESP32_EcoWatt_001"
 #define TEST_DEVICE_ID_M3 "TEST_ESP32_M3_INTEGRATION"
+#define TEST_DEVICE_ID_M4_INTEGRATION "ESP32_EcoWatt_Smart"  // M4 integration test device
 #define TEST_DEVICE_ID_M4_CONFIG "TEST_CONFIG_ESP32"
 #define TEST_DEVICE_ID_M4_CMD "TEST_CMD_ESP32"
 #define TEST_DEVICE_ID_M4_SECURITY "TEST_SECURITY_ESP32"

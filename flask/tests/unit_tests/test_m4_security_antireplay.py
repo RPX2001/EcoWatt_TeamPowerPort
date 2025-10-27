@@ -16,8 +16,11 @@ import base64
 import hmac
 import hashlib
 import os
+import sys
+from pathlib import Path
 from flask import Flask
 
+# Import from handlers (not scripts)
 try:
     from flask_server_modular import app
 except ImportError:
@@ -25,9 +28,16 @@ except ImportError:
     path.insert(0, '../..')
     from flask_server_modular import app
 
-from handlers.security_handler import validate_secured_payload, get_security_stats, reset_security_stats, clear_nonces
-from server_security_layer import PSK_HMAC, NONCE_STATE_FILE
-import server_security_layer
+from handlers.security_handler import (
+    validate_secured_payload, 
+    get_security_stats, 
+    reset_security_stats, 
+    clear_nonces,
+    PSK_HMAC,
+    NONCE_STATE_FILE,
+    reset_nonce_core,
+    clear_all_nonces
+)
 from utils.logger_utils import get_logger
 
 logger = get_logger(__name__)
@@ -56,7 +66,7 @@ def create_secured_payload(device_id: str, nonce: int, data: dict) -> dict:
     payload_b64 = base64.b64encode(payload_bytes).decode('utf-8')
     
     # Create MAC: HMAC-SHA256(nonce_bytes (4 bytes big-endian) + payload_str)
-    # This matches server_security_layer.py line 237-238
+    # This matches security_handler.py verify_secured_payload_core() function
     nonce_bytes = nonce.to_bytes(4, 'big')  # 4 bytes, big-endian
     data_to_sign = nonce_bytes + data_json.encode('utf-8')
     mac = hmac.new(PSK_HMAC, data_to_sign, hashlib.sha256).hexdigest()
@@ -82,8 +92,8 @@ def client():
     if os.path.exists(NONCE_STATE_FILE):
         os.remove(NONCE_STATE_FILE)
     
-    # Force clear the last_valid_nonce dict in server_security_layer
-    server_security_layer.last_valid_nonce.clear()
+    # Force clear the last_valid_nonce dict in security_handler
+    clear_all_nonces()
     
     with app.app_context():
         with app.test_client() as client:

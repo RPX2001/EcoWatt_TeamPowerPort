@@ -426,6 +426,159 @@ def test_fault_injector():
     print(f"  {status['detailed_stats']}\n")
 
 
+def main():
+    """
+    CLI interface for fault injection testing.
+    
+    Usage:
+        python fault_injector.py test                        # Run test
+        python fault_injector.py enable <type> [options]     # Enable fault
+        python fault_injector.py disable                     # Disable fault
+        python fault_injector.py status                      # Show status
+        python fault_injector.py inject <frame> [func_code]  # Inject fault into frame
+    """
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description='EcoWatt Fault Injector - Modbus fault injection tool',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Fault Types:
+  corrupt_crc  - Flip bits in CRC to cause validation failure
+  truncate     - Remove bytes from frame to simulate incomplete transmission
+  garbage      - Replace frame with random hex
+  timeout      - Delay or drop response
+  exception    - Send valid Modbus exception frames
+
+Examples:
+  # Run built-in test
+  python fault_injector.py test
+  
+  # Enable CRC corruption at 50% probability for 60 seconds
+  python fault_injector.py enable corrupt_crc --probability 50 --duration 60
+  
+  # Inject fault into a specific frame
+  python fault_injector.py inject 11031409040000138F066A0663 --function-code 3
+  
+  # Check current status
+  python fault_injector.py status
+  
+  # Disable fault injection
+  python fault_injector.py disable
+        """
+    )
+    
+    subparsers = parser.add_subparsers(dest='command', help='Command to execute')
+    
+    # Test command
+    subparsers.add_parser('test', help='Run built-in fault injector test')
+    
+    # Enable command
+    enable_parser = subparsers.add_parser('enable', help='Enable fault injection')
+    enable_parser.add_argument('fault_type', 
+                              choices=['corrupt_crc', 'truncate', 'garbage', 'timeout', 'exception'],
+                              help='Type of fault to inject')
+    enable_parser.add_argument('--probability', '-p', type=int, default=100,
+                              help='Injection probability 0-100%% (default: 100)')
+    enable_parser.add_argument('--duration', '-d', type=int, default=0,
+                              help='Duration in seconds, 0=infinite (default: 0)')
+    
+    # Disable command
+    subparsers.add_parser('disable', help='Disable fault injection')
+    
+    # Status command
+    subparsers.add_parser('status', help='Show fault injection status and statistics')
+    
+    # Inject command
+    inject_parser = subparsers.add_parser('inject', help='Inject fault into a frame')
+    inject_parser.add_argument('frame', help='Modbus frame in hex')
+    inject_parser.add_argument('--function-code', '-f', type=int, default=0x03,
+                               help='Modbus function code (default: 3)')
+    
+    # Reset command
+    subparsers.add_parser('reset', help='Reset statistics')
+    
+    args = parser.parse_args()
+    
+    if not args.command:
+        parser.print_help()
+        return 1
+    
+    try:
+        if args.command == 'test':
+            logging.basicConfig(level=logging.DEBUG)
+            test_fault_injector()
+            return 0
+            
+        elif args.command == 'enable':
+            result = enable_fault_injection(args.fault_type, args.probability, args.duration)
+            if result['success']:
+                print(f"✓ Fault injection enabled:")
+                print(f"  Type: {result['config']['fault_type']}")
+                print(f"  Probability: {result['config']['probability']}%")
+                print(f"  Duration: {result['config']['duration_seconds']}s")
+                return 0
+            else:
+                print(f"✗ Failed: {result.get('error', 'Unknown error')}")
+                return 1
+                
+        elif args.command == 'disable':
+            result = disable_fault_injection()
+            if result['success']:
+                stats = result['statistics']
+                print(f"✓ Fault injection disabled")
+                print(f"  Faults injected: {stats['faults_injected']}")
+                print(f"  Requests processed: {stats['requests_processed']}")
+                return 0
+            else:
+                print(f"✗ Failed to disable")
+                return 1
+                
+        elif args.command == 'status':
+            status = get_fault_status()
+            print("\n=== Fault Injection Status ===")
+            print(f"Enabled: {status['enabled']}")
+            if status['enabled']:
+                print(f"Type: {status['fault_type']}")
+                print(f"Probability: {status['probability']}%")
+                print(f"Duration: {status['duration_seconds']}s")
+                if status.get('time_remaining'):
+                    print(f"Time remaining: {status['time_remaining']:.1f}s")
+            print(f"\nStatistics:")
+            print(f"  Faults injected: {status['faults_injected']}")
+            print(f"  Requests processed: {status['requests_processed']}")
+            print(f"\nDetailed Stats:")
+            for key, value in status['detailed_stats'].items():
+                print(f"  {key}: {value}")
+            print()
+            return 0
+            
+        elif args.command == 'inject':
+            print(f"\n=== Injecting Fault ===")
+            print(f"Original frame: {args.frame}")
+            modified = inject_fault(args.frame, args.function_code)
+            if modified != args.frame:
+                print(f"Modified frame: {modified}")
+            else:
+                print(f"No fault injected (fault disabled or probability miss)")
+            print()
+            return 0
+            
+        elif args.command == 'reset':
+            result = reset_statistics()
+            if result['success']:
+                print(f"✓ Statistics reset")
+                return 0
+            else:
+                print(f"✗ Failed to reset statistics")
+                return 1
+            
+    except Exception as e:
+        print(f"Error: {e}")
+        logger.exception("Command failed")
+        return 1
+
+
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
-    test_fault_injector()
+    import sys
+    sys.exit(main())

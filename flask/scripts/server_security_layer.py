@@ -345,5 +345,96 @@ def test_security_layer():
         print(f"✗ Verification failed: {e}\n")
 
 
+def main():
+    """
+    CLI interface for security layer testing.
+    
+    Usage:
+        python server_security_layer.py test                    # Run test
+        python server_security_layer.py verify <payload> <device_id>  # Verify a payload
+        python server_security_layer.py stats [device_id]       # Show statistics
+        python server_security_layer.py reset <device_id>       # Reset nonce for device
+    """
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description='EcoWatt Security Layer - Testing and verification tool',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run built-in test
+  python server_security_layer.py test
+  
+  # Verify a secured payload
+  python server_security_layer.py verify '{"nonce":123,"payload":"...","mac":"..."}' ESP32_Device_01
+  
+  # Show security statistics
+  python server_security_layer.py stats
+  python server_security_layer.py stats ESP32_Device_01
+  
+  # Reset nonce for a device (testing only)
+  python server_security_layer.py reset ESP32_Device_01
+        """
+    )
+    
+    subparsers = parser.add_subparsers(dest='command', help='Command to execute')
+    
+    # Test command
+    subparsers.add_parser('test', help='Run built-in security layer test')
+    
+    # Verify command
+    verify_parser = subparsers.add_parser('verify', help='Verify a secured payload')
+    verify_parser.add_argument('payload', help='JSON string of secured payload')
+    verify_parser.add_argument('device_id', help='Device identifier')
+    
+    # Stats command
+    stats_parser = subparsers.add_parser('stats', help='Show security statistics')
+    stats_parser.add_argument('device_id', nargs='?', help='Optional: device ID for device-specific stats')
+    
+    # Reset command
+    reset_parser = subparsers.add_parser('reset', help='Reset nonce for device (testing only)')
+    reset_parser.add_argument('device_id', help='Device identifier to reset')
+    
+    args = parser.parse_args()
+    
+    if not args.command:
+        parser.print_help()
+        return 1
+    
+    try:
+        if args.command == 'test':
+            test_security_layer()
+            return 0
+            
+        elif args.command == 'verify':
+            print(f"\n=== Verifying Payload for {args.device_id} ===\n")
+            try:
+                result = verify_secured_payload(args.payload, args.device_id)
+                print(f"✓ Verification successful!")
+                print(f"Decrypted payload:\n{result}\n")
+                return 0
+            except SecurityError as e:
+                print(f"✗ Verification failed: {e}\n")
+                return 1
+                
+        elif args.command == 'stats':
+            print("\n=== Security Statistics ===\n")
+            stats = get_security_stats(args.device_id)
+            print(json.dumps(stats, indent=2))
+            print()
+            return 0
+            
+        elif args.command == 'reset':
+            print(f"\n=== Resetting Nonce for {args.device_id} ===\n")
+            reset_nonce(args.device_id)
+            print(f"✓ Nonce reset complete\n")
+            return 0
+            
+    except Exception as e:
+        print(f"Error: {e}\n")
+        return 1
+
+
 if __name__ == "__main__":
-    test_security_layer()
+    import sys
+    sys.exit(main())

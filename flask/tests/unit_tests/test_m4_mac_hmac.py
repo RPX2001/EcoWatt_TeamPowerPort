@@ -25,7 +25,12 @@ import base64
 import hmac
 import hashlib
 import os
+import sys
+from pathlib import Path
 from flask import Flask
+
+# Add scripts directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'scripts'))
 
 try:
     from flask_server_modular import app
@@ -34,9 +39,17 @@ except ImportError:
     path.insert(0, '../..')
     from flask_server_modular import app
 
-from handlers.security_handler import validate_secured_payload, get_security_stats, reset_security_stats, clear_nonces
-from server_security_layer import PSK_HMAC, NONCE_STATE_FILE, verify_secured_payload, SecurityError
-import server_security_layer
+from handlers.security_handler import (
+    validate_secured_payload, 
+    get_security_stats, 
+    reset_security_stats, 
+    clear_nonces,
+    PSK_HMAC,
+    NONCE_STATE_FILE,
+    verify_secured_payload_core,
+    SecurityError,
+    clear_all_nonces
+)
 from utils.logger_utils import get_logger
 
 logger = get_logger(__name__)
@@ -104,15 +117,15 @@ def client():
         except:
             pass
     
-    # Force clear the last_valid_nonce dict in server_security_layer
-    server_security_layer.last_valid_nonce.clear()
+    # Force clear the last_valid_nonce dict in security_handler
+    clear_all_nonces()
     
     with app.app_context():
         with app.test_client() as client:
             yield client
             
     # Clean up after test
-    server_security_layer.last_valid_nonce.clear()
+    clear_all_nonces()
     if os.path.exists(NONCE_STATE_FILE):
         try:
             os.remove(NONCE_STATE_FILE)
@@ -153,7 +166,7 @@ class TestMACHMACValidation:
                 pass
         
         # Force clear nonce tracking
-        server_security_layer.last_valid_nonce.clear()
+        clear_all_nonces()
     
     def test_valid_mac_validation(self):
         """Test 1: Valid MAC validation"""
