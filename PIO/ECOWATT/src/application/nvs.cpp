@@ -1,4 +1,5 @@
 #include "application/nvs.h"
+#include "config/test_config.h"
 
 // Global NVS instance definition
 Preferences esp_prefs_nvs;
@@ -87,7 +88,7 @@ const RegID* nvs::getReadRegs()
 
 uint64_t nvs::getPollFreq()
 {
-    uint64_t defaultPollFreq = 2000000;   // 2 seconds
+    uint64_t defaultPollFreq = DEFAULT_POLL_FREQUENCY_US;   // From test_config.h (5 seconds)
     // Open in read-only mode
     if (!esp_prefs_nvs.begin("freq", true)) {
         return defaultPollFreq;
@@ -117,7 +118,7 @@ uint64_t nvs::getPollFreq()
 
 uint64_t nvs::getUploadFreq()
 {
-    uint64_t defaultUploadFreq = 15000000;   // 15 seconds
+    uint64_t defaultUploadFreq = DEFAULT_UPLOAD_FREQUENCY_US;   // From test_config.h (15 seconds)
     // Open in read-only mode
     if (!esp_prefs_nvs.begin("freq", true)) {
         return defaultUploadFreq;

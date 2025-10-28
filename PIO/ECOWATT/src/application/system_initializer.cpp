@@ -64,7 +64,17 @@ bool SystemInitializer::initializeAll() {
 
 bool SystemInitializer::initWiFi() {
     Wifi.begin();
-    return true;
+    
+    // Check if WiFi is actually connected
+    if (WiFi.status() == WL_CONNECTED) {
+        print("WiFi: CONNECTED ✓\n");
+        print("  IP: %s\n", WiFi.localIP().toString().c_str());
+        return true;
+    } else {
+        print("WiFi: FAILED ✗\n");
+        print("  System will continue but network features disabled\n");
+        return false;  // Return false to indicate WiFi failure
+    }
 }
 
 bool SystemInitializer::initPowerManagement() {

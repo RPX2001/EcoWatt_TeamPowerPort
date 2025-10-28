@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include "driver/debug.h"
 #include "driver/delay.h"
+#include "application/credentials.h"
 
 class Arduino_Wifi
 {
@@ -13,6 +14,10 @@ private:
 public:
     Arduino_Wifi();
     void begin();
+    
+    // Status check
+    bool isConnected();
+    void reconnect();
 
     // Setters
     void setSSID(const char* newSSID);

@@ -50,14 +50,8 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
     http.begin(changesURL);
     http.addHeader("Content-Type", "application/json");
 
-    StaticJsonDocument<128> changesRequestBody;
-    changesRequestBody["device_id"] = deviceID;
-    changesRequestBody["timestamp"] = millis();
-
-    char requestBody[128];
-    serializeJson(changesRequestBody, requestBody, sizeof(requestBody));
-
-    int httpResponseCode = http.POST((uint8_t*)requestBody, strlen(requestBody));
+    // M4 Format: Use GET request (device_id is in URL)
+    int httpResponseCode = http.GET();
 
     if (httpResponseCode > 0) {
         // Get response into buffer

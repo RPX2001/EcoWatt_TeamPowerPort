@@ -20,6 +20,7 @@
 
 #include "application/system_initializer.h"
 #include "application/task_coordinator.h"
+#include "application/task_scheduler.h"  // NEW: Real-Time Scheduler
 #include "application/data_pipeline.h"
 #include "application/data_uploader.h"
 #include "application/command_executor.h"
@@ -105,27 +106,38 @@ void setup()
   uint64_t configCheckFreq = 5000000ULL;  // 5 seconds
   uint64_t otaCheckFreq = 60000000ULL;    // 1 minute
   
+  // Override upload frequency for M2-M4 testing (15 seconds)
+  print("NOTE: Using 15-second upload cycle for M2-M4 testing\n");
+  uploadFreq = 15000000ULL;  // 15 seconds in microseconds
+  
   size_t registerCount = nvs::getReadRegCount();
   const RegID* selection = nvs::getReadRegs();
   
-  // Initialize Task Coordinator
+  // Initialize Task Coordinator (generates timer interrupts)
   TaskCoordinator::init(pollFreq, uploadFreq, configCheckFreq, otaCheckFreq);
+  
+  // Initialize Task Scheduler (manages execution order)
+  print("Initializing Task Scheduler...\n");
+  TaskScheduler::init();
   
   // Initialize Data Pipeline
   DataPipeline::init(selection, registerCount);
   
-  // Initialize Data Uploader
-  DataUploader::init(FLASK_SERVER_URL "/process", "ESP32_EcoWatt_Smart");
+  // Update batch size based on timing configuration
+  DataPipeline::updateBatchSize(pollFreq, uploadFreq);
   
-  // Initialize Command Executor
+  // Initialize Data Uploader (M4 format: /aggregated/<device_id>)
+  DataUploader::init(FLASK_SERVER_URL "/aggregated/ESP32_001", "ESP32_001");
+  
+  // Initialize Command Executor (M4 format: /commands/<device_id>/poll)
   CommandExecutor::init(
-      FLASK_SERVER_URL "/command/poll",
-      FLASK_SERVER_URL "/command/result",
-      "ESP32_EcoWatt_Smart"
+      FLASK_SERVER_URL "/commands/ESP32_001/poll",
+      FLASK_SERVER_URL "/commands/ESP32_001/result",
+      "ESP32_001"
   );
   
-  // Initialize Config Manager
-  ConfigManager::init(FLASK_SERVER_URL "/changes", "ESP32_EcoWatt_Smart");
+  // Initialize Config Manager (M4 format: /config/<device_id>)
+  ConfigManager::init(FLASK_SERVER_URL "/config/ESP32_001", "ESP32_001");
   
   // Initialize Statistics Manager
   StatisticsManager::init();
@@ -138,66 +150,132 @@ void setup()
 }
 
 // ============================================
-// Main Loop Function
+// Main Loop Function - Real-Time Scheduler
 // ============================================
 void loop()
 {
-  // Poll sensor data
+  // ========================================
+  // PHASE 1: Queue tasks from timer interrupts
+  // ========================================
+  
+  // Poll sensor data (CRITICAL priority)
   if (TaskCoordinator::isPollReady()) {
     TaskCoordinator::resetPollToken();
-    DataPipeline::pollAndProcess();
+    TaskScheduler::queueTask(SCHED_TASK_POLL_SENSORS, PRIORITY_CRITICAL);
   }
   
-  // Upload queued data
+  // Upload queued data (CRITICAL priority)
   if (TaskCoordinator::isUploadReady()) {
     TaskCoordinator::resetUploadToken();
-    DataUploader::uploadPendingData();
-    
-    // Apply any pending configuration changes
-    if (!pollFreq_uptodate) {
-      uint64_t newFreq = nvs::getPollFreq();
-      TaskCoordinator::updatePollFrequency(newFreq);
-      pollFreq_uptodate = true;
-      print("Poll frequency updated to %llu\n", newFreq);
-    }
-    
-    if (!uploadFreq_uptodate) {
-      uint64_t newFreq = nvs::getUploadFreq();
-      TaskCoordinator::updateUploadFrequency(newFreq);
-      uploadFreq_uptodate = true;
-      print("Upload frequency updated to %llu\n", newFreq);
-    }
-    
-    if (!registers_uptodate) {
-      size_t newCount = nvs::getReadRegCount();
-      const RegID* newSelection = nvs::getReadRegs();
-      DataPipeline::updateRegisterSelection(newSelection, newCount);
-      registers_uptodate = true;
-      print("Registers updated! Now reading %zu registers\n", newCount);
-    }
+    TaskScheduler::queueTask(SCHED_TASK_UPLOAD_DATA, PRIORITY_CRITICAL);
   }
   
-  // Check for configuration changes
+  // Check for configuration changes (MEDIUM priority)
   if (TaskCoordinator::isChangesReady()) {
     TaskCoordinator::resetChangesToken();
-    ConfigManager::checkForChanges(&registers_uptodate, &pollFreq_uptodate, &uploadFreq_uptodate);
+    TaskScheduler::queueTask(SCHED_TASK_CHECK_CONFIG, PRIORITY_MEDIUM);
     
     // Check for commands every 2nd config check (every 10s)
     command_poll_counter++;
     if (command_poll_counter >= 2) {
       command_poll_counter = 0;
-      CommandExecutor::checkAndExecuteCommands();
+      TaskScheduler::queueTask(SCHED_TASK_CHECK_COMMANDS, PRIORITY_HIGH);
     }
   }
   
-  // Handle OTA updates
+  // Handle OTA updates (LOW priority - exclusive mode)
   if (TaskCoordinator::isOTAReady()) {
     TaskCoordinator::resetOTAToken();
-    performOTAUpdate();
+    TaskScheduler::queueTask(SCHED_TASK_CHECK_FOTA, PRIORITY_LOW);
+  }
+  
+  // ========================================
+  // PHASE 2: Execute highest priority task
+  // ========================================
+  
+  Task nextTask = TaskScheduler::getNextTask();
+  
+  if (nextTask.type != SCHED_TASK_NONE) {
+    TaskScheduler::taskStarted(nextTask.type);
+    
+    switch (nextTask.type) {
+      case SCHED_TASK_POLL_SENSORS:
+        // CRITICAL: Read from Inverter SIM
+        DataPipeline::pollAndProcess();
+        TaskScheduler::taskCompleted();
+        break;
+        
+      case SCHED_TASK_UPLOAD_DATA:
+        // CRITICAL: Upload compressed data to cloud
+        DataUploader::uploadPendingData();
+        
+        // Apply any pending configuration changes AFTER upload
+        if (!pollFreq_uptodate) {
+          uint64_t newFreq = nvs::getPollFreq();
+          TaskCoordinator::updatePollFrequency(newFreq);
+          pollFreq_uptodate = true;
+          print("Poll frequency updated to %llu\n", newFreq);
+          
+          // Update batch size when poll frequency changes
+          DataPipeline::updateBatchSize(newFreq, nvs::getUploadFreq());
+        }
+        
+        if (!uploadFreq_uptodate) {
+          uint64_t newFreq = nvs::getUploadFreq();
+          TaskCoordinator::updateUploadFrequency(newFreq);
+          uploadFreq_uptodate = true;
+          print("Upload frequency updated to %llu\n", newFreq);
+          
+          // Update batch size when upload frequency changes
+          DataPipeline::updateBatchSize(nvs::getPollFreq(), newFreq);
+        }
+        
+        if (!registers_uptodate) {
+          size_t newCount = nvs::getReadRegCount();
+          const RegID* newSelection = nvs::getReadRegs();
+          DataPipeline::updateRegisterSelection(newSelection, newCount);
+          registers_uptodate = true;
+          print("Registers updated! Now reading %zu registers\n", newCount);
+        }
+        
+        TaskScheduler::taskCompleted();
+        break;
+        
+      case SCHED_TASK_CHECK_COMMANDS:
+        // HIGH: Check and execute pending commands
+        CommandExecutor::checkAndExecuteCommands();
+        TaskScheduler::taskCompleted();
+        break;
+        
+      case SCHED_TASK_CHECK_CONFIG:
+        // MEDIUM: Check for configuration updates
+        ConfigManager::checkForChanges(&registers_uptodate, &pollFreq_uptodate, &uploadFreq_uptodate);
+        TaskScheduler::taskCompleted();
+        break;
+        
+      case SCHED_TASK_CHECK_FOTA:
+        // LOW: Check for firmware updates (EXCLUSIVE mode)
+        // Only runs if no CRITICAL tasks are pending
+        if (TaskScheduler::canStartFOTA()) {
+          performOTAUpdate();
+          TaskScheduler::taskCompleted();
+        } else {
+          // Defer FOTA - re-queue for later
+          print("[FOTA] Deferred - Critical tasks pending\n");
+          TaskScheduler::taskCompleted();  // Mark as complete to allow re-queuing
+          TaskScheduler::queueTask(SCHED_TASK_CHECK_FOTA, PRIORITY_LOW);  // Re-queue
+        }
+        break;
+        
+      default:
+        TaskScheduler::taskCompleted();
+        break;
+    }
   }
   
   yield();
 }
+
 
 // ============================================
 // Helper Functions

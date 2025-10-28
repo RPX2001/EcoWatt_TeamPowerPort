@@ -329,6 +329,53 @@ REGISTER_NAMES = [
 ]
 
 
+# In-memory cache for latest device data
+_device_latest_data: Dict[str, dict] = {}
+
+
+def store_device_latest_data(device_id: str, values: List[float], timestamp: float = None):
+    """
+    Store the latest data for a device with register mapping
+    
+    Args:
+        device_id: Device identifier
+        values: List of raw register values
+        timestamp: Unix timestamp (defaults to current time)
+    """
+    import time
+    
+    if timestamp is None:
+        timestamp = time.time()
+    
+    # Map values to register names
+    registers = {}
+    for i, value in enumerate(values):
+        if i < len(REGISTER_NAMES):
+            registers[REGISTER_NAMES[i]] = value
+    
+    _device_latest_data[device_id] = {
+        'timestamp': timestamp,
+        'values': values,
+        'registers': registers,
+        'updated_at': time.time()
+    }
+    
+    logger.debug(f"Stored latest data for {device_id}: {len(values)} values")
+
+
+def get_device_latest_data(device_id: str) -> Optional[dict]:
+    """
+    Retrieve the latest data for a device
+    
+    Args:
+        device_id: Device identifier
+        
+    Returns:
+        dict with latest data or None if no data available
+    """
+    return _device_latest_data.get(device_id)
+
+
 # Export functions
 __all__ = [
     'deserialize_aggregated_sample',
@@ -339,5 +386,8 @@ __all__ = [
     'validate_sample_data',
     'serialize_diagnostic_data',
     'deserialize_diagnostic_data',
+    'store_device_latest_data',
+    'get_device_latest_data',
     'REGISTER_NAMES'
 ]
+

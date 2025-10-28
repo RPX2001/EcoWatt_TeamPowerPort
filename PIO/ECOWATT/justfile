@@ -103,6 +103,16 @@ distclean:
     rm -rf .pio
     @echo "✅ Complete clean done (run 'just build' to rebuild)"
 
+# Erase ESP32 flash and NVS (resets all stored configuration)
+erase-flash:
+    {{pio}} run --target erase
+    @echo "✅ ESP32 flash erased (including NVS storage)"
+    @echo "⚠️  Device will use default configuration on next boot"
+
+# Erase flash and upload new firmware with fresh defaults
+reset-device: erase-flash upload
+    @echo "✅ Device reset complete - fresh firmware with defaults"
+
 # Check firmware size (RAM and Flash usage)
 size:
     {{pio}} run --target size

@@ -9,15 +9,16 @@
 
 struct SampleBatch {
     static const size_t MAX_REGISTERS = 10;  // Support up to 10 registers
-    static const size_t MAX_SAMPLES = 7;     // Batch size: 7 samples
+    static const size_t MAX_SAMPLES_LIMIT = 50;  // Maximum possible batch size
     
-    uint16_t samples[MAX_SAMPLES][MAX_REGISTERS];  // Dynamic size based on register count
+    uint16_t samples[MAX_SAMPLES_LIMIT][MAX_REGISTERS];  // Dynamic size based on register count
     size_t sampleCount = 0;
     size_t registerCount = 0;  // Track how many registers per sample
-    unsigned long timestamps[MAX_SAMPLES];
+    size_t dynamicBatchSize = 7;  // Current batch size (calculated from timing)
+    unsigned long timestamps[MAX_SAMPLES_LIMIT];
     
     void addSample(uint16_t* values, unsigned long timestamp, size_t regCount) {
-        if (sampleCount < MAX_SAMPLES) {
+        if (sampleCount < dynamicBatchSize) {
             registerCount = regCount;  // Store the register count
             memcpy(samples[sampleCount], values, regCount * sizeof(uint16_t));
             timestamps[sampleCount] = timestamp;
@@ -26,7 +27,18 @@ struct SampleBatch {
     }
     
     bool isFull() const {
-        return sampleCount >= MAX_SAMPLES;
+        return sampleCount >= dynamicBatchSize;
+    }
+    
+    void setBatchSize(size_t newSize) {
+        // Clamp to reasonable limits (minimum 1, maximum MAX_SAMPLES_LIMIT)
+        if (newSize < 1) newSize = 1;
+        if (newSize > MAX_SAMPLES_LIMIT) newSize = MAX_SAMPLES_LIMIT;
+        dynamicBatchSize = newSize;
+    }
+    
+    size_t getBatchSize() const {
+        return dynamicBatchSize;
     }
     
     void reset() {

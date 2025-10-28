@@ -247,9 +247,9 @@ def decompress_bit_packed(binary_data: bytes) -> Tuple[List[float], Dict]:
         return [], stats
     
     try:
-        # Check marker
+        # Check marker (accept both 0xBF and 0x01)
         marker = binary_data[0]
-        if marker != 0xBF:
+        if marker != 0xBF and marker != 0x01:
             logger.error(f"Invalid Bit Packing marker: 0x{marker:02X}")
             return [], stats
         
@@ -336,7 +336,8 @@ def decompress_smart_binary_data(base64_data: str) -> Tuple[Optional[List[float]
             return decompress_temporal_delta(binary_data)
         elif marker == 0xAD:
             return decompress_semantic_rle(binary_data)
-        elif marker == 0xBF:
+        elif marker == 0xBF or marker == 0x01:
+            # Both 0xBF and 0x01 are bitpack markers (ESP32 uses 0x01)
             return decompress_bit_packed(binary_data)
         else:
             logger.error(f"Unknown compression marker: 0x{marker:02X}")

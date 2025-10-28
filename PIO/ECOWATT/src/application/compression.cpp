@@ -176,57 +176,94 @@ std::vector<uint8_t> DataCompression::compressWithDictionary(uint16_t* data, con
 {
     std::vector<uint8_t> result;
     
-    // Find closest dictionary pattern
-    int bestMatch = findClosestDictionaryPattern(data, selection, count);
+    // Build a local dictionary of unique values in this dataset
+    std::vector<uint16_t> uniqueValues;
+    std::vector<uint8_t> indices;
     
-    if (bestMatch >= 0) 
+    for (size_t i = 0; i < count; i++) 
     {
-        // Bitmask compression with dictionary
-        result.push_back(0xD0);  // Dictionary compression marker
-        result.push_back(bestMatch);  // Dictionary index
-        result.push_back(count);  // Number of values
+        uint16_t value = data[i];
         
-        // Create bitmask for differences and collect deltas
-        uint16_t differencesMask = 0;
-        std::vector<int16_t> deltas;
-        uint8_t deltaBits = 0;
-        
-        for (size_t i = 0; i < count; i++) 
+        // Find if value already exists in dictionary
+        int dictIndex = -1;
+        for (size_t j = 0; j < uniqueValues.size(); j++) 
         {
-            int16_t delta = (int16_t)data[i] - (int16_t)sensorDictionary[bestMatch].values[selection[i]];
-            if (delta != 0) 
+            if (uniqueValues[j] == value) 
             {
-                differencesMask |= (1 << i);
-                deltas.push_back(delta);
+                dictIndex = j;
+                break;
             }
         }
         
-        // Store bitmask (up to 16 bits for max 16 registers)
-        result.push_back(differencesMask & 0xFF);
-        result.push_back((differencesMask >> 8) & 0xFF);
-        
-        // Encode deltas using variable-length encoding
-        for (int16_t delta : deltas) 
+        // If not found, add to dictionary
+        if (dictIndex == -1) 
         {
-            if (delta >= -127 && delta <= 127) 
-            {
-                // 8-bit signed delta
-                result.push_back(0x80 | ((uint8_t)delta & 0x7F));
-                if (delta < 0) result[result.size()-1] |= 0x40;  // Sign bit
-            } 
-            else 
-            {
-                // 16-bit delta with escape marker
-                result.push_back(0x00);  // 16-bit marker
-                result.push_back(delta & 0xFF);
-                result.push_back((delta >> 8) & 0xFF);
-            }
+            dictIndex = uniqueValues.size();
+            uniqueValues.push_back(value);
         }
-    } 
-    else 
+        
+        indices.push_back((uint8_t)dictIndex);
+    }
+    
+    // Check if dictionary compression is worthwhile
+    // Dictionary overhead: 1 (marker) + 1 (num_samples) + 1 (num_patterns) + 4*num_patterns (floats) + bitmask
+    size_t bits_per_index = uniqueValues.size() > 0 ? (32 - __builtin_clz(uniqueValues.size())) : 1;
+    size_t bitmask_bytes = (count * bits_per_index + 7) / 8;
+    size_t compressed_size = 3 + (uniqueValues.size() * 4) + bitmask_bytes;
+    size_t original_size = count * 2;  // uint16_t = 2 bytes each
+    
+    if (compressed_size >= original_size) 
     {
-        // No good dictionary match, fall back to bit-packing
+        // Dictionary not beneficial, fall back to bit-packing
         return compressBinary(data, count);
+    }
+    
+    // Format: [0xD0][num_samples][num_patterns][pattern_floats...][bitmask]
+    result.push_back(0xD0);  // Dictionary compression marker
+    result.push_back((uint8_t)count);  // Number of samples
+    result.push_back((uint8_t)uniqueValues.size());  // Number of unique patterns
+    
+    // Embed dictionary patterns as floats (Flask expects this format)
+    for (uint16_t value : uniqueValues) 
+    {
+        float floatValue = (float)value;
+        uint8_t* floatBytes = (uint8_t*)&floatValue;
+        for (int i = 0; i < 4; i++) 
+        {
+            result.push_back(floatBytes[i]);  // Little-endian float
+        }
+    }
+    
+    // Encode indices as packed bitmask
+    uint8_t currentByte = 0;
+    uint8_t bitPos = 0;
+    
+    for (size_t i = 0; i < count; i++) 
+    {
+        uint8_t index = indices[i];
+        
+        // Pack bits_per_index bits into the bitmask
+        for (size_t bit = 0; bit < bits_per_index; bit++) 
+        {
+            if (index & (1 << bit)) 
+            {
+                currentByte |= (1 << bitPos);
+            }
+            
+            bitPos++;
+            if (bitPos == 8) 
+            {
+                result.push_back(currentByte);
+                currentByte = 0;
+                bitPos = 0;
+            }
+        }
+    }
+    
+    // Push any remaining bits
+    if (bitPos > 0) 
+    {
+        result.push_back(currentByte);
     }
     
     return result;

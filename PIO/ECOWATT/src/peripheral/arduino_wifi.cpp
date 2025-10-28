@@ -1,6 +1,13 @@
 #include "peripheral/arduino_wifi.h"
 
-Arduino_Wifi::Arduino_Wifi() {};
+Arduino_Wifi::Arduino_Wifi() {
+  // Initialize with credentials from credentials.h
+  ssid = WIFI_SSID;
+  password = WIFI_PASSWORD;
+  
+  debug.log("WiFi credentials loaded:\n");
+  debug.log("  SSID: %s\n", ssid);
+};
 
 
 /**
@@ -11,15 +18,39 @@ Arduino_Wifi::Arduino_Wifi() {};
 void Arduino_Wifi::begin() 
 {
   // Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  delay(100);
+  
+  debug.log("Connecting to WiFi SSID: %s\n", ssid);
   WiFi.begin(ssid, password);
 
-  debug.log("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) 
+  int attempts = 0;
+  const int maxAttempts = 40;  // 20 seconds timeout (40 * 500ms)
+  
+  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) 
   {
     wait.ms(500);
     debug.log(".");
+    attempts++;
+    
+    if (attempts % 10 == 0) {
+      debug.log(" [%d/%d]\n", attempts, maxAttempts);
+    }
   }
-  debug.log("\rConnected!\n");
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    debug.log("\n✓ WiFi Connected!\n");
+    debug.log("  IP Address: %s\n", WiFi.localIP().toString().c_str());
+    debug.log("  Signal Strength: %d dBm\n", WiFi.RSSI());
+  } else {
+    debug.log("\n✗ WiFi Connection Failed!\n");
+    debug.log("  Status Code: %d\n", WiFi.status());
+    debug.log("  Please check:\n");
+    debug.log("    1. SSID: %s\n", ssid);
+    debug.log("    2. Password is correct\n");
+    debug.log("    3. WiFi network is available\n");
+  }
 }
 
 
@@ -76,4 +107,31 @@ const char* Arduino_Wifi::getSSID()
 const char* Arduino_Wifi::getPassword() 
 { 
   return password; 
+}
+
+/**
+ * @fn bool Arduino_Wifi::isConnected()
+ * 
+ * @brief Check if WiFi is currently connected.
+ * 
+ * @return true if connected, false otherwise.
+ */
+bool Arduino_Wifi::isConnected()
+{
+  return WiFi.status() == WL_CONNECTED;
+}
+
+/**
+ * @fn void Arduino_Wifi::reconnect()
+ * 
+ * @brief Attempt to reconnect to WiFi if disconnected.
+ */
+void Arduino_Wifi::reconnect()
+{
+  if (!isConnected()) {
+    debug.log("WiFi disconnected. Attempting to reconnect...\n");
+    WiFi.disconnect();
+    delay(100);
+    begin();
+  }
 }

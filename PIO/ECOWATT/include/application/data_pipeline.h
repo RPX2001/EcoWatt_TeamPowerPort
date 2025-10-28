@@ -57,6 +57,17 @@ public:
     static void getBatchInfo(size_t& samplesInBatch, size_t& batchSize);
 
     /**
+     * @brief Update batch size based on timing configuration
+     * 
+     * Dynamically adjusts batch size: batch_size = upload_freq / poll_freq
+     * This ensures optimal buffering regardless of timing settings.
+     * 
+     * @param pollFreqUs Poll frequency in microseconds
+     * @param uploadFreqUs Upload frequency in microseconds
+     */
+    static void updateBatchSize(uint64_t pollFreqUs, uint64_t uploadFreqUs);
+
+    /**
      * @brief Force compression of current batch
      * 
      * Useful for testing or manual triggering

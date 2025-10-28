@@ -39,10 +39,30 @@ void DataPipeline::init(const RegID* selection, size_t registerCount) {
     }
     sensorBuffer = new uint16_t[registerCount];
     
-    // Initialize batch
+    // Initialize batch with default size (will be updated dynamically)
     currentBatch.reset();
     
     print("[DataPipeline] Initialized with %zu registers\n", registerCount);
+}
+
+void DataPipeline::updateBatchSize(uint64_t pollFreqUs, uint64_t uploadFreqUs) {
+    // Calculate batch size: how many polls happen in one upload cycle
+    // batch_size = upload_frequency / poll_frequency
+    size_t calculatedBatchSize = (size_t)(uploadFreqUs / pollFreqUs);
+    
+    // Apply safety limits
+    if (calculatedBatchSize < 1) {
+        calculatedBatchSize = 1;  // Minimum 1 sample
+    }
+    if (calculatedBatchSize > 50) {
+        calculatedBatchSize = 50;  // Maximum 50 samples (memory constraint)
+    }
+    
+    currentBatch.setBatchSize(calculatedBatchSize);
+    
+    print("[DataPipeline] Batch size updated: %zu samples\n", calculatedBatchSize);
+    print("[DataPipeline]   Poll: %.2fs, Upload: %.2fs\n", 
+          pollFreqUs / 1000000.0, uploadFreqUs / 1000000.0);
 }
 
 void DataPipeline::pollAndProcess() {
@@ -140,7 +160,7 @@ void DataPipeline::updateRegisterSelection(const RegID* newSelection, size_t new
 
 void DataPipeline::getBatchInfo(size_t& samplesInBatch, size_t& batchSize) {
     samplesInBatch = currentBatch.sampleCount;
-    batchSize = SampleBatch::MAX_SAMPLES;
+    batchSize = currentBatch.getBatchSize();  // Use dynamic batch size
 }
 
 bool DataPipeline::forceCompressBatch() {

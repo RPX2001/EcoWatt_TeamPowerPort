@@ -46,10 +46,25 @@ public:
      * 
      * This function drains the ring buffer and uploads all compressed
      * data packets to the server in a single HTTP POST request.
+     * Implements retry logic with exponential backoff on failure.
      * 
      * @return true if upload successful, false otherwise
      */
     static bool uploadPendingData();
+    
+    /**
+     * @brief Set maximum retry attempts for failed uploads
+     * 
+     * @param maxRetries Maximum number of retry attempts (default: 3)
+     */
+    static void setMaxRetries(uint8_t maxRetries);
+    
+    /**
+     * @brief Get current retry configuration
+     * 
+     * @return Maximum number of retry attempts
+     */
+    static uint8_t getMaxRetries();
 
     /**
      * @brief Get the current number of items in the queue
@@ -125,12 +140,19 @@ private:
     static unsigned long uploadCount;
     static unsigned long uploadFailures;
     static size_t totalBytesUploaded;
+    
+    // Retry configuration
+    static uint8_t maxRetryAttempts;
+    static uint8_t currentRetryCount;
+    static unsigned long lastFailedUploadTime;
 
     // Helper functions
     static bool buildUploadPayload(const std::vector<SmartCompressedData>& data, 
                                    char* jsonBuffer, size_t bufferSize);
     static void convertBinaryToBase64(const std::vector<uint8_t>& binaryData, 
                                       char* result, size_t resultSize);
+    static bool attemptUpload(const std::vector<SmartCompressedData>& data);
+    static unsigned long calculateBackoffDelay(uint8_t attempt);
 
     // Prevent instantiation
     DataUploader() = delete;

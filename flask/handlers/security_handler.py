@@ -221,6 +221,7 @@ def verify_secured_payload_core(secured_data: str, device_id: str) -> str:
         # Step 2: Decode Base64 payload
         try:
             payload_bytes = base64.b64decode(payload_b64)
+            logger.debug(f"[Security Debug] Base64 decoded: {len(payload_bytes)} bytes")
         except Exception as e:
             raise SecurityError(f"Failed to decode base64 payload: {e}")
         
@@ -229,17 +230,26 @@ def verify_secured_payload_core(secured_data: str, device_id: str) -> str:
             from Crypto.Cipher import AES
             try:
                 cipher = AES.new(PSK_AES, AES.MODE_CBC, AES_IV)
+                encrypted_len = len(payload_bytes)
                 payload_bytes = cipher.decrypt(payload_bytes)
+                logger.debug(f"[Security Debug] AES decrypted: {encrypted_len} -> {len(payload_bytes)} bytes")
+                
                 # Remove PKCS7 padding
                 pad_len = payload_bytes[-1]
+                logger.debug(f"[Security Debug] PKCS7 padding length: {pad_len}")
                 payload_bytes = payload_bytes[:-pad_len]
+                logger.debug(f"[Security Debug] After padding removal: {len(payload_bytes)} bytes")
             except Exception as e:
                 raise SecurityError(f"AES decryption failed: {e}")
         
         # Convert to string
         try:
             payload_str = payload_bytes.decode('utf-8')
+            logger.debug(f"[Security Debug] UTF-8 decoded: {len(payload_str)} characters")
         except Exception as e:
+            logger.error(f"[Security Debug] UTF-8 decode failed on {len(payload_bytes)} bytes")
+            logger.error(f"[Security Debug] First 100 bytes: {payload_bytes[:100]}")
+            logger.error(f"[Security Debug] Last 100 bytes: {payload_bytes[-100:]}")
             raise SecurityError(f"Failed to decode payload to UTF-8: {e}")
         
         # Debug logging

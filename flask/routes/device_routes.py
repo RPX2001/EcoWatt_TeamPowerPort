@@ -41,8 +41,8 @@ def initialize_mock_devices():
     logger.info(f"Initialized {len(mock_devices)} mock device(s)")
 
 
-# Initialize mock devices on module load
-initialize_mock_devices()
+# Initialize mock devices on module load (DISABLED - using real devices only)
+# initialize_mock_devices()
 
 
 @device_bp.route('/devices', methods=['GET'])

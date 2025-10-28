@@ -6,7 +6,7 @@ import api from './axios';
  * @returns {Promise} API response with latest data
  */
 export const getLatestData = (deviceId) => {
-  return api.get(`/aggregation/latest/${deviceId}`);
+  return api.get(`/latest/${deviceId}`);
 };
 
 /**

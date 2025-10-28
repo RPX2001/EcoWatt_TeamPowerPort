@@ -22,6 +22,9 @@ char DataUploader::deviceID[64] = "ESP32_Unknown";
 unsigned long DataUploader::uploadCount = 0;
 unsigned long DataUploader::uploadFailures = 0;
 size_t DataUploader::totalBytesUploaded = 0;
+uint8_t DataUploader::maxRetryAttempts = 3;
+uint8_t DataUploader::currentRetryCount = 0;
+unsigned long DataUploader::lastFailedUploadTime = 0;
 
 void DataUploader::init(const char* serverURL, const char* devID) {
     strncpy(uploadURL, serverURL, sizeof(uploadURL) - 1);
@@ -58,6 +61,7 @@ bool DataUploader::uploadPendingData() {
 
     if (ringBuffer.empty()) {
         // Silently skip if buffer is empty
+        currentRetryCount = 0;  // Reset retry counter on empty buffer
         return true;
     }
     
@@ -68,9 +72,55 @@ bool DataUploader::uploadPendingData() {
     
     print("  [INFO] Preparing %zu compressed batches for upload\n", allData.size());
     
+    // Attempt upload with retry logic
+    bool success = false;
+    for (uint8_t attempt = 0; attempt <= maxRetryAttempts; attempt++) {
+        if (attempt > 0) {
+            unsigned long backoffDelay = calculateBackoffDelay(attempt);
+            PRINT_WARNING("Retry attempt %u/%u after %lu ms backoff...", 
+                         attempt, maxRetryAttempts, backoffDelay);
+            delay(backoffDelay);
+        }
+        
+        success = attemptUpload(allData);
+        
+        if (success) {
+            currentRetryCount = 0;
+            break;
+        } else {
+            currentRetryCount = attempt + 1;
+            if (attempt < maxRetryAttempts) {
+                PRINT_ERROR("Upload attempt %u failed, will retry...", attempt + 1);
+            }
+        }
+    }
+    
+    if (!success) {
+        PRINT_ERROR("Upload failed after %u attempts", maxRetryAttempts + 1);
+        PRINT_WARNING("Restoring %zu packets to buffer for next cycle", allData.size());
+        
+        // Restore data to buffer for next upload cycle
+        for (const auto& entry : allData) {
+            if (ringBuffer.size() >= 20) {
+                PRINT_ERROR("Buffer full! Data packet lost!");
+                break;
+            }
+            ringBuffer.push(entry);
+        }
+        lastFailedUploadTime = millis();
+    }
+    
+    return success;
+}
+
+bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData) {
+    
+    print("  [INFO] Sending %zu packets to server\n", allData.size());
+    
     HTTPClient http;
     http.begin(uploadURL);
     http.addHeader("Content-Type", "application/json");
+    http.setTimeout(10000);  // 10 second timeout
     
     // Build JSON payload
     DynamicJsonDocument doc(8192);
@@ -160,11 +210,6 @@ bool DataUploader::uploadPendingData() {
         PRINT_ERROR("Failed to allocate memory for secured payload");
         http.end();
         uploadFailures++;
-        
-        // Restore data to buffer for retry
-        for (const auto& entry : allData) {
-            ringBuffer.push(entry);
-        }
         return false;
     }
     
@@ -173,11 +218,6 @@ bool DataUploader::uploadPendingData() {
         delete[] securedPayload;
         http.end();
         uploadFailures++;
-        
-        // Restore data to buffer
-        for (const auto& entry : allData) {
-            ringBuffer.push(entry);
-        }
         return false;
     }
     
@@ -197,12 +237,6 @@ bool DataUploader::uploadPendingData() {
         if (httpResponseCode > 0) {
             String errorResponse = http.getString();
             PRINT_DATA("Error Response", "%s", errorResponse.c_str());
-        }
-        PRINT_WARNING("Restoring data to buffer for retry...");
-        
-        // Restore data to buffer
-        for (const auto& entry : allData) {
-            ringBuffer.push(entry);
         }
         uploadFailures++;
     }
@@ -288,4 +322,21 @@ void DataUploader::setUploadURL(const char* url) {
 
 const char* DataUploader::getDeviceID() {
     return deviceID;
+}
+
+unsigned long DataUploader::calculateBackoffDelay(uint8_t attempt) {
+    // Exponential backoff: 1s, 2s, 4s, 8s, ...
+    // Capped at 30 seconds
+    unsigned long delay = 1000 * (1 << (attempt - 1));  // 2^(attempt-1) seconds
+    if (delay > 30000) delay = 30000;  // Cap at 30 seconds
+    return delay;
+}
+
+void DataUploader::setMaxRetries(uint8_t maxRetries) {
+    maxRetryAttempts = maxRetries;
+    print("[DataUploader] Max retry attempts set to %u\n", maxRetries);
+}
+
+uint8_t DataUploader::getMaxRetries() {
+    return maxRetryAttempts;
 }

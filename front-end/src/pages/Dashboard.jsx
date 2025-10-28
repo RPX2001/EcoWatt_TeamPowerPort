@@ -6,12 +6,16 @@ import PowerIcon from '@mui/icons-material/Power';
 import EnergyIcon from '@mui/icons-material/EnergySavingsLeaf';
 import DeviceSelector from '../components/dashboard/DeviceSelector';
 import MetricsCard from '../components/dashboard/MetricsCard';
+import RegisterValues from '../components/dashboard/RegisterValues';
+import DeviceConfiguration from '../components/dashboard/DeviceConfiguration';
 import TimeSeriesChart from '../components/dashboard/TimeSeriesChart';
 import { getLatestData, getHistoricalData } from '../api/aggregation';
+import { getConfig } from '../api/config';
 
 const Dashboard = () => {
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [latestData, setLatestData] = useState(null);
+  const [deviceConfig, setDeviceConfig] = useState(null);
   const [historicalData, setHistoricalData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -35,6 +39,14 @@ const Dashboard = () => {
       // Fetch latest data
       const latestResponse = await getLatestData(selectedDevice);
       setLatestData(latestResponse.data);
+
+      // Fetch device configuration
+      try {
+        const configResponse = await getConfig(selectedDevice);
+        setDeviceConfig(configResponse.data);
+      } catch (configErr) {
+        console.warn('Failed to fetch device config:', configErr);
+      }
 
       // Fetch historical data (last 1 hour)
       const endTime = new Date();
@@ -85,12 +97,24 @@ const Dashboard = () => {
 
       {selectedDevice && latestData && (
         <>
+          {/* Register Values - Full width */}
+          <Box sx={{ mb: 3 }}>
+            <RegisterValues data={latestData} />
+          </Box>
+
+          {/* Device Configuration - Full width */}
+          {deviceConfig && (
+            <Box sx={{ mb: 3 }}>
+              <DeviceConfiguration config={deviceConfig} />
+            </Box>
+          )}
+
           {/* Metrics Cards */}
           <Grid container spacing={3} sx={{ mb: 3 }}>
             <Grid item xs={12} sm={6} md={3}>
               <MetricsCard
                 title="Voltage"
-                value={latestData.voltage?.toFixed(2)}
+                value={latestData.registers?.Voltage?.toFixed(2) || 'N/A'}
                 unit="V"
                 icon={BoltIcon}
                 color="primary"
@@ -99,7 +123,7 @@ const Dashboard = () => {
             <Grid item xs={12} sm={6} md={3}>
               <MetricsCard
                 title="Current"
-                value={latestData.current?.toFixed(3)}
+                value={latestData.registers?.Current?.toFixed(3) || 'N/A'}
                 unit="A"
                 icon={ElectricBoltIcon}
                 color="secondary"
@@ -108,7 +132,7 @@ const Dashboard = () => {
             <Grid item xs={12} sm={6} md={3}>
               <MetricsCard
                 title="Power"
-                value={latestData.power?.toFixed(2)}
+                value={latestData.registers?.ActivePower?.toFixed(2) || 'N/A'}
                 unit="W"
                 icon={PowerIcon}
                 color="warning"
@@ -117,7 +141,7 @@ const Dashboard = () => {
             <Grid item xs={12} sm={6} md={3}>
               <MetricsCard
                 title="Energy"
-                value={latestData.energy?.toFixed(3)}
+                value={latestData.registers?.ImportEnergy?.toFixed(3) || 'N/A'}
                 unit="kWh"
                 icon={EnergyIcon}
                 color="success"

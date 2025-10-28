@@ -33,7 +33,8 @@ def receive_aggregated_data(device_id: str):
                 'error': 'Content-Type must be application/json'
             }), 400
         
-        data = request.get_json()
+        # Get JSON with no size limit (handled by MAX_CONTENT_LENGTH in app config)
+        data = request.get_json(force=True, cache=False)
         
         # Check if data is a secured payload (has nonce, payload, mac fields)
         if 'nonce' in data and 'payload' in data and 'mac' in data:
@@ -62,48 +63,134 @@ def receive_aggregated_data(device_id: str):
                     'error': 'Failed to parse decrypted payload'
                 }), 400
         
+        # Auto-register device if not already registered
+        from routes.device_routes import devices_registry
+        if device_id not in devices_registry:
+            devices_registry[device_id] = {
+                'device_name': f'EcoWatt {device_id}',
+                'location': 'Auto-registered',
+                'description': 'Automatically registered on first data upload',
+                'status': 'active',
+                'firmware_version': 'unknown',
+                'registered_at': time.time(),
+                'last_seen': time.time()
+            }
+            logger.info(f"Auto-registered new device: {device_id}")
+        else:
+            # Update last_seen timestamp
+            devices_registry[device_id]['last_seen'] = time.time()
+        
         # Check if data contains compressed payload
         if 'compressed_data' in data:
-            # Handle compressed data
+            # Handle compressed data - can be array of packets or single base64
             compressed_data = data['compressed_data']
             
-            decompressed, stats = handle_compressed_data(compressed_data)
-            
-            if decompressed is not None and stats.get('success'):
-                # Publish decompressed data to MQTT
-                mqtt_topic = f"ecowatt/data/{device_id}"
-                mqtt_payload = {
-                    'device_id': device_id,
-                    'timestamp': time.time(),
-                    'values': decompressed,
-                    'sample_count': len(decompressed),
-                    'compression_stats': {
-                        'method': stats.get('method', 'unknown'),
-                        'ratio': stats.get('ratio', 0),
-                        'original_size': stats.get('original_size', 0),
-                        'compressed_size': stats.get('compressed_size', 0)
+            # If compressed_data is a list of packets, process each packet
+            if isinstance(compressed_data, list):
+                all_decompressed = []
+                all_stats = []
+                
+                for idx, packet in enumerate(compressed_data):
+                    # Extract compressed_binary from packet
+                    if isinstance(packet, dict) and 'compressed_binary' in packet:
+                        base64_data = packet['compressed_binary']
+                        
+                        # Debug: Log the base64 data
+                        logger.info(f"Packet {idx+1}: Base64 length={len(base64_data) if isinstance(base64_data, str) else 'not_string'}")
+                        logger.info(f"Packet {idx+1}: Base64 data={base64_data[:50] if isinstance(base64_data, str) else type(base64_data)}")
+                        
+                        # Decompress this packet
+                        decompressed, stats = handle_compressed_data(base64_data)
+                        
+                        if decompressed is not None and stats.get('success'):
+                            all_decompressed.extend(decompressed)
+                            all_stats.append(stats)
+                            logger.info(f"Packet {idx+1}/{len(compressed_data)}: {len(decompressed)} samples decompressed")
+                        else:
+                            logger.error(f"Packet {idx+1} decompression failed: {stats.get('error')}")
+                    else:
+                        logger.error(f"Packet {idx+1} missing compressed_binary field")
+                
+                if all_decompressed:
+                    # Publish decompressed data to MQTT
+                    mqtt_topic = f"ecowatt/data/{device_id}"
+                    current_timestamp = time.time()
+                    mqtt_payload = {
+                        'device_id': device_id,
+                        'timestamp': current_timestamp,
+                        'values': all_decompressed,
+                        'sample_count': len(all_decompressed),
+                        'packet_count': len(all_stats),
+                        'compression_stats': {
+                            'methods': [s.get('method', 'unknown') for s in all_stats],
+                            'total_samples': len(all_decompressed),
+                            'packets_processed': len(all_stats)
+                        }
                     }
-                }
-                
-                try:
-                    publish_mqtt(mqtt_topic, json.dumps(mqtt_payload))
-                    logger.info(f"Published {len(decompressed)} decompressed samples to MQTT topic: {mqtt_topic}")
-                except Exception as mqtt_error:
-                    logger.warning(f"Failed to publish to MQTT: {mqtt_error}")
-                    # Don't fail the request if MQTT publish fails
-                
-                return jsonify({
-                    'success': True,
-                    'device_id': device_id,
-                    'message': 'Compressed data processed and published',
-                    'samples_count': len(decompressed) if decompressed else 0,
-                    'stats': stats
-                }), 200
+                    
+                    # Store latest data for dashboard
+                    from utils.data_utils import store_device_latest_data
+                    store_device_latest_data(device_id, all_decompressed, current_timestamp)
+                    
+                    try:
+                        publish_mqtt(mqtt_topic, json.dumps(mqtt_payload))
+                        logger.info(f"Published {len(all_decompressed)} decompressed samples from {len(all_stats)} packets to MQTT")
+                    except Exception as mqtt_error:
+                        logger.warning(f"Failed to publish to MQTT: {mqtt_error}")
+                    
+                    return jsonify({
+                        'success': True,
+                        'device_id': device_id,
+                        'message': 'Compressed data processed and published',
+                        'samples_count': len(all_decompressed),
+                        'packets_processed': len(all_stats),
+                        'stats': all_stats
+                    }), 200
+                else:
+                    return jsonify({
+                        'success': False,
+                        'error': 'No packets successfully decompressed'
+                    }), 400
+            
             else:
-                return jsonify({
-                    'success': False,
-                    'error': stats.get('error', 'Decompression failed')
-                }), 400
+                # Single base64 string (legacy format)
+                decompressed, stats = handle_compressed_data(compressed_data)
+                
+                if decompressed is not None and stats.get('success'):
+                    # Publish decompressed data to MQTT
+                    mqtt_topic = f"ecowatt/data/{device_id}"
+                    mqtt_payload = {
+                        'device_id': device_id,
+                        'timestamp': time.time(),
+                        'values': decompressed,
+                        'sample_count': len(decompressed),
+                        'compression_stats': {
+                            'method': stats.get('method', 'unknown'),
+                            'ratio': stats.get('ratio', 0),
+                            'original_size': stats.get('original_size', 0),
+                            'compressed_size': stats.get('compressed_size', 0)
+                        }
+                    }
+                    
+                    try:
+                        publish_mqtt(mqtt_topic, json.dumps(mqtt_payload))
+                        logger.info(f"Published {len(decompressed)} decompressed samples to MQTT")
+                    except Exception as mqtt_error:
+                        logger.warning(f"Failed to publish to MQTT: {mqtt_error}")
+                    
+                    return jsonify({
+                        'success': True,
+                        'device_id': device_id,
+                        'message': 'Compressed data processed and published',
+                        'samples_count': len(decompressed),
+                        'stats': stats
+                    }), 200
+                else:
+                    return jsonify({
+                        'success': False,
+                        'error': stats.get('error', 'Decompression failed')
+                    }), 400
+
         
         elif 'aggregated_data' in data:
             # Handle aggregated data (JSON list format)
@@ -237,44 +324,6 @@ def reset_compression_stats():
         }), 500
 
 
-@aggregation_bp.route('/aggregation/latest/<device_id>', methods=['GET'])
-def get_latest_data(device_id: str):
-    """
-    Get the latest aggregated data for a device
-    
-    Args:
-        device_id: Device identifier
-        
-    Returns:
-        JSON with latest sensor data
-    """
-    try:
-        # In a real implementation, this would query a database
-        # For now, return mock data
-        data = {
-            'device_id': device_id,
-            'timestamp': time.time(),
-            'voltage': 230.5,
-            'current': 4.2,
-            'power': 968.1,
-            'energy': 12.5,
-            'frequency': 50.0,
-            'power_factor': 0.95
-        }
-        
-        return jsonify({
-            'success': True,
-            **data
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"Error getting latest data for {device_id}: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
 @aggregation_bp.route('/aggregation/historical/<device_id>', methods=['GET'])
 def get_historical_data(device_id: str):
     """
@@ -323,6 +372,47 @@ def get_historical_data(device_id: str):
         
     except Exception as e:
         logger.error(f"Error getting historical data for {device_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# Alias route for backward compatibility
+@aggregation_bp.route('/aggregation/latest/<device_id>', methods=['GET'])
+@aggregation_bp.route('/latest/<device_id>', methods=['GET'])
+def get_latest_data(device_id: str):
+    """
+    Get latest sensor readings for a device with register mapping
+    
+    Args:
+        device_id: Device identifier
+        
+    Returns:
+        JSON with latest register values
+    """
+    try:
+        # Import the latest data cache from utils
+        from utils.data_utils import get_device_latest_data
+        
+        latest_data = get_device_latest_data(device_id)
+        
+        if latest_data:
+            return jsonify({
+                'success': True,
+                'device_id': device_id,
+                'timestamp': latest_data.get('timestamp'),
+                'registers': latest_data.get('registers', {}),
+                'raw_values': latest_data.get('values', [])
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'No data available for this device'
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Error getting latest data for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

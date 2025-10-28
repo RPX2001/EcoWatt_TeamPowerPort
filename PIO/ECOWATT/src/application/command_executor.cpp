@@ -63,13 +63,8 @@ void CommandExecutor::checkAndExecuteCommands() {
     http.begin(pollURL);
     http.addHeader("Content-Type", "application/json");
 
-    StaticJsonDocument<128> pollRequest;
-    pollRequest["device_id"] = deviceID;
-
-    char requestBody[128];
-    serializeJson(pollRequest, requestBody, sizeof(requestBody));
-
-    int httpResponseCode = http.POST((uint8_t*)requestBody, strlen(requestBody));
+    // M4 Format: Use GET request (device_id is in URL)
+    int httpResponseCode = http.GET();
 
     if (httpResponseCode > 0) {
         WiFiClient* stream = http.getStreamPtr();

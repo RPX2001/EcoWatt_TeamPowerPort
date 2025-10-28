@@ -42,6 +42,9 @@ from routes.utilities_routes import utilities_bp
 # Initialize Flask app
 app = Flask(__name__)
 
+# Configure maximum content length (16MB to accommodate large encrypted payloads)
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB
+
 # Configure CORS for frontend development
 CORS(app, resources={
     r"/*": {
@@ -66,42 +69,43 @@ MQTT_CLIENT_ID = f"flask_ecowatt_smart_server_{int(time.time())}"
 settings_lock = threading.Lock()
 
 
-# Track if blueprints have been registered
-_blueprints_registered = False
-
-
 def register_blueprints():
-    """Register all route blueprints (only once)"""
-    global _blueprints_registered
-    
-    if _blueprints_registered:
-        logger.debug("Blueprints already registered, skipping")
-        return True
-    
+    """Register all route blueprints"""
     try:
         # Register blueprints with optional URL prefixes
+        logger.info("Registering general_bp...")
         app.register_blueprint(general_bp)
+        logger.info("Registering diagnostics_bp...")
         app.register_blueprint(diagnostics_bp)
+        logger.info("Registering aggregation_bp...")
         app.register_blueprint(aggregation_bp)
+        logger.info("Registering security_bp...")
         app.register_blueprint(security_bp)
+        logger.info("Registering ota_bp...")
         app.register_blueprint(ota_bp)
+        logger.info("Registering command_bp...")
         app.register_blueprint(command_bp)
+        logger.info("Registering fault_bp...")
         app.register_blueprint(fault_bp)
+        logger.info("Registering device_bp...")
         app.register_blueprint(device_bp)
+        logger.info("Registering config_bp...")
         app.register_blueprint(config_bp)
+        logger.info("Registering utilities_bp...")
         app.register_blueprint(utilities_bp)
         
-        _blueprints_registered = True
-        logger.info("✓ All blueprints registered successfully")
+        # Debug: Print all registered routes
+        logger.info("✓ All route blueprints registered")
+        logger.info("Registered routes:")
+        for rule in app.url_map.iter_rules():
+            logger.info(f"  {rule.methods} {rule.rule}")
+        
         return True
         
     except Exception as e:
         logger.error(f"Failed to register blueprints: {e}")
+        logger.exception(e)
         return False
-
-
-# Register blueprints immediately when module is imported (for testing)
-register_blueprints()
 
 
 def print_startup_banner():
@@ -158,6 +162,10 @@ def print_startup_banner():
     print("=" * 70)
 
 
+# Register blueprints (must be outside __main__ for Flask reloader)
+register_blueprints()
+
+
 if __name__ == '__main__':
     # Print startup banner
     print_startup_banner()
@@ -174,13 +182,6 @@ if __name__ == '__main__':
         logger.info("✓ MQTT client initialized successfully")
     else:
         logger.warning("⚠ MQTT client failed to initialize")
-    
-    # Register all blueprints
-    if register_blueprints():
-        logger.info("✓ All route blueprints registered")
-    else:
-        logger.error("✗ Failed to register blueprints")
-        exit(1)
     
     # Start Flask server
     logger.info("Starting Flask server on 0.0.0.0:5001")
