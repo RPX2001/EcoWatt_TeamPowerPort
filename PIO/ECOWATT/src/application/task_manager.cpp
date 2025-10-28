@@ -236,7 +236,7 @@ void TaskManager::startAllTasks(void* otaManager) {
 }
 
 void TaskManager::suspendAllTasks() {
-    print("[TaskManager] Suspending all tasks...\n");
+    print("[TaskManager] Suspending all tasks (except OTA)...\n");
     
     if (sensorPollTask_h) vTaskSuspend(sensorPollTask_h);
     if (compressionTask_h) vTaskSuspend(compressionTask_h);
@@ -244,11 +244,11 @@ void TaskManager::suspendAllTasks() {
     if (commandTask_h) vTaskSuspend(commandTask_h);
     if (configTask_h) vTaskSuspend(configTask_h);
     if (statisticsTask_h) vTaskSuspend(statisticsTask_h);
-    if (otaTask_h) vTaskSuspend(otaTask_h);
+    // NOTE: Do NOT suspend otaTask_h - it's the one calling this function!
     if (watchdogTask_h) vTaskSuspend(watchdogTask_h);
     
     systemSuspended = true;
-    print("[TaskManager] All tasks suspended\n");
+    print("[TaskManager] All tasks suspended (OTA still running)\n");
 }
 
 void TaskManager::resumeAllTasks() {
@@ -718,8 +718,8 @@ void TaskManager::configTask(void* parameter) {
 void TaskManager::otaTask(void* parameter) {
     print("[OTA] Task started on Core %d\n", xPortGetCoreID());
     
-    // Register this task with hardware watchdog
-    esp_task_wdt_add(NULL);
+    // NOTE: OTA task NOT registered with watchdog - it runs every 60s
+    // which exceeds the 30s watchdog timeout. OTA is low priority and infrequent.
     
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(otaFrequency);
@@ -744,16 +744,14 @@ void TaskManager::otaTask(void* parameter) {
             if (otaManager && otaManager->checkForUpdate()) {
                 print("[OTA] Firmware update available! Starting download...\n");
                 
-                xSemaphoreGive(wifiClientMutex);
+                // KEEP the WiFi mutex - don't release it before suspending tasks!
+                // This prevents deadlock when re-acquiring after suspend.
                 
                 // Suspend critical tasks during OTA
                 print("[OTA] Suspending critical tasks for update...\n");
                 suspendAllTasks();
                 
-                // Re-acquire mutex for download
-                xSemaphoreTake(wifiClientMutex, portMAX_DELAY);
-                
-                // Perform OTA update
+                // Perform OTA update (we already have the mutex)
                 bool otaSuccess = otaManager->downloadAndApplyFirmware();
                 
                 xSemaphoreGive(wifiClientMutex);
@@ -784,8 +782,7 @@ void TaskManager::otaTask(void* parameter) {
         
         stats_ota.stackHighWater = uxTaskGetStackHighWaterMark(NULL);
         
-        // Feed hardware watchdog
-        esp_task_wdt_reset();
+        // NOTE: No watchdog reset - OTA task not registered with watchdog
     }
 }
 

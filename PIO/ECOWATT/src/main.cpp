@@ -58,11 +58,11 @@ void setup()
     delay(1000);
     print_init();
     
-    // CRITICAL: Reconfigure task watchdog with longer timeout (30 seconds)
-    // HTTP operations with retries can take 15+ seconds
+    // CRITICAL: Reconfigure task watchdog with longer timeout (600 seconds = 10 minutes)
+    // OTA task runs every 60s, giving plenty of headroom for all operations
     esp_task_wdt_deinit();                    // Clean slate
-    esp_task_wdt_init(30, true);              // 30s timeout, panic enabled
-    print("[Main] Task watchdog configured: 30s timeout\n");
+    esp_task_wdt_init(600, true);             // 600s timeout, panic enabled
+    print("[Main] Task watchdog configured: 600s timeout (10 minutes)\n");
     
     print("\n");
     print("╔══════════════════════════════════════════════════════════╗\n");
