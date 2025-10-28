@@ -1,12 +1,9 @@
-# ===================================
-# EcoWatt Project - Comprehensive .gitignore
-# ===================================
-
 #vscode
-.vscode/
+**/.vscode/
+
 
 # Python
-__pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -97,14 +94,6 @@ Thumbs.db
 node_modules/
 package-lock.json
 
-# Documentation (moved to plans_and_progress)
-SECURITY_IMPLEMENTATION_COMPLETE.md
-SECURITY_INTEGRATION_VISUAL.md
-STACK_OVERFLOW_FIX.md
-README_SECURITY_FINAL.md
-QUICK_START_SECURITY.md
-
 # Legacy/Milestone Archives
 Previous\ Milestones/
 Milestone*/
-flask/legacy/
