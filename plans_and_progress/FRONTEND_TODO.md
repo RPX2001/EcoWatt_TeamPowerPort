@@ -79,68 +79,88 @@
 
 ---
 
-## Phase 2: Configuration & Commands 🎯
+## Phase 2: Configuration & Commands ✅ COMPLETED
 
 ### Configuration Management
-- [ ] ⏳ Create `src/api/config.js` for config API calls
-- [ ] ⏳ Create `ConfigForm.jsx` with form validation
-  - [ ] Sample rate input (Hz)
-  - [ ] Upload interval input (seconds)
-  - [ ] Register list selector (checkboxes)
-  - [ ] Compression toggle
-  - [ ] Power threshold input
-- [ ] ⏳ Create `ConfigHistory.jsx` to view past configs
-- [ ] ⏳ Create `Configuration.jsx` page
-- [ ] ⏳ Add save/reset functionality
-- [ ] ⏳ Show pending vs applied config
-- [ ] ⏳ Test config updates end-to-end
+- [x] ✅ Create `src/api/config.js` for config API calls
+- [x] ✅ Create `ConfigForm.jsx` with form validation
+  - [x] ✅ Sample rate input (Hz)
+  - [x] ✅ Upload interval input (seconds)
+  - [x] ✅ Register list selector (checkboxes)
+  - [x] ✅ Compression toggle
+  - [x] ✅ Power threshold input
+  - [x] ✅ Updated with 9 Modbus registers (0-7, 9)
+  - [x] ✅ Added 5 timing parameters (Milestone 4)
+- [x] ✅ Create `ConfigHistory.jsx` to view past configs with diff view
+- [x] ✅ Create `Configuration.jsx` page with tabs
+- [x] ✅ Add save/reset functionality
+- [x] ✅ Test config updates with Milestone 4 format
 
 ### Command Execution
-- [ ] ⏳ Create `src/api/commands.js` for command API calls
-- [ ] ⏳ Create `CommandBuilder.jsx`
-  - [ ] Command type dropdown (set_power, write_register, update_config)
-  - [ ] Dynamic parameter inputs based on command type
-  - [ ] Parameter validation
-- [ ] ⏳ Create `CommandQueue.jsx` to show pending commands
-- [ ] ⏳ Create `CommandHistory.jsx` table
-  - [ ] Columns: timestamp, device, command, status, result
-  - [ ] Sortable and filterable
-- [ ] ⏳ Create `Commands.jsx` page layout
-- [ ] ⏳ Add command status polling
-- [ ] ⏳ Test command execution flow
+- [x] ✅ Create `src/api/commands.js` for command API calls
+- [x] ✅ Create `CommandBuilder.jsx`
+  - [x] ✅ Command type dropdown (set_power, write_register, update_config)
+  - [x] ✅ Dynamic parameter inputs based on command type
+  - [x] ✅ Parameter validation
+  - [x] ✅ Focus on Register 8 (Export Power % 0-100%)
+- [x] ✅ Create `CommandQueue.jsx` to show pending commands with auto-refresh (10s)
+- [x] ✅ Create `CommandHistory.jsx` table
+  - [x] ✅ Columns: timestamp, device, command, status, result
+  - [x] ✅ Sortable and filterable with pagination
+- [x] ✅ Create `Commands.jsx` page layout with tabs
+- [x] ✅ Test command execution flow with Milestone 4 format
 
-### Estimated Time: 5-7 days
+### Navigation & UI Integration
+- [x] ✅ Implement URL parameter navigation (?tab=send, ?tab=queue, ?tab=history)
+- [x] ✅ Update Sidebar with collapsible sub-menus
+- [x] ✅ Fix navigation to specific tabs from sidebar
+- [x] ✅ Integrate Footer component in App.jsx
+
+### Fault Injection
+- [x] ✅ Create `src/api/faults.js` with dual backend support
+- [x] ✅ Update flask/routes/fault_routes.py for Inverter SIM API integration
+- [x] ✅ Add fault presets (EXCEPTION, CRC_ERROR, CORRUPT, PACKET_DROP, DELAY)
+- [x] ✅ Local fault support (network, mqtt, command, ota)
+
+### Estimated Time: 5-7 days → ✅ COMPLETED
 
 ---
 
-## Phase 3: FOTA Management 🎯
+## Phase 3: FOTA Management ✅ COMPLETED
 
 ### Firmware Upload
-- [ ] ⏳ Create `src/api/ota.js` for OTA API calls
-- [ ] ⏳ Create `FirmwareUpload.jsx`
-  - [ ] File upload (drag & drop + browse)
-  - [ ] Version input field
-  - [ ] Manifest preview
-  - [ ] Upload progress bar
-- [ ] ⏳ Add Flask endpoint for firmware upload
+- [x] ✅ Create `src/api/ota.js` for OTA API calls
+- [x] ✅ Create `FirmwareUpload.jsx`
+  - [x] ✅ File upload (drag & drop + browse)
+  - [x] ✅ Version input field
+  - [x] ✅ File validation (.bin, .hex, .elf)
+  - [x] ✅ Upload progress bar
+- [x] ✅ Flask endpoints already exist in flask/routes/ota_routes.py
 - [ ] ⏳ Test firmware file upload
 
 ### OTA Management
-- [ ] ⏳ Create `FirmwareList.jsx` to display available versions
-  - [ ] Version, size, date uploaded
-  - [ ] Delete button
-  - [ ] Initiate OTA button
-- [ ] ⏳ Create `OTAProgress.jsx`
-  - [ ] Device selector for OTA
-  - [ ] Progress bar for chunk download
-  - [ ] Status indicators (downloading, verifying, installing)
-  - [ ] Success/failure notification
-- [ ] ⏳ Create `FOTA.jsx` page layout
-- [ ] ⏳ Add OTA status polling
-- [ ] ⏳ Implement rollback button
+- [x] ✅ Create `FirmwareList.jsx` to display available versions
+  - [x] ✅ Version, size, date uploaded
+  - [x] ✅ Delete button
+  - [x] ✅ Initiate OTA button
+  - [x] ✅ View manifest button
+  - [x] ✅ OTA initiation dialog with device selector
+- [x] ✅ Create `OTAProgress.jsx`
+  - [x] ✅ Device selector for OTA
+  - [x] ✅ Progress bar for chunk download
+  - [x] ✅ Status indicators (idle, downloading, verifying, installing, completed, failed)
+  - [x] ✅ Success/failure notification
+  - [x] ✅ Cancel OTA button
+  - [x] ✅ OTA statistics display
+  - [x] ✅ Real-time status polling (2s interval)
+- [x] ✅ Create `FOTA.jsx` page layout with tabs
+  - [x] ✅ Tab 1: Upload Firmware
+  - [x] ✅ Tab 2: Manage Firmware
+  - [x] ✅ Tab 3: Update Progress
+  - [x] ✅ URL parameter navigation (?tab=upload, ?tab=manage, ?tab=progress)
 - [ ] ⏳ Test OTA workflow end-to-end
 
-### Estimated Time: 5-7 days
+### Estimated Time: 5-7 days → ✅ COMPLETED (Implementation phase done, testing pending)
 
 ---
 
