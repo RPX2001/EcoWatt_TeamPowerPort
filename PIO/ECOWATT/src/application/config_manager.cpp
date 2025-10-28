@@ -49,31 +49,24 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
     HTTPClient http;
     http.begin(changesURL);
     http.addHeader("Content-Type", "application/json");
+    http.setTimeout(2000);  // 2 second timeout (watchdog safe)
 
     // M4 Format: Use GET request (device_id is in URL)
     int httpResponseCode = http.GET();
 
     if (httpResponseCode > 0) {
-        // Get response into buffer
-        WiFiClient* stream = http.getStreamPtr();
-        static char responseBuffer[1024];
-        int len = http.getSize();
-        int index = 0;
-
-        while (http.connected() && (len > 0 || len == -1)) {
-            if (stream->available()) {
-                char c = stream->read();
-                if (index < (int)sizeof(responseBuffer) - 1)
-                    responseBuffer[index++] = c;
-                if (len > 0) len--;
-            }
-        }
-        responseBuffer[index] = '\0';
+        // Get full response as String (simpler and more reliable)
+        String responseStr = http.getString();
         
-        print("[ConfigManager] Response: %s\n", responseBuffer);
+        // Truncate for logging if too long
+        if (responseStr.length() > 200) {
+            print("[ConfigManager] Response: %s...\n", responseStr.substring(0, 200).c_str());
+        } else {
+            print("[ConfigManager] Response: %s\n", responseStr.c_str());
+        }
 
-        StaticJsonDocument<1024> responsedoc;
-        DeserializationError error = deserializeJson(responsedoc, responseBuffer);
+        StaticJsonDocument<2048> responsedoc;  // Increased from 1024
+        DeserializationError error = deserializeJson(responsedoc, responseStr);
         
         if (!error) {
             bool settingsChanged = responsedoc["Changed"] | false;

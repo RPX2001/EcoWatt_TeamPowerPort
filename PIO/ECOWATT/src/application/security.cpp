@@ -4,6 +4,7 @@
  */
 
 #include "application/security.h"
+#include <HTTPClient.h>
 
 // Temporarily undefine print macro to avoid conflict with ArduinoJson
 #ifdef print
@@ -49,6 +50,15 @@ const uint8_t SecurityLayer::AES_IV[16] = {
 void SecurityLayer::init() {
     print("Security Layer: Initializing...\n");
     loadNonce();
+    
+    // If nonce is too low (e.g., after reset), set it to a safe value
+    // This prevents replay attack errors when ESP32 resets but server remembers old nonce
+    if (currentNonce < 11000) {
+        currentNonce = 11000;  // Start from a higher value
+        saveNonce(currentNonce);
+        print("Security Layer: Nonce reset to safe value: %u\n", currentNonce);
+    }
+    
     print("Security Layer: Initialized with nonce = %u\n", currentNonce);
 }
 
@@ -77,6 +87,43 @@ uint32_t SecurityLayer::getCurrentNonce() {
 void SecurityLayer::setNonce(uint32_t nonce) {
     currentNonce = nonce;
     saveNonce(nonce);
+}
+
+bool SecurityLayer::syncNonceWithServer(const char* serverURL, const char* deviceID) {
+    print("Security Layer: Syncing nonce with server...\n");
+    
+    HTTPClient http;
+    char url[256];
+    snprintf(url, sizeof(url), "%s/security/%s/nonce", serverURL, deviceID);
+    
+    http.begin(url);
+    http.setTimeout(5000);
+    
+    int httpCode = http.GET();
+    
+    if (httpCode == 200) {
+        String response = http.getString();
+        
+        DynamicJsonDocument doc(512);
+        DeserializationError error = deserializeJson(doc, response);
+        
+        if (!error) {
+            uint32_t serverNonce = doc["last_valid_nonce"];
+            // Set our nonce to server's nonce + 1
+            uint32_t newNonce = serverNonce + 1;
+            setNonce(newNonce);
+            print("Security Layer: Nonce synced! Server: %u, Local: %u\n", serverNonce, newNonce);
+            http.end();
+            return true;
+        } else {
+            print("Security Layer: Failed to parse nonce response\n");
+        }
+    } else {
+        print("Security Layer: Failed to sync nonce (HTTP %d)\n", httpCode);
+    }
+    
+    http.end();
+    return false;
 }
 
 bool SecurityLayer::securePayload(const char* payload, char* securedPayload, size_t securedPayloadSize) {

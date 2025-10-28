@@ -61,6 +61,14 @@ public:
      * @param nonce New nonce value to set
      */
     static void setNonce(uint32_t nonce);
+    
+    /**
+     * @brief Sync nonce with server to prevent replay attack errors after reset
+     * @param serverURL Base server URL (e.g., "http://192.168.1.100:5001")
+     * @param deviceID Device identifier
+     * @return true if sync successful, false otherwise
+     */
+    static bool syncNonceWithServer(const char* serverURL, const char* deviceID);
 
 private:
     // Configuration

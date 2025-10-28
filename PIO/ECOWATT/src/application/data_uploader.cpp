@@ -22,7 +22,7 @@ char DataUploader::deviceID[64] = "ESP32_Unknown";
 unsigned long DataUploader::uploadCount = 0;
 unsigned long DataUploader::uploadFailures = 0;
 size_t DataUploader::totalBytesUploaded = 0;
-uint8_t DataUploader::maxRetryAttempts = 3;
+uint8_t DataUploader::maxRetryAttempts = 1;  // Only 1 retry to fit watchdog window
 uint8_t DataUploader::currentRetryCount = 0;
 unsigned long DataUploader::lastFailedUploadTime = 0;
 
@@ -72,6 +72,16 @@ bool DataUploader::uploadPendingData() {
     
     print("  [INFO] Preparing %zu compressed batches for upload\n", allData.size());
     
+    // Check available heap before attempting upload
+    size_t freeHeap = ESP.getFreeHeap();
+    print("  [INFO] Free heap: %zu bytes\n", freeHeap);
+    
+    if (freeHeap < 20000) {  // Require at least 20KB free heap
+        PRINT_ERROR("Insufficient heap memory (%zu bytes). Skipping upload.", freeHeap);
+        // Don't restore data - will retry next cycle when memory is available
+        return false;
+    }
+    
     // Attempt upload with retry logic
     bool success = false;
     for (uint8_t attempt = 0; attempt <= maxRetryAttempts; attempt++) {
@@ -79,7 +89,7 @@ bool DataUploader::uploadPendingData() {
             unsigned long backoffDelay = calculateBackoffDelay(attempt);
             PRINT_WARNING("Retry attempt %u/%u after %lu ms backoff...", 
                          attempt, maxRetryAttempts, backoffDelay);
-            delay(backoffDelay);
+            vTaskDelay(pdMS_TO_TICKS(backoffDelay));  // FreeRTOS-aware delay
         }
         
         success = attemptUpload(allData);
@@ -120,10 +130,13 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     HTTPClient http;
     http.begin(uploadURL);
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(10000);  // 10 second timeout
+    http.setTimeout(10000);  // 10 second timeout - increased for stability
     
-    // Build JSON payload
-    DynamicJsonDocument doc(8192);
+    // Feed the watchdog during long operations
+    yield();
+    
+    // Build JSON payload - reduced size to prevent stack overflow
+    DynamicJsonDocument doc(6144);  // Reduced from 8192 to 6144
     
     doc["device_id"] = deviceID;
     doc["timestamp"] = millis();
@@ -148,6 +161,9 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     size_t totalCompressedBytes = 0;
     
     for (const auto& entry : allData) {
+        // Feed watchdog during packet processing
+        yield();
+        
         JsonObject packet = compressedPackets.createNestedObject();
         
         // Compressed binary data (Base64 encoded)
@@ -205,6 +221,9 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     // Apply Security Layer
     PRINT_PROGRESS("Encrypting payload with AES-128...");
     
+    // Feed watchdog before heavy encryption operation
+    yield();
+    
     char* securedPayload = new char[8192];
     if (!securedPayload) {
         PRINT_ERROR("Failed to allocate memory for secured payload");
@@ -223,6 +242,9 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     
     PRINT_SUCCESS("Payload encrypted successfully");
     PRINT_PROGRESS("Uploading to server...");
+    
+    // Feed watchdog before HTTP POST
+    yield();
     
     int httpResponseCode = http.POST((uint8_t*)securedPayload, strlen(securedPayload));
     
@@ -325,10 +347,10 @@ const char* DataUploader::getDeviceID() {
 }
 
 unsigned long DataUploader::calculateBackoffDelay(uint8_t attempt) {
-    // Exponential backoff: 1s, 2s, 4s, 8s, ...
-    // Capped at 30 seconds
-    unsigned long delay = 1000 * (1 << (attempt - 1));  // 2^(attempt-1) seconds
-    if (delay > 30000) delay = 30000;  // Cap at 30 seconds
+    // Exponential backoff optimized for watchdog: 300ms, 600ms, 1200ms
+    // Total for 3 retries = 2.1s, well within 5s watchdog timeout
+    unsigned long delay = 300 * (1 << (attempt - 1));  // 300ms * 2^(attempt-1)
+    if (delay > 5000) delay = 5000;  // Cap at 5 seconds
     return delay;
 }
 

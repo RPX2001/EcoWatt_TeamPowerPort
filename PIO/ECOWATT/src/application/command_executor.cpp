@@ -56,12 +56,20 @@ void CommandExecutor::checkAndExecuteCommands() {
         return; // Silently skip if WiFi not connected
     }
 
+    // Feed watchdog before network operation
+    yield();
+    vTaskDelay(1); // Give other tasks a chance to run
+
     PRINT_SECTION("COMMAND POLL");
     PRINT_PROGRESS("Checking for pending commands...");
 
     HTTPClient http;
     http.begin(pollURL);
     http.addHeader("Content-Type", "application/json");
+    http.setTimeout(3000);  // Reduced to 3 seconds to avoid watchdog
+    
+    // Feed watchdog before HTTP request
+    yield();
 
     // M4 Format: Use GET request (device_id is in URL)
     int httpResponseCode = http.GET();
@@ -278,6 +286,7 @@ void CommandExecutor::sendCommandResult(const char* commandId, bool success, con
     HTTPClient http;
     http.begin(resultURL);
     http.addHeader("Content-Type", "application/json");
+    http.setTimeout(2000);  // 2 second timeout (watchdog safe)
 
     StaticJsonDocument<256> resultDoc;
     resultDoc["command_id"] = commandId;
