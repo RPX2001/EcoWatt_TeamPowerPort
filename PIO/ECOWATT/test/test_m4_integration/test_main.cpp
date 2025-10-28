@@ -970,18 +970,21 @@ void test_10_continuous_monitoring() {
     current_test++;
     String testName = "Continuous Monitoring";
     
-    StaticJsonDocument<512> dataDoc;
-    dataDoc["current"] = random(20, 30) / 10.0;
-    dataDoc["voltage"] = random(220, 240);
-    dataDoc["power"] = random(400, 600);
-    dataDoc["timestamp"] = millis();
+    // Create aggregated data payload (list format expected by Flask)
+    StaticJsonDocument<512> doc;
+    JsonArray aggregated_data = doc.createNestedArray("aggregated_data");
+    JsonObject sample = aggregated_data.createNestedObject();
+    sample["current"] = random(20, 30) / 10.0;
+    sample["voltage"] = random(220, 240);
+    sample["power"] = random(400, 600);
+    sample["timestamp"] = millis();
     
     String dataPayload;
-    serializeJson(dataDoc, dataPayload);
+    serializeJson(doc, dataPayload);
     String securedPayload = createSecuredPayload(dataPayload);
     
     HTTPClient http;
-    String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/upload";
+    String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/aggregated/" + DEVICE_ID;
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
     int httpCode = http.POST(securedPayload);

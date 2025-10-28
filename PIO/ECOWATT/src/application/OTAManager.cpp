@@ -460,6 +460,15 @@ bool OTAManager::decryptChunk(const uint8_t* encrypted, size_t encLen, uint8_t* 
     // For streaming AES-CBC, we need to maintain IV state across chunks
     // The IV is automatically updated by mbedtls during decryption
     
+    // Log IV state before decryption (for debugging)
+    if (chunkNumber == 0 || chunkNumber == 1) {
+        Serial.printf("decryptChunk: IV before chunk %u: ", chunkNumber);
+        for (int i = 0; i < 16; i++) {
+            Serial.printf("%02X ", aes_iv[i]);
+        }
+        Serial.println();
+    }
+    
     Serial.printf("decryptChunk: About to call mbedtls_aes_crypt_cbc\n");
     
     // Decrypt using AES-256-CBC in streaming mode
@@ -474,6 +483,21 @@ bool OTAManager::decryptChunk(const uint8_t* encrypted, size_t encLen, uint8_t* 
     }
     
     *decLen = encLen;
+    
+    // CRITICAL: Verify ESP32 firmware magic byte on chunk 0
+    if (chunkNumber == 0 && encLen > 0) {
+        if (decrypted[0] != 0xE9) {
+            Serial.printf("ERROR: Invalid ESP32 firmware magic byte: 0x%02X (expected 0xE9)\n", decrypted[0]);
+            Serial.printf("ERROR: Decryption key/IV mismatch or wrong encryption mode!\n");
+            Serial.printf("First 16 decrypted bytes: ");
+            for (int i = 0; i < 16 && i < encLen; i++) {
+                Serial.printf("%02X ", decrypted[i]);
+            }
+            Serial.println();
+            return false;
+        }
+        Serial.println("✓ ESP32 firmware magic byte verified (0xE9)");
+    }
     
     // Remove PKCS7 padding ONLY on the very last chunk
     bool isLastChunk = (chunkNumber == (manifest.total_chunks - 1));
