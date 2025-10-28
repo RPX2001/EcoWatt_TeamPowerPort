@@ -17,6 +17,7 @@
 #include "application/statistics_manager.h"
 #include "application/OTAManager.h"
 #include "application/nvs.h"
+#include <esp_task_wdt.h>
 
 // ============================================
 // Static Member Initialization
