@@ -15,3 +15,9 @@ Try to do minimal changes to codes at each iterations.
 Make sure the code you are creating/modifying will work at each itreration (by having a parella test scheme).
 
 Ask me if you have any questions or want clarifications.
+
+
+From Now on
+1. When making changes update them in one of 4 files in the directory plans_and_progress as appropriate
+
+2. Create suitable just commands for repeatble command excution and use that command
