@@ -56,6 +56,8 @@ class ProtocolAdapter
     bool sendRequest(const char* url, const char* frameHex, char* outResponseJson, size_t outSize);
     void printErrorCode(int code);
     bool isFrameValid(const char* frameHex);
+    bool isFrameCorrupted(const char* frameHex);
+    uint16_t calculateModbusCRC(const uint8_t* data, int length);
 };
 
 #endif
