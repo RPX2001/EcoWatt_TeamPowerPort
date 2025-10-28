@@ -11,11 +11,11 @@ default:
 
 # Start Flask server (development mode)
 server:
-    python flask_server_modular.py
+    python3 flask_server_modular.py
 
 # Start Flask server in background
 server-bg:
-    nohup python flask_server_modular.py > server.log 2>&1 &
+    nohup python3 flask_server_modular.py > server.log 2>&1 &
     @echo "✅ Server started in background (see server.log)"
 
 # Stop background server
@@ -32,19 +32,19 @@ logs:
 
 # Run all integration tests
 test:
-    python -m pytest -v
+    python3 -m pytest -v
 
 # Run M3 integration tests only (compression, acquisition, upload)
 test-m3:
-    python -m pytest test_m3_integration/ -v
+    python3 -m pytest test_m3_integration/ -v
 
 # Run M4 integration tests only (security, OTA, commands, config)
 test-m4:
-    python -m pytest test_m4_integration/ -v
+    python3 -m pytest test_m4_integration/ -v
 
 # Run tests with coverage report
 test-coverage:
-    python -m pytest --cov=. --cov-report=html --cov-report=term -v
+    python3 -m pytest --cov=. --cov-report=html --cov-report=term -v
 
 # ============================================================
 # Utilities
@@ -52,21 +52,21 @@ test-coverage:
 
 # Generate RSA key pair for FOTA (first-time setup)
 generate-keys:
-    python generate_keys.py
+    python3 scripts/generate_keys.py
     @echo "✅ Keys generated in keys/ directory"
 
 # Prepare and sign firmware for OTA update
 prepare-firmware version="1.0.5":
-    python prepare_firmware.py {{version}}
+    python3 scripts/prepare_firmware.py {{version}}
     @echo "✅ Firmware prepared: firmware/firmware_{{version}}_encrypted.bin"
 
 # Benchmark compression algorithms (SEMANTIC, DICTIONARY, HUFFMAN)
 benchmark:
-    python benchmark_compression.py
+    python3 scripts/benchmark_compression.py
 
 # Queue a command to ESP32 device
 queue-command device_id="ESP32_EcoWatt_Smart" command="set_power_percentage" value="60":
-    python queue_command_for_esp32.py {{device_id}} {{command}} {{value}}
+    python3 scripts/queue_command_for_esp32.py {{device_id}} {{command}} {{value}}
     @echo "✅ Command queued: {{command}}={{value}}"
 
 # ============================================================

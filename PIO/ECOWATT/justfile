@@ -2,6 +2,9 @@
 # PlatformIO build and test automation
 # Usage: just <command>
 
+# PlatformIO executable path
+pio := if path_exists(env_var_or_default("HOME", "") + "/.platformio/penv/bin/platformio") == "true" { env_var_or_default("HOME", "") + "/.platformio/penv/bin/platformio" } else { "pio" }
+
 # List all available commands
 default:
     @just --list
@@ -12,12 +15,12 @@ default:
 
 # Build firmware for ESP32
 build:
-    pio run
+    {{pio}} run
     @echo "✅ Firmware built: .pio/build/esp32dev/firmware.bin"
 
 # Upload firmware to connected ESP32 device
 upload:
-    pio run --target upload
+    {{pio}} run --target upload
     @echo "✅ Firmware uploaded to ESP32"
 
 # Build and upload in one step
@@ -30,42 +33,42 @@ flash: build upload
 
 # Run all test suites (M3, M4, component tests)
 test:
-    pio test
+    {{pio}} test
     @echo "✅ All tests complete"
 
 # Run M3 integration tests only (compression, acquisition, upload)
 test-m3:
-    pio test --filter test_m3_integration
+    {{pio}} test --filter test_m3_integration
     @echo "✅ M3 integration tests complete"
 
 # Run M4 integration tests only (security, HMAC, OTA, commands, config)
 test-m4:
-    pio test --filter test_m4_integration
+    {{pio}} test --filter test_m4_integration
     @echo "✅ M4 integration tests complete"
 
 # Run compression component tests
 test-compression:
-    pio test --filter test_compression
+    {{pio}} test --filter test_compression
     @echo "✅ Compression tests complete"
 
 # Run acquisition component tests
 test-acquisition:
-    pio test --filter test_acquisition
+    {{pio}} test --filter test_acquisition
     @echo "✅ Acquisition tests complete"
 
 # Run security component tests (HMAC, nonce, anti-replay)
 test-security:
-    pio test --filter "test_security*|test_mac_hmac|test_*antireplay"
+    {{pio}} test --filter "test_security*|test_mac_hmac|test_*antireplay"
     @echo "✅ Security tests complete"
 
 # Run FOTA component tests
 test-fota:
-    pio test --filter "test_fota*"
+    {{pio}} test --filter "test_fota*"
     @echo "✅ FOTA tests complete"
 
 # Run all tests with verbose output
 test-verbose:
-    pio test -v
+    {{pio}} test -v
 
 # ============================================================
 # Monitoring & Debugging
@@ -73,15 +76,15 @@ test-verbose:
 
 # Monitor serial output from ESP32
 monitor:
-    pio device monitor --baud 115200
+    {{pio}} device monitor --baud 115200
 
 # Upload firmware and immediately start monitoring
 flash-monitor: upload
-    pio device monitor --baud 115200
+    {{pio}} device monitor --baud 115200
 
 # List all connected devices
 devices:
-    pio device list
+    {{pio}} device list
     @echo ""
     @echo "Use 'just monitor' to view serial output"
 
@@ -91,23 +94,23 @@ devices:
 
 # Clean build artifacts
 clean:
-    pio run --target clean
+    {{pio}} run --target clean
     rm -rf .pio/build
     @echo "✅ Build artifacts cleaned"
 
 # Complete clean (including dependencies)
 distclean:
     rm -rf .pio
-    @echo "✅ Complete clean done (run 'pio run' to rebuild)"
+    @echo "✅ Complete clean done (run 'just build' to rebuild)"
 
 # Check firmware size (RAM and Flash usage)
 size:
-    pio run --target size
+    {{pio}} run --target size
     @echo ""
     @echo "=== Memory Usage Analysis ==="
 
 # Update PlatformIO dependencies
 update:
-    pio pkg update
+    {{pio}} pkg update
     @echo "✅ Dependencies updated"
 
