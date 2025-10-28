@@ -123,9 +123,15 @@ const Dashboard = () => {
       setLoading(true);
       setError(null);
 
-      // Fetch latest data
-      const latestResponse = await getLatestData(selectedDevice);
-      setLatestData(latestResponse.data);
+      // Fetch latest data (may fail if device is offline)
+      let latestResponse = null;
+      try {
+        latestResponse = await getLatestData(selectedDevice);
+        setLatestData(latestResponse.data);
+      } catch (latestErr) {
+        console.warn('Failed to fetch latest data (device may be offline):', latestErr);
+        setLatestData(null);
+      }
 
       // Fetch device configuration
       try {
@@ -135,7 +141,7 @@ const Dashboard = () => {
         console.warn('Failed to fetch device config:', configErr);
       }
 
-      // Fetch historical data (last 1 hour)
+      // Fetch historical data (last 1 hour) - works even if device is offline
       const endTime = new Date();
       const startTime = new Date(endTime.getTime() - 60 * 60 * 1000); // 1 hour ago
       
@@ -152,8 +158,23 @@ const Dashboard = () => {
         
         // Dynamically add all available registers with proper scaling
         Object.keys(registers).forEach(regName => {
-          const metadata = latestResponse.data.metadata?.[regName];
-          if (metadata && registers[regName] !== null) {
+          // Try to get metadata from latest response, fallback to historical record or default
+          let metadata = latestResponse?.data?.metadata?.[regName];
+          
+          if (!metadata) {
+            // Fallback: infer metadata from register name (common patterns)
+            // This allows historical data to display even when device is offline
+            metadata = { gain: 1, decimals: 2 }; // Safe default
+            
+            // Apply common scaling patterns
+            if (regName.toLowerCase().includes('voltage') || regName.toLowerCase().includes('vac') || regName.toLowerCase().includes('vpv')) {
+              metadata.gain = 10; // 0.1V resolution
+            } else if (regName.toLowerCase().includes('current') || regName.toLowerCase().includes('iac') || regName.toLowerCase().includes('ipv')) {
+              metadata.gain = 10; // 0.1A resolution
+            }
+          }
+          
+          if (registers[regName] !== null) {
             const rawValue = registers[regName];
             const scaledValue = rawValue / metadata.gain;
             transformed[regName.toLowerCase()] = scaledValue;
@@ -201,48 +222,59 @@ const Dashboard = () => {
         </Box>
       )}
 
-      {selectedDevice && latestData && (
+      {selectedDevice && (
         <>
-          {/* Register Values - Full width */}
-          <Box sx={{ mb: 3 }}>
-            <RegisterValues data={latestData} />
-          </Box>
+          {/* Show active device metrics if available */}
+          {latestData && (
+            <>
+              {/* Register Values - Full width */}
+              <Box sx={{ mb: 3 }}>
+                <RegisterValues data={latestData} />
+              </Box>
 
-          {/* Device Configuration - Full width */}
-          {deviceConfig && (
-            <Box sx={{ mb: 3 }}>
-              <DeviceConfiguration config={deviceConfig} />
-            </Box>
+              {/* Device Configuration - Full width */}
+              {deviceConfig && (
+                <Box sx={{ mb: 3 }}>
+                  <DeviceConfiguration config={deviceConfig} />
+                </Box>
+              )}
+
+              {/* Metrics Cards - Dynamic based on available registers */}
+              {registerConfig.length > 0 && (
+                <Grid container spacing={3} sx={{ mb: 3 }}>
+                  {registerConfig.map((reg, index) => {
+                    const rawValue = latestData?.registers?.[reg.key];
+                    
+                    if (rawValue === undefined || rawValue === null) {
+                      return null;
+                    }
+
+                    const actualValue = rawValue / reg.gain;
+                    const displayValue = actualValue.toFixed(reg.decimals);
+
+                    return (
+                      <Grid item xs={12} sm={6} md={4} lg={3} key={reg.key}>
+                        <MetricsCard
+                          title={reg.name}
+                          value={displayValue}
+                          unit={reg.unit}
+                          icon={getIconForRegister(reg.key)}
+                          color={getColorForRegister(index)}
+                        />
+                      </Grid>
+                    );
+                  })}
+                </Grid>
+              )}
+            </>
           )}
 
-          {/* Metrics Cards - Dynamic based on available registers */}
-          {registerConfig.length > 0 && (
-            <Grid container spacing={3} sx={{ mb: 3 }}>
-              {registerConfig.map((reg, index) => {
-                const rawValue = latestData?.registers?.[reg.key];
-                
-                if (rawValue === undefined || rawValue === null) {
-                  return null;
-                }
-
-                const actualValue = rawValue / reg.gain;
-                const displayValue = actualValue.toFixed(reg.decimals);
-
-                return (
-                  <Grid item xs={12} sm={6} md={4} lg={3} key={reg.key}>
-                    <MetricsCard
-                      title={reg.name}
-                      value={displayValue}
-                      unit={reg.unit}
-                      icon={getIconForRegister(reg.key)}
-                      color={getColorForRegister(index)}
-                    />
-                  </Grid>
-                );
-              })}
-            </Grid>
+          {/* Show offline message if no latest data */}
+          {!latestData && !loading && (
+            <Alert severity="info" sx={{ mb: 3 }}>
+              Device is currently offline. Showing historical data from database.
+            </Alert>
           )}
-
           {/* Historical Data Section with Tabs */}
           <Box sx={{ mt: 3 }}>
             <Paper sx={{ p: 2 }}>

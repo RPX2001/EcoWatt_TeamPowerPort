@@ -396,7 +396,7 @@ void TaskManager::compressionTask(void* parameter) {
     esp_task_wdt_add(NULL);
     
     const uint32_t deadlineUs = 2000000;  // 2s deadline
-    const size_t batchSize = 3;           // Compress 3 samples together
+    const size_t batchSize = 1;           // Compress 1 sample at a time (FIXED: was 3, causing timing issues)
     
     SensorSample sampleBatch[batchSize];
     size_t batchCount = 0;
@@ -481,6 +481,9 @@ void TaskManager::compressionTask(void* parameter) {
                     if (xQueueSend(compressedDataQueue, &packet, 0) != pdTRUE) {
                         print("[Compression] WARNING: Upload queue full! Packet dropped\n");
                         stats_compression.deadlineMisses++;
+                    } else {
+                        print("[Compression] ✓ Packet enqueued to upload queue (size: %zu bytes, queue depth: %d)\n",
+                              packet.dataSize, uxQueueMessagesWaiting(compressedDataQueue));
                     }
                     
                     print("[Compression] Batch compressed: %zu samples -> %zu bytes (ratio: %.2f%%)\n",
