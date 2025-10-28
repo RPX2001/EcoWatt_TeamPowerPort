@@ -1970,3 +1970,834 @@ size_t hal_uart_read(uint8_t num, uint8_t* buffer, size_t maxLen);
 
 ---
 
+## 8. State Machine & Petri Nets
+
+### 8.1 Petri Net Model
+
+The firmware implements a **timed Petri net** for task coordination:
+
+```
+Places (States):          Transitions (Events):
+┌──────────┐              T1: Poll Timer Fires
+│   IDLE   │◄────────┐    T2: Upload Timer Fires
+└────┬─────┘         │    T3: Config Timer Fires
+     │T1             │    T4: OTA Timer Fires
+     ▼               │
+┌──────────┐         │
+│ POLLING  │         │
+└────┬─────┘         │
+     │T2             │
+     ▼               │
+┌──────────┐         │
+│UPLOADING │         │
+└────┬─────┘         │
+     │T3             │
+     ▼               │
+┌──────────┐         │
+│ CONFIG   │         │
+└────┬─────┘         │
+     │T4             │
+     ▼               │
+┌──────────┐         │
+│   OTA    │─────────┘
+└──────────┘
+```
+
+### 8.2 Token Flow
+
+**Tokens** represent execution permissions:
+- Each timer ISR places a token (sets flag)
+- Main loop consumes tokens (checks and clears flags)
+- Only one token consumed per loop iteration
+- Priority: Poll > Upload > Config > OTA
+
+### 8.3 State Descriptions
+
+| State | Token | Action | Duration | Next State |
+|-------|-------|--------|----------|------------|
+| IDLE | None | Wait for timer | Variable | Any |
+| POLLING | pollToken | Read sensors, add to batch | ~50ms | IDLE |
+| UPLOADING | uploadToken | Compress, transmit data | ~200ms | IDLE |
+| CONFIG | changesToken | Check config, poll commands | ~100ms | IDLE |
+| OTA | otaToken | Check for firmware updates | ~2s | IDLE |
+
+### 8.4 Concurrent Execution
+
+While the state machine appears sequential, multiple tokens can accumulate:
+
+```
+Time:     0ms   500ms  1000ms 1500ms 2000ms
+Poll:      ●                    ●
+Upload:    ●                           (waiting)
+Config:          ●       (waiting)
+
+Loop execution order:
+  Poll token consumed → Read sensors (50ms)
+  Config token consumed → Check config (100ms)  
+  Upload token consumed → Transmit data (200ms)
+```
+
+### 8.5 State Machine Implementation
+
+```cpp
+void loop() {
+    // Check each token in priority order
+    if (TaskCoordinator::isPollReady()) {
+        TaskCoordinator::resetPollToken();
+        // Execute polling state
+        DataPipeline::pollAndProcess();
+        return;  // One state per iteration
+    }
+    
+    if (TaskCoordinator::isUploadReady()) {
+        TaskCoordinator::resetUploadToken();
+        // Execute uploading state
+        DataUploader::uploadPendingData();
+        // Apply config changes (safe point)
+        applyPendingConfigChanges();
+        return;
+    }
+    
+    if (TaskCoordinator::isChangesReady()) {
+        TaskCoordinator::resetChangesToken();
+        // Execute config check state
+        ConfigManager::checkForChanges(...);
+        CommandExecutor::checkAndExecuteCommands();
+        return;
+    }
+    
+    if (TaskCoordinator::isOTAReady()) {
+        TaskCoordinator::resetOTAToken();
+        // Execute OTA check state
+        performOTAUpdate();
+        return;
+    }
+    
+    // No tokens, yield to background
+    yield();
+}
+```
+
+### 8.6 Critical Sections
+
+During OTA updates, all tasks are paused:
+
+```
+┌──────────────────────────────────────┐
+│        Normal Operation              │
+│  Poll → Upload → Config → OTA Check  │
+└──────────────┬───────────────────────┘
+               │ Update detected
+               ▼
+┌──────────────────────────────────────┐
+│      PAUSE ALL TASKS                 │
+│  TaskCoordinator::pauseAllTasks()    │
+└──────────────┬───────────────────────┘
+               │
+               ▼
+┌──────────────────────────────────────┐
+│     Download Firmware                │
+│  (Exclusive CPU access)              │
+└──────────────┬───────────────────────┘
+               │
+               ▼
+┌──────────────────────────────────────┐
+│     Verify & Reboot                  │
+│  New firmware or rollback            │
+└──────────────────────────────────────┘
+```
+
+---
+
+## 9. Data Flow
+
+### 9.1 End-to-End Data Flow
+
+```
+┌─────────────┐
+│   Sensors   │  PZEM-004T Energy Monitoring
+│  (Modbus)   │
+└──────┬──────┘
+       │ UART 9600 baud
+       ▼
+┌─────────────┐
+│ Acquisition │  Read registers, validate, scale
+│   Module    │
+└──────┬──────┘
+       │ uint16_t[6] per sample
+       ▼
+┌─────────────┐
+│   Batch     │  Accumulate 10 samples
+│   Buffer    │
+└──────┬──────┘
+       │ uint16_t[60] (10 samples × 6 registers)
+       ▼
+┌─────────────┐
+│ Compression │  Smart algorithm selection
+│   Engine    │  (Dictionary/Temporal/RLE/Bitpack)
+└──────┬──────┘
+       │ std::vector<uint8_t> (~25-35 bytes)
+       ▼
+┌─────────────┐
+│  Security   │  HMAC-SHA256 + Nonce
+│    Layer    │
+└──────┬──────┘
+       │ Secured JSON payload
+       ▼
+┌─────────────┐
+│    WiFi     │  HTTP POST
+│   Upload    │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│   Flask     │  Validation, storage, analysis
+│   Server    │
+└─────────────┘
+```
+
+### 9.2 Data Transformation Example
+
+**Original Sensor Reading (1 sample):**
+```
+V_RMS:      2429 (242.9V)
+I_RMS:      177  (0.177A)
+P_ACTIVE:   73   (7.3W)
+POWER:      4331 (433.1W)
+ENERGY:     70   (0.070kWh)
+FREQUENCY:  605  (60.5Hz)
+Total: 12 bytes (6 × uint16_t)
+```
+
+**Batch (10 samples):**
+```
+Sample 0: [2429, 177, 73, 4331, 70, 605]
+Sample 1: [2430, 178, 74, 4345, 71, 605]
+...
+Sample 9: [2431, 179, 75, 4350, 72, 606]
+Total: 120 bytes (10 × 6 × 2 bytes)
+```
+
+**After Compression (Temporal Delta):**
+```
+Header:     0x70 (Temporal Delta mode)
+Baseline:   [2429, 177, 73, 4331, 70, 605] (12 bytes)
+Delta 1:    [+1, +1, +1, +14, +1, 0] (6 bytes)
+Delta 2:    [0, 0, +1, +4, +1, 0] (6 bytes)
+...
+Delta 9:    [+1, +1, +1, +5, +1, +1] (6 bytes)
+Total: ~31 bytes (74% reduction)
+```
+
+**After Security Layer:**
+```json
+{
+    "nonce": 10523,
+    "payload": "cHB3MDEyOTI3Nzc...",  // Base64 encoded
+    "mac": "a7f3d8e9c2b1f4a6...",      // HMAC-SHA256 (64 hex chars)
+    "encrypted": false
+}
+Total: ~180 bytes (JSON overhead)
+```
+
+### 9.3 Bandwidth Analysis
+
+**Without Compression:**
+- 10 samples: 120 bytes
+- 1 hour (360 uploads): 43,200 bytes = 42.2 KB/hour
+- 24 hours: 1.01 MB/day
+
+**With Compression (avg 70% reduction):**
+- 10 samples: ~36 bytes
+- 1 hour: 12,960 bytes = 12.7 KB/hour
+- 24 hours: 0.30 MB/day
+
+**With Security Overhead:**
+- Per upload: ~180 bytes
+- 1 hour: 64,800 bytes = 63.3 KB/hour
+- 24 hours: 1.52 MB/day
+
+**Effective Bandwidth Savings:**
+- Raw vs Compressed: 70% reduction
+- Raw vs Secured+Compressed: Still positive (better than raw without security)
+
+---
+
+## 10. Configuration & Storage
+
+### 10.1 NVS Partition Layout
+
+```
+Flash Partition Table:
+┌────────────────────────────────────┐
+│  Bootloader (0x1000)               │  64KB
+├────────────────────────────────────┤
+│  Partition Table (0x8000)          │  4KB
+├────────────────────────────────────┤
+│  NVS (0x9000)                      │  20KB  ← Configuration storage
+├────────────────────────────────────┤
+│  OTA Data (0xE000)                 │  8KB   ← OTA state
+├────────────────────────────────────┤
+│  App0 (0x10000)                    │  1.5MB ← Current firmware
+├────────────────────────────────────┤
+│  App1 (0x190000)                   │  1.5MB ← OTA update partition
+├────────────────────────────────────┤
+│  SPIFFS (Optional)                 │  Remaining
+└────────────────────────────────────┘
+```
+
+### 10.2 Configuration Parameters
+
+| Parameter | Type | Default | Range | Description |
+|-----------|------|---------|-------|-------------|
+| `poll_freq` | uint64_t | 1000000 | 100000-60000000 | Polling interval (μs) |
+| `upload_freq` | uint64_t | 10000000 | 1000000-300000000 | Upload interval (μs) |
+| `reg_count` | size_t | 6 | 1-16 | Number of registers |
+| `registers` | blob | [default] | RegID array | Register selection |
+| `nonce` | uint32_t | 10000 | 10000-4294967295 | Security nonce |
+| `log_level` | uint8_t | 2 | 0-4 | Log verbosity |
+
+### 10.3 Configuration API
+
+**Read Configuration:**
+```cpp
+uint64_t pollFreq = nvs::getPollFreq();
+size_t regCount = nvs::getReadRegCount();
+const RegID* regs = nvs::getReadRegs();
+```
+
+**Write Configuration:**
+```cpp
+nvs::setPollFreq(2000000ULL);  // 2 seconds
+RegID newRegs[] = {V_RMS, I_RMS, P_ACTIVE};
+nvs::setReadRegs(newRegs, 3);
+```
+
+**Reset to Defaults:**
+```cpp
+nvs::resetToDefaults();
+```
+
+### 10.4 Remote Configuration
+
+Flask server can remotely update ESP32 configuration:
+
+1. Admin updates config via REST API
+2. ESP32 polls `/changes` endpoint every 5s
+3. Detects differences between server and local NVS
+4. Downloads new configuration
+5. Writes to NVS
+6. Applies after next upload (safe point)
+7. Confirms new configuration to server
+
+---
+
+## 11. Security Implementation
+
+### 11.1 Security Architecture
+
+```
+┌──────────────────────────────────────────┐
+│            ESP32 Security                 │
+├──────────────────────────────────────────┤
+│  • Pre-Shared Keys (HMAC, AES, RSA)      │
+│  • Nonce Generation & Management         │
+│  • HMAC-SHA256 Calculation               │
+│  • AES-256-CBC Decryption (OTA)          │
+│  • RSA-2048 Signature Verification       │
+│  • Anti-Replay Protection                │
+└──────────────────────────────────────────┘
+```
+
+### 11.2 Key Management
+
+**Key Storage:**
+```cpp
+// File: src/application/keys.cpp
+const uint8_t PSK_HMAC[32] = { ... };          // Data authentication
+const uint8_t PSK_AES[16] = { ... };           // Payload encryption (future)
+const uint8_t AES_FIRMWARE_KEY[32] = { ... };  // OTA decryption
+const uint8_t RSA_PUBLIC_KEY[] = { ... };      // Signature verification
+```
+
+**Key Synchronization:**
+- All keys must match Flask server
+- Keys embedded at compile time
+- No key exchange protocol (pre-shared)
+- Future: Secure key provisioning during manufacturing
+
+### 11.3 Data Authentication
+
+**HMAC-SHA256 Process:**
+
+1. **Prepare Data:**
+   ```cpp
+   uint8_t data[4 + payloadLen];
+   data[0..3] = nonce (big-endian);
+   data[4..] = payload;
+   ```
+
+2. **Calculate HMAC:**
+   ```cpp
+   hmac = HMAC-SHA256(PSK_HMAC, data);
+   // Output: 32 bytes
+   ```
+
+3. **Send to Server:**
+   ```json
+   {
+       "nonce": 10523,
+       "payload": "base64_data",
+       "mac": "hex_hmac"
+   }
+   ```
+
+4. **Server Validates:**
+   - Extract nonce and payload
+   - Recalculate HMAC
+   - Compare (constant-time)
+   - Accept if match
+
+### 11.4 OTA Security
+
+**Firmware Encryption:**
+
+1. **Server Side (Flask):**
+   - Generate random IV (16 bytes)
+   - Encrypt firmware with AES-256-CBC
+   - Calculate SHA-256 hash of encrypted firmware
+   - Sign hash with RSA-2048 private key
+   - Send manifest with IV, hash, signature
+
+2. **ESP32 Side:**
+   - Download encrypted chunks
+   - Decrypt each chunk with AES-256-CBC (same IV)
+   - Write decrypted data to OTA partition
+   - Calculate SHA-256 hash of decrypted firmware
+   - Verify hash matches manifest
+   - Verify RSA signature of hash
+   - Mark partition bootable only if all checks pass
+
+**Security Properties:**
+- **Confidentiality**: Firmware encrypted in transit
+- **Integrity**: SHA-256 hash detects tampering
+- **Authenticity**: RSA signature proves server identity
+- **Rollback Protection**: Version checking prevents downgrades
+
+### 11.5 Anti-Replay Protection
+
+**Nonce Strategy:**
+- Monotonically increasing counter
+- Persisted to NVS after each use
+- Server tracks last seen nonce per device
+- Rejects requests with nonce ≤ last seen
+
+**Attack Mitigation:**
+- Replay attacks: Prevented by nonce validation
+- Man-in-the-middle: Detected by HMAC failure
+- Firmware injection: Prevented by RSA signature
+- Downgrade attacks: Prevented by version checking
+
+---
+
+## 12. Power Management
+
+### 12.1 Current Power Profile (M2-M4)
+
+**Active Mode Power Consumption:**
+```
+WiFi Active (Tx/Rx):     ~160mA @ 3.3V = 528mW
+WiFi Idle (Connected):   ~80mA  @ 3.3V = 264mW
+CPU Active (Polling):    ~100mA @ 3.3V = 330mW
+CPU Idle (yield):        ~40mA  @ 3.3V = 132mW
+
+Average (10s cycle):
+  Polling (1s):   100mA × 1s  = 100mA·s
+  Idle (8s):      40mA × 8s   = 320mA·s
+  Upload (1s):    160mA × 1s  = 160mA·s
+  Total: 580mA·s / 10s = 58mA average
+  
+Daily Energy: 58mA × 24h = 1.39Ah @ 3.3V = 4.6Wh
+```
+
+**Battery Life Estimate:**
+- 2000mAh battery: 2000/58 = 34 hours ≈ 1.4 days
+- 5000mAh battery: 5000/58 = 86 hours ≈ 3.6 days
+
+### 12.2 M5 Power Optimization Goals
+
+**Target:** 90% power reduction → 5.8mA average
+
+**Strategies (Planned for M5):**
+
+1. **Deep Sleep Between Uploads:**
+   ```cpp
+   poll() → buffer() → upload() → deepSleep(55s) → wake() → repeat
+   Average: ~10mA (includes wake/sleep overhead)
+   Battery life: 200 hours ≈ 8 days (2000mAh)
+   ```
+
+2. **WiFi Power Save Mode:**
+   ```cpp
+   WiFi.setSleep(WIFI_PS_MIN_MODEM);  // Modem sleep
+   // Reduces idle WiFi from 80mA to 20mA
+   ```
+
+3. **Dynamic Frequency Scaling:**
+   ```cpp
+   setCpuFrequencyMhz(80);  // Reduce from 240MHz
+   // Reduces CPU power by ~40%
+   ```
+
+4. **Peripheral Power Gating:**
+   ```cpp
+   // Power off unused peripherals
+   esp_pm_config_esp32_t pm_config = {
+       .max_freq_mhz = 80,
+       .min_freq_mhz = 10,
+       .light_sleep_enable = true
+   };
+   ```
+
+### 12.3 M5 Wake Sources (Planned)
+
+```cpp
+// Wake on timer
+esp_sleep_enable_timer_wakeup(60 * 1000000ULL);  // 60s
+
+// Wake on external interrupt (button, alarm)
+esp_sleep_enable_ext0_wakeup(GPIO_NUM_33, 0);
+
+// Wake on touchpad
+esp_sleep_enable_touchpad_wakeup();
+```
+
+### 12.4 Sleep Mode Comparison
+
+| Mode | Power | Wake Time | State Preservation | Use Case |
+|------|-------|-----------|-------------------|----------|
+| Active | 100mA | N/A | Full | Normal operation |
+| Modem Sleep | 40mA | <1ms | Full | WiFi idle periods |
+| Light Sleep | 0.8mA | 10ms | CPU+RAM | Short sleeps (<60s) |
+| Deep Sleep | 10μA | 200ms | RTC only | Long sleeps (>60s) |
+
+### 12.5 Data Preservation During Sleep
+
+**Deep Sleep Challenges:**
+- RAM contents lost (except RTC memory)
+- Need to persist: batch buffer, upload queue, nonce
+
+**Solutions (M5):**
+```cpp
+// Before sleep: Save state to NVS
+nvs::saveBatchBuffer(currentBatch);
+nvs::saveUploadQueue(queuedData);
+
+// After wake: Restore state
+currentBatch = nvs::loadBatchBuffer();
+queuedData = nvs::loadUploadQueue();
+```
+
+**RTC Memory Usage:**
+```cpp
+RTC_DATA_ATTR uint32_t bootCount = 0;
+RTC_DATA_ATTR uint32_t lastNonce = 0;
+// Preserved across deep sleep (8KB available)
+```
+
+---
+
+## 13. Troubleshooting
+
+### 13.1 Common Issues
+
+#### Issue 1: WiFi Connection Failures
+
+**Symptoms:**
+- "WiFi not connected" errors
+- Unable to upload data
+- OTA checks fail
+
+**Diagnosis:**
+```cpp
+print("WiFi Status: %d\n", WiFi.status());
+print("RSSI: %d dBm\n", WiFi.RSSI());
+print("IP: %s\n", WiFi.localIP().toString().c_str());
+```
+
+**Solutions:**
+- Check SSID/password in `credentials.h`
+- Verify router is in range (RSSI > -70 dBm)
+- Check DHCP settings
+- Try `WiFi.reconnect()`
+- Reset WiFi: `WiFi.disconnect()` → `WiFi.begin()`
+
+#### Issue 2: OTA Update Failures
+
+**Symptoms:**
+- "Wrong Magic Byte" errors
+- "Decryption failed"
+- Rollback after update
+
+**Diagnosis:**
+```cpp
+print("OTA Error: %s\n", otaManager->getLastError().c_str());
+print("Magic Byte: 0x%02X (expected 0xE9)\n", firstByte);
+```
+
+**Solutions:**
+- **Wrong Magic Byte (0xE9 expected):**
+  - AES key mismatch between ESP32 and Flask
+  - Verify `keys.cpp` AES_FIRMWARE_KEY matches `flask/keys/aes_firmware_key.bin`
+  - Check IV in manifest matches decryption IV
+
+- **Signature Verification Failed:**
+  - RSA public key mismatch
+  - Verify `keys.cpp` RSA_PUBLIC_KEY matches `flask/keys/server_public_key.pem`
+
+- **Hash Mismatch:**
+  - Corrupted download
+  - Network issue during chunk transfer
+  - Try OTA update again
+
+#### Issue 3: HMAC Validation Failures
+
+**Symptoms:**
+- Server rejects uploads with "Invalid MAC"
+- Security errors in Flask logs
+
+**Diagnosis:**
+```cpp
+print("Nonce: %u\n", SecurityLayer::getCurrentNonce());
+print("HMAC (first 8 bytes): ");
+printHex(hmac, 8);
+```
+
+**Solutions:**
+- **PSK Mismatch:**
+  - Verify `keys.cpp` PSK_HMAC matches Flask `PSK_HMAC`
+  - Check all 32 bytes match exactly
+
+- **Nonce Issues:**
+  - Server may have stale nonce
+  - Reset nonce: `SecurityLayer::setNonce(10000)`
+  - Restart Flask server to clear nonce cache
+
+- **Byte Order:**
+  - Ensure nonce is big-endian in HMAC calculation
+  - Check payload encoding (Base64 vs raw)
+
+#### Issue 4: Sensor Read Failures
+
+**Symptoms:**
+- "Sensor read timeout"
+- All values read as zero
+- Intermittent failures
+
+**Diagnosis:**
+```cpp
+DecodedValues result = readRequest(regs, count);
+print("Read success: %d\n", result.success);
+print("Values received: %zu\n", result.count);
+```
+
+**Solutions:**
+- Check UART connections (TX/RX swapped?)
+- Verify baud rate (9600 for PZEM-004T)
+- Check Modbus address (default: 0x01)
+- Increase read timeout
+- Add pull-up resistors on RS485 lines
+
+#### Issue 5: Memory Exhaustion
+
+**Symptoms:**
+- "Memory allocation failed"
+- Random crashes
+- Heap fragmentation
+
+**Diagnosis:**
+```cpp
+print("Free Heap: %u bytes\n", ESP.getFreeHeap());
+print("Min Free Heap: %u bytes\n", ESP.getMinFreeHeap());
+print("Heap Fragmentation: %u%%\n", ESP.getHeapFragmentation());
+```
+
+**Solutions:**
+- Reduce batch size (10 → 5 samples)
+- Clear upload queue more frequently
+- Reduce JSON document size (DynamicJsonDocument allocation)
+- Disable debug logging to save RAM
+- Monitor for memory leaks in compression module
+
+#### Issue 6: Task Timing Issues
+
+**Symptoms:**
+- Missed uploads
+- Irregular polling
+- Tasks not executing
+
+**Diagnosis:**
+```cpp
+print("Poll Token: %d\n", TaskCoordinator::isPollReady());
+print("Upload Token: %d\n", TaskCoordinator::isUploadReady());
+print("Timer Freqs: %llu, %llu, %llu, %llu\n", 
+      pollFreq, uploadFreq, configFreq, otaFreq);
+```
+
+**Solutions:**
+- Verify timer initialization succeeded
+- Check timer alarm enable state
+- Ensure `yield()` is called in main loop
+- Verify ISRs are not blocked
+- Check for long-running tasks blocking loop
+
+### 13.2 Debug Commands
+
+**Enable Verbose Logging:**
+```cpp
+#define DEBUG_MODE 1
+DataCompression::setDebugMode(true);
+```
+
+**Force Diagnostics:**
+```cpp
+Diagnostics::runDiagnostics();
+String report = Diagnostics::getDiagnosticsReport();
+print("%s\n", report.c_str());
+```
+
+**Manual OTA Trigger:**
+```cpp
+otaManager->checkForUpdate();
+if (otaManager->downloadAndApplyFirmware()) {
+    otaManager->verifyAndReboot();
+}
+```
+
+**Reset Configuration:**
+```cpp
+nvs::resetToDefaults();
+SecurityLayer::setNonce(10000);
+ESP.restart();
+```
+
+### 13.3 Log Analysis
+
+**Normal Boot Sequence:**
+```
+=== EcoWatt ESP32 System Starting (Modular v2.0) ===
+[WiFi] Connecting to network...
+[WiFi] Connected! IP: 192.168.1.150
+[NVS] Configuration loaded
+[TaskCoordinator] All timers initialized successfully
+[DataPipeline] Initialized with 6 registers
+[OTAManager] Checking for rollback... none
+[Security] Initialized with nonce = 10523
+=== System Initialization Complete ===
+```
+
+**OTA Update Sequence:**
+```
+=== OTA UPDATE CHECK INITIATED ===
+Firmware update available!
+New version: 1.0.5
+Total chunks: 987
+[OTA] Downloading chunk 1/987...
+[OTA] Downloading chunk 100/987...
+...
+[OTA] Downloading chunk 987/987...
+[OTA] Download complete, verifying...
+[OTA] SHA-256 hash: OK
+[OTA] RSA signature: OK
+[OTA] Marking partition bootable...
+[OTA] Rebooting to new firmware...
+```
+
+### 13.4 Support Resources
+
+- **Project Documentation**: `plans_and_progress/`
+- **Flask Server Docs**: `FLASK_ARCHITECTURE.md`
+- **Test Documentation**: `ESP32_TESTS.md`
+- **PlatformIO Issues**: Check `platformio.ini` for build flags
+- **ESP32 Reference**: https://docs.espressif.com/
+
+---
+
+## Appendix A: Module Reference Quick Guide
+
+| Module | Purpose | Key Functions | Dependencies |
+|--------|---------|---------------|--------------|
+| `task_coordinator` | Timer management | `init()`, `isPollReady()`, `pauseAllTasks()` | ESP32 HW timers |
+| `OTAManager` | Firmware updates | `checkForUpdate()`, `downloadAndApplyFirmware()` | security, nvs, WiFi |
+| `compression` | Data compression | `compressWithSmartSelection()`, `decompress()` | None |
+| `security` | Authentication | `securePayload()`, `calculateHMAC()` | mbedtls, keys |
+| `data_pipeline` | Data acquisition | `pollAndProcess()`, `updateRegisterSelection()` | acquisition, compression |
+| `data_uploader` | Network transmission | `uploadPendingData()`, `enqueueData()` | security, WiFi |
+| `command_executor` | Remote commands | `checkAndExecuteCommands()` | WiFi, nvs |
+| `config_manager` | Config sync | `checkForChanges()`, `applyConfiguration()` | WiFi, nvs |
+| `nvs` | Persistent storage | `getPollFreq()`, `setReadRegs()` | ESP32 NVS |
+| `statistics_manager` | Metrics | `getStatistics()`, `printStatistics()` | None |
+| `diagnostics` | Health checks | `runDiagnostics()`, `getDiagnosticsReport()` | All modules |
+| `acquisition` | Sensor interface | `readRequest()` | protocol_adapter |
+| `arduino_wifi` | WiFi management | `connect()`, `isConnected()` | ESP32 WiFi |
+
+---
+
+## Appendix B: Build Configuration
+
+**File:** `platformio.ini`
+
+```ini
+[env:esp32dev]
+platform = espressif32
+board = esp32dev
+framework = arduino
+monitor_speed = 115200
+
+build_flags = 
+    -DCORE_DEBUG_LEVEL=3
+    -DARDUINO_USB_CDC_ON_BOOT=0
+    -DFIRMWARE_VERSION=\"1.0.4\"
+    
+lib_deps = 
+    bblanchon/ArduinoJson@^6.21.3
+    https://github.com/espressif/arduino-esp32.git#2.0.14
+    mbedtls
+    
+upload_speed = 921600
+board_build.partitions = partitions_ota.csv
+```
+
+**Partition Table:** `partitions_ota.csv`
+```csv
+# Name,   Type, SubType, Offset,  Size
+nvs,      data, nvs,     0x9000,  0x5000
+otadata,  data, ota,     0xe000,  0x2000
+app0,     app,  ota_0,   0x10000, 0x180000
+app1,     app,  ota_1,   0x190000,0x180000
+spiffs,   data, spiffs,  0x310000,0xF0000
+```
+
+---
+
+## Appendix C: Firmware Versions
+
+| Version | Date | Milestone | Changes |
+|---------|------|-----------|---------|
+| 1.0.0 | Jan 2025 | M2 | Initial release, basic acquisition |
+| 1.0.1 | Feb 2025 | M2 | Added dictionary compression |
+| 1.0.2 | Mar 2025 | M3 | Multi-algorithm compression |
+| 1.0.3 | Apr 2025 | M3 | Smart selection system |
+| 1.0.4 | Oct 2025 | M4 | Security layer, OTA, AES key sync |
+| 1.0.5 | TBD | M4 | (Next planned release) |
+| 2.0.0 | TBD | M5 | Power management, deep sleep |
+
+---
+
+**End of ESP32 Architecture Documentation**
+
+For related documentation, see:
+- **Flask Architecture**: `FLASK_ARCHITECTURE.md`
+- **Flask Tests**: `FLASK_TESTS.md`
+- **ESP32 Tests**: `ESP32_TESTS.md`
+- **Main README**: `../README.md`
