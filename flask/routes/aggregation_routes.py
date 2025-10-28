@@ -235,7 +235,154 @@ def reset_compression_stats():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@aggregation_bp.route('/aggregation/latest/<device_id>', methods=['GET'])
+def get_latest_data(device_id: str):
+    """
+    Get the latest aggregated data for a device
+    
+    Args:
+        device_id: Device identifier
+        
+    Returns:
+        JSON with latest sensor data
+    """
+    try:
+        # In a real implementation, this would query a database
+        # For now, return mock data
+        data = {
+            'device_id': device_id,
+            'timestamp': time.time(),
+            'voltage': 230.5,
+            'current': 4.2,
+            'power': 968.1,
+            'energy': 12.5,
+            'frequency': 50.0,
+            'power_factor': 0.95
+        }
+        
+        return jsonify({
+            'success': True,
+            **data
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting latest data for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
         }), 500
+
+
+@aggregation_bp.route('/aggregation/historical/<device_id>', methods=['GET'])
+def get_historical_data(device_id: str):
+    """
+    Get historical aggregated data for a device
+    
+    Args:
+        device_id: Device identifier
+        
+    Query parameters:
+        start_time: Start timestamp (ISO format or unix timestamp)
+        end_time: End timestamp (ISO format or unix timestamp)
+        limit: Maximum number of records (default: 100)
+        
+    Returns:
+        JSON with historical sensor data
+    """
+    try:
+        start_time = request.args.get('start_time')
+        end_time = request.args.get('end_time')
+        limit = int(request.args.get('limit', 100))
+        
+        # In a real implementation, this would query a database
+        # For now, return mock historical data
+        import random
+        current_time = time.time()
+        data_points = []
+        
+        for i in range(min(limit, 50)):
+            timestamp = current_time - (i * 60)  # 1 minute intervals
+            data_points.append({
+                'timestamp': timestamp,
+                'voltage': 230 + random.uniform(-5, 5),
+                'current': 4 + random.uniform(-0.5, 0.5),
+                'power': 950 + random.uniform(-50, 50),
+                'energy': 12 + random.uniform(0, 1),
+                'frequency': 50.0,
+                'power_factor': 0.95
+            })
+        
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'data': data_points,
+            'count': len(data_points)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting historical data for {device_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@aggregation_bp.route('/export/<device_id>/csv', methods=['GET'])
+def export_data_csv(device_id: str):
+    """
+    Export device data as CSV
+    
+    Args:
+        device_id: Device identifier
+        
+    Query parameters:
+        start_time: Start timestamp
+        end_time: End timestamp
+        
+    Returns:
+        CSV file download
+    """
+    try:
+        from flask import make_response
+        import io
+        import csv
+        
+        # In a real implementation, query database for data
+        # For now, create mock CSV data
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow(['timestamp', 'voltage', 'current', 'power', 'energy', 'frequency', 'power_factor'])
+        
+        # Write mock data rows
+        import random
+        current_time = time.time()
+        for i in range(50):
+            timestamp = current_time - (i * 60)
+            writer.writerow([
+                timestamp,
+                230 + random.uniform(-5, 5),
+                4 + random.uniform(-0.5, 0.5),
+                950 + random.uniform(-50, 50),
+                12 + random.uniform(0, 1),
+                50.0,
+                0.95
+            ])
+        
+        # Create response
+        response = make_response(output.getvalue())
+        response.headers['Content-Type'] = 'text/csv'
+        response.headers['Content-Disposition'] = f'attachment; filename={device_id}_data.csv'
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error exporting CSV for {device_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+

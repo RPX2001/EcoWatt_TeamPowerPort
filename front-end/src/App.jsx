@@ -1,12 +1,20 @@
+import { useState } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import theme from './theme/theme';
 import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import Container from '@mui/material/Container';
-import Paper from '@mui/material/Paper';
+import Toolbar from '@mui/material/Toolbar';
+import Navbar from './components/common/Navbar';
+import Sidebar from './components/common/Sidebar';
+import Dashboard from './pages/Dashboard';
+import Configuration from './pages/Configuration';
+import Commands from './pages/Commands';
+import FOTA from './pages/FOTA';
+import Logs from './pages/Logs';
+import Utilities from './pages/Utilities';
+import Testing from './pages/Testing';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -14,33 +22,51 @@ const queryClient = new QueryClient({
     queries: {
       refetchOnWindowFocus: false,
       retry: 1,
+      staleTime: 5 * 60 * 1000, // 5 minutes
     },
   },
 });
 
 function App() {
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const handleMenuClick = () => {
+    setSidebarOpen(!sidebarOpen);
+  };
+
+  const handleSidebarClose = () => {
+    // Keep sidebar open for desktop, close behavior can be added for mobile later
+  };
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <BrowserRouter>
-          <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', py: 4 }}>
-            <Container maxWidth="lg">
-              <Paper elevation={3} sx={{ p: 4, textAlign: 'center' }}>
-                <Typography variant="h3" component="h1" gutterBottom color="primary">
-                  ⚡ EcoWatt Control Panel
-                </Typography>
-                <Typography variant="h6" color="text.secondary" gutterBottom>
-                  Real-time Device Monitoring & Management
-                </Typography>
-                <Typography variant="body1" sx={{ mt: 3 }}>
-                  Frontend setup complete! 🎉
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  Start building the dashboard components...
-                </Typography>
-              </Paper>
-            </Container>
+          <Box sx={{ display: 'flex' }}>
+            <Navbar onMenuClick={handleMenuClick} />
+            <Sidebar open={sidebarOpen} onClose={handleSidebarClose} />
+            <Box
+              component="main"
+              sx={{
+                flexGrow: 1,
+                p: 3,
+                width: '100%',
+                minHeight: '100vh',
+                bgcolor: 'background.default',
+              }}
+            >
+              <Toolbar /> {/* Spacer for fixed navbar */}
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/config" element={<Configuration />} />
+                <Route path="/commands" element={<Commands />} />
+                <Route path="/fota" element={<FOTA />} />
+                <Route path="/logs" element={<Logs />} />
+                <Route path="/utilities" element={<Utilities />} />
+                <Route path="/testing" element={<Testing />} />
+              </Routes>
+            </Box>
           </Box>
         </BrowserRouter>
       </ThemeProvider>

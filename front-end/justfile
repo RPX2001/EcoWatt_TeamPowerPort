@@ -48,6 +48,31 @@ cypress-run:
 lint:
     npm run lint
 
+# Fix linting issues
+lint-fix:
+    npm run lint:fix
+
+# Format code with Prettier
+format:
+    npm run format
+
+# Check code formatting
+format-check:
+    npm run format:check
+
+# Check if Flask backend is running
+check-backend:
+    @echo "Testing Flask backend connection..."
+    @curl -s http://localhost:5001/health || echo "❌ Flask backend not running on port 5001"
+
+# Full stack check (Flask + Frontend)
+fullstack-check:
+    @echo "🔍 Checking full stack status..."
+    @echo "\n1. Flask Backend:"
+    @curl -s http://localhost:5001/health && echo "✅ Backend is running" || echo "❌ Backend not running"
+    @echo "\n2. Frontend Dev Server:"
+    @curl -s http://localhost:5173 > /dev/null 2>&1 && echo "✅ Frontend is running" || echo "❌ Frontend not running"
+
 # Clean node_modules and reinstall
 clean-install:
     rm -rf node_modules package-lock.json

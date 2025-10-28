@@ -26,3 +26,5 @@ From Now on
 meaing systamatically implement each feature and do the testing then only move to next.
 
 4. Update the to-do list as progressing further
+
+5. When it comes to API endpoints pay critical attention to what is expected and in what format

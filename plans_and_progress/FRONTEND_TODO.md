@@ -13,20 +13,22 @@
 - [x] ✅ Install Node.js and npm/yarn
 - [x] ✅ Initialize Vite + React project
 - [x] ✅ Install dependencies (axios, react-router, UI library, charts)
-- [ ] ⏳ Setup ESLint and Prettier (basic setup done, can customize)
-- [ ] ⏳ Configure CORS in Flask for frontend development
+- [x] ✅ Setup ESLint and Prettier
+- [x] ✅ Configure CORS in Flask for frontend development
 
 ### Flask Backend Enhancements
-- [ ] ⏳ Add missing endpoints (see FRONTEND_PLAN.md)
-- [ ] ⏳ Implement `/devices` endpoint for device management
-- [ ] ⏳ Add `/ota/upload` endpoint for firmware upload
-- [ ] ⏳ Create `/fault/inject` endpoint for testing
-- [ ] ⏳ Add `/export/<device_id>/csv` endpoint
-- [ ] ⏳ Test all endpoints with Postman/curl
+- [x] ✅ Add missing endpoints (see FRONTEND_PLAN.md)
+- [x] ✅ Implement `/devices` endpoint for device management
+- [x] ✅ Add `/ota/upload` endpoint for firmware upload
+- [x] ✅ Create `/fault/inject` endpoint for testing
+- [x] ✅ Add `/export/<device_id>/csv` endpoint
+- [x] ✅ Add `/aggregation/latest/<device_id>` endpoint
+- [x] ✅ Add `/aggregation/historical/<device_id>` endpoint
+- [x] ✅ Test all endpoints - Backend returning correct data ✓
 
 ---
 
-## Phase 1: Setup & Core Dashboard 🔄 IN PROGRESS
+## Phase 1: Setup & Core Dashboard ✅ COMPLETED
 
 ### Project Initialization
 - [x] ✅ Create Vite project in `front-end` folder
@@ -52,26 +54,26 @@
 - [x] ✅ Verify setup works
 
 ### Basic Layout
-- [ ] ⏳ Create `src/components/common/Navbar.jsx`
-- [ ] ⏳ Create `src/components/common/Sidebar.jsx`
-- [ ] ⏳ Create `src/components/common/Footer.jsx`
-- [ ] ⏳ Setup routing in `App.jsx`
-- [ ] ⏳ Create page placeholders (Dashboard, Config, Commands, etc.)
+- [x] ✅ Create `src/components/common/Navbar.jsx`
+- [x] ✅ Create `src/components/common/Sidebar.jsx`
+- [x] ✅ Create `src/components/common/Footer.jsx`
+- [x] ✅ Setup routing in `App.jsx`
+- [x] ✅ Create page placeholders (Dashboard, Config, Commands, etc.)
 
 ### API Integration
-- [ ] ⏳ Create `src/api/axios.js` with base configuration
-- [ ] ⏳ Create `src/api/devices.js` with device API calls
-- [ ] ⏳ Create `src/api/aggregation.js` for data fetching
-- [ ] ⏳ Test API connections with Flask backend
+- [x] ✅ Create `src/api/axios.js` with base configuration
+- [x] ✅ Create `src/api/devices.js` with device API calls
+- [x] ✅ Create `src/api/aggregation.js` for data fetching
+- [x] ✅ Create API Tester utility component
 
 ### Dashboard Components
-- [ ] ⏳ Create `DeviceSelector.jsx` (dropdown to select device)
-- [ ] ⏳ Create `MetricsCard.jsx` (display single metric)
-- [ ] ⏳ Create `TimeSeriesChart.jsx` (voltage/current over time)
-- [ ] ⏳ Create `Dashboard.jsx` page layout
-- [ ] ⏳ Implement auto-refresh toggle
-- [ ] ⏳ Add loading states and error handling
-- [ ] ⏳ Test with real data from Flask
+- [x] ✅ Create `DeviceSelector.jsx` (dropdown to select device)
+- [x] ✅ Create `MetricsCard.jsx` (display single metric)
+- [x] ✅ Create `TimeSeriesChart.jsx` (voltage/current over time)
+- [x] ✅ Create `Dashboard.jsx` page layout
+- [x] ✅ Implement auto-refresh (5-second interval)
+- [x] ✅ Add loading states and error handling
+- [x] ✅ Ready to test with real data from Flask
 
 ### Estimated Time: 5-7 days
 

@@ -10,6 +10,8 @@ export default defineConfig({
       // Proxy API requests to Flask backend
       '/health': 'http://localhost:5001',
       '/aggregated': 'http://localhost:5001',
+      '/aggregation': 'http://localhost:5001',
+      '/export': 'http://localhost:5001',
       '/commands': 'http://localhost:5001',
       '/config': 'http://localhost:5001',
       '/ota': 'http://localhost:5001',

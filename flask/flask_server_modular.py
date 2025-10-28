@@ -16,6 +16,7 @@ Architecture:
 """
 
 from flask import Flask
+from flask_cors import CORS
 import logging
 import time
 import threading
@@ -34,9 +35,20 @@ from routes import (
     command_bp,
     fault_bp
 )
+from routes.device_routes import device_bp
 
 # Initialize Flask app
 app = Flask(__name__)
+
+# Configure CORS for frontend development
+CORS(app, resources={
+    r"/*": {
+        "origins": ["http://localhost:5173", "http://localhost:5174"],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True
+    }
+})
 
 # Configure logging
 init_logging()
@@ -73,6 +85,7 @@ def register_blueprints():
         app.register_blueprint(ota_bp)
         app.register_blueprint(command_bp)
         app.register_blueprint(fault_bp)
+        app.register_blueprint(device_bp)
         
         _blueprints_registered = True
         logger.info("✓ All blueprints registered successfully")

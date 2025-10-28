@@ -335,3 +335,143 @@ def get_fault_injection_status():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@ota_bp.route('/ota/upload', methods=['POST'])
+def upload_firmware():
+    """
+    Upload a new firmware binary
+    
+    Expected form data:
+        file: Firmware binary file
+        version: Firmware version (e.g., "1.0.5")
+        description: Optional description
+        
+    Returns:
+        JSON with upload status and firmware info
+    """
+    try:
+        # Check if file is present
+        if 'file' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No file provided'
+            }), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'Empty filename'
+            }), 400
+        
+        version = request.form.get('version')
+        if not version:
+            return jsonify({
+                'success': False,
+                'error': 'Version is required'
+            }), 400
+        
+        description = request.form.get('description', '')
+        
+        # Save firmware file
+        import os
+        firmware_dir = 'firmware'
+        os.makedirs(firmware_dir, exist_ok=True)
+        
+        filename = f"firmware_{version}.bin"
+        filepath = os.path.join(firmware_dir, filename)
+        
+        # Check if version already exists
+        if os.path.exists(filepath):
+            return jsonify({
+                'success': False,
+                'error': f'Firmware version {version} already exists'
+            }), 409
+        
+        file.save(filepath)
+        
+        # Get file size
+        file_size = os.path.getsize(filepath)
+        
+        # Create manifest
+        import json
+        import time
+        import hashlib
+        
+        # Calculate SHA256 hash
+        with open(filepath, 'rb') as f:
+            firmware_hash = hashlib.sha256(f.read()).hexdigest()
+        
+        manifest = {
+            'version': version,
+            'filename': filename,
+            'size': file_size,
+            'hash': firmware_hash,
+            'description': description,
+            'uploaded_at': time.time()
+        }
+        
+        manifest_path = os.path.join(firmware_dir, f"firmware_{version}_manifest.json")
+        with open(manifest_path, 'w') as f:
+            json.dump(manifest, f, indent=2)
+        
+        logger.info(f"Firmware uploaded: {version} ({file_size} bytes)")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Firmware {version} uploaded successfully',
+            'firmware': manifest
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error uploading firmware: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@ota_bp.route('/ota/firmwares', methods=['GET'])
+def list_firmwares():
+    """
+    List all available firmware versions
+    
+    Returns:
+        JSON with list of firmware versions
+    """
+    try:
+        import os
+        import json
+        
+        firmware_dir = 'firmware'
+        if not os.path.exists(firmware_dir):
+            return jsonify({
+                'success': True,
+                'firmwares': []
+            }), 200
+        
+        firmwares = []
+        for filename in os.listdir(firmware_dir):
+            if filename.endswith('_manifest.json'):
+                manifest_path = os.path.join(firmware_dir, filename)
+                with open(manifest_path, 'r') as f:
+                    manifest = json.load(f)
+                    firmwares.append(manifest)
+        
+        # Sort by upload time, newest first
+        firmwares.sort(key=lambda x: x.get('uploaded_at', 0), reverse=True)
+        
+        return jsonify({
+            'success': True,
+            'firmwares': firmwares,
+            'count': len(firmwares)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error listing firmwares: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
