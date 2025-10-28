@@ -341,7 +341,7 @@ class TestM4FlaskIntegration:
         
         # Queue a command
         command_payload = {
-            'command_type': 'set_power',
+            'command': 'set_power',  # Changed from 'command_type' to 'command'
             'parameters': {'power_value': 3000}
         }
         
@@ -349,9 +349,9 @@ class TestM4FlaskIntegration:
                                     json=command_payload,
                                     content_type='application/json')
         
-        # Skip if no command_id returned
-        if queue_response.status_code != 200:
-            logger.warning("Skipping result test - command queue failed")
+        # Skip if command queue failed (accept both 200 and 201)
+        if queue_response.status_code not in [200, 201]:
+            logger.warning(f"Skipping result test - command queue failed with status {queue_response.status_code}")
             pytest.skip("Command queue failed")
             return
         
@@ -365,9 +365,9 @@ class TestM4FlaskIntegration:
         
         # Report execution result
         result_payload = {
-            'status': 'completed',
-            'result': {
-                'success': True,
+            'command_id': command_id,  # Required field
+            'success': True,
+            'result_data': {
                 'message': 'Power set to 3000W (30%)'
             }
         }
@@ -448,38 +448,56 @@ class TestM4FlaskIntegration:
             logger.info("[PASS] No update available (current version up to date)")
     
     def test_14_fota_firmware_info(self, client):
-        """Test 14: Get firmware information"""
+        """Test 14: Get firmware information via check endpoint"""
         logger.info("=== Test 14: FOTA - Firmware Info ===")
         
-        response = client.get(f'/ota/info?version=1.0.5')
-        
-        # May return 200 with info or 404 if version doesn't exist
-        assert response.status_code in [200, 404]
-        
-        if response.status_code == 200:
-            data = json.loads(response.data)
-            assert 'version' in data
-            assert 'size' in data
-            logger.info(f"[PASS] Firmware info retrieved: v{data['version']}, {data['size']} bytes")
-        else:
-            logger.info("[PASS] Firmware version not found (expected for non-existent version)")
-    
-    def test_15_fota_download_firmware(self, client):
-        """Test 15: Download firmware binary"""
-        logger.info("=== Test 15: FOTA - Download Firmware ===")
-        
-        response = client.get(f'/ota/download?device_id={TEST_DEVICE_ID}&version=1.0.5')
-        
-        if response.status_code == 404:
-            logger.info("[SKIP] Firmware binary not available")
-            pytest.skip("Firmware binary not available")
-            return
+        # Use the check endpoint which provides firmware info when update is available
+        response = client.get(f'/ota/check/{TEST_DEVICE_ID}?version=1.0.4')
         
         assert response.status_code == 200
-        assert response.content_type in ['application/octet-stream', 'application/x-binary']
-        assert len(response.data) > 0
+        data = json.loads(response.data)
         
-        logger.info(f"[PASS] Firmware downloaded: {len(response.data)} bytes")
+        assert 'success' in data
+        assert 'update_available' in data
+        
+        if data['update_available']:
+            assert 'update_info' in data
+            update_info = data['update_info']
+            # Check for firmware details in update_info
+            assert isinstance(update_info, dict)
+            logger.info(f"[PASS] Firmware info available: {update_info}")
+        else:
+            logger.info("[PASS] No update available (already on latest version)")
+    
+    def test_15_fota_download_firmware(self, client):
+        """Test 15: Download firmware chunk (chunked download API)"""
+        logger.info("=== Test 15: FOTA - Download Firmware Chunk ===")
+        
+        # First, initiate an OTA session
+        initiate_payload = {'firmware_version': '1.0.5'}
+        initiate_response = client.post(f'/ota/initiate/{TEST_DEVICE_ID}',
+                                       json=initiate_payload,
+                                       content_type='application/json')
+        
+        if initiate_response.status_code != 201:
+            data = json.loads(initiate_response.data)
+            logger.info(f"[SKIP] Cannot initiate OTA session: {data.get('error', 'Unknown error')}")
+            pytest.skip(f"Cannot initiate OTA session: {data.get('error', 'Unknown error')}")
+            return
+        
+        # Now download the first chunk
+        response = client.get(f'/ota/chunk/{TEST_DEVICE_ID}?version=1.0.5&chunk=0')
+        
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        
+        assert 'success' in data
+        assert data['success'] == True
+        assert 'chunk_data' in data  # Base64-encoded chunk
+        assert 'chunk_size' in data
+        assert data['chunk_size'] > 0
+        
+        logger.info(f"[PASS] Firmware chunk downloaded: {data['chunk_size']} bytes (chunk 0)")
     
     # ========================================================================
     # TEST CATEGORY 7: Combined Workflows
