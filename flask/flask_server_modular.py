@@ -37,6 +37,7 @@ from routes import (
 )
 from routes.device_routes import device_bp
 from routes.config_routes import config_bp
+from routes.utilities_routes import utilities_bp
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -88,6 +89,7 @@ def register_blueprints():
         app.register_blueprint(fault_bp)
         app.register_blueprint(device_bp)
         app.register_blueprint(config_bp)
+        app.register_blueprint(utilities_bp)
         
         _blueprints_registered = True
         logger.info("✓ All blueprints registered successfully")
