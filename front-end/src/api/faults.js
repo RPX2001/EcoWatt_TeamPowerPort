@@ -6,7 +6,7 @@
  * 2. Local Flask - For application-level faults
  */
 
-import apiClient from './client';
+import apiClient from './axios';
 
 /**
  * Inject a fault for testing

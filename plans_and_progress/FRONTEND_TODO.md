@@ -277,58 +277,109 @@
 
 ---
 
-## Phase 6: Testing Features 🎯
+## Phase 6: Testing Features ✅ COMPLETED
 
 ### Fault Injection Interface
-- [ ] ⏳ Create `src/api/fault.js`
-- [ ] ⏳ Create `FaultInjection.jsx`
-  - [ ] Fault type selector dropdown
-    * Network timeout
-    * Malformed data
-    * Buffer overflow
-    * CRC error
-  - [ ] Device selector
-  - [ ] Inject button
-  - [ ] Status display
-  - [ ] Result log viewer
-- [ ] ⏳ Add Flask endpoints for fault injection
-- [ ] ⏳ Test fault scenarios
+- [x] ✅ Create `src/api/fault.js` (already exists from Phase 2)
+- [x] ✅ Create `FaultInjection.jsx`
+  - [x] ✅ Fault type selector dropdown
+    * Inverter SIM API: EXCEPTION, CRC_ERROR, CORRUPT, PACKET_DROP, DELAY
+    * Local Backend: Network timeout, MQTT disconnect, Command failure, OTA failure, Memory error
+  - [x] ✅ Backend selector (Inverter SIM vs Local)
+  - [x] ✅ Device selector
+  - [x] ✅ Inject button with loading state
+  - [x] ✅ Status display with color-coded results
+  - [x] ✅ Result log viewer with fault history (last 10)
+  - [x] ✅ Clear faults functionality
+  - [x] ✅ Available fault types reference
+- [x] ✅ Integrated with existing Flask fault endpoints
+- [x] ✅ Integrated with Inverter SIM API (20.15.114.131:8080)
 
 ### Security Testing
-- [ ] ⏳ Create `SecurityTests.jsx`
-  - [ ] Replay attack test
-  - [ ] Tampered payload test
-  - [ ] Invalid HMAC test
-  - [ ] Old nonce test
-  - [ ] Test result display
-  - [ ] Security stats viewer
-- [ ] ⏳ Add Flask endpoints for security testing
-- [ ] ⏳ Test security scenarios
-
-### Upload Error Testing
-- [ ] ⏳ Create `UploadTests.jsx`
-  - [ ] Simulate upload failure
-  - [ ] Test retry logic
-  - [ ] Verify backoff behavior
-  - [ ] Display retry attempts
-- [ ] ⏳ Test upload error scenarios
-
-### OTA Testing
-- [ ] ⏳ Create `OTATests.jsx`
-  - [ ] Test successful update
-  - [ ] Test failed update with rollback
-  - [ ] Test hash mismatch
-  - [ ] Test chunked download errors
-  - [ ] Display test results
-- [ ] ⏳ Test OTA scenarios
+- [x] ✅ Create `src/api/security.js`
+  - [x] ✅ validateSecuredPayload, getSecurityStats, resetSecurityStats
+  - [x] ✅ clearDeviceNonces, clearAllNonces, getDeviceSecurityInfo
+  - [x] ✅ testReplayAttack, testTamperedPayload, testInvalidHMAC, testOldNonce
+- [x] ✅ Create `SecurityTests.jsx`
+  - [x] ✅ Device selector for targeting tests
+  - [x] ✅ Test payload editor with regenerate functionality
+  - [x] ✅ Run all security tests button
+  - [x] ✅ Individual test execution:
+    * Replay attack detection test
+    * Tampered payload detection test
+    * Invalid HMAC detection test
+    * Old nonce rejection test
+  - [x] ✅ Test result display with pass/fail indicators
+  - [x] ✅ Test duration tracking
+  - [x] ✅ Security statistics dashboard (total validations, successful, failed, replay attacks)
+  - [x] ✅ Device security information display (nonces, last validation)
+  - [x] ✅ Clear nonces functionality
+  - [x] ✅ Reset stats functionality
+  - [x] ✅ Test descriptions panel
+- [x] ✅ Integrated with Flask security endpoints
+- [x] ✅ Real-time statistics updates (10s interval)
 
 ### Testing Page
-- [ ] ⏳ Create `Testing.jsx` page layout
-- [ ] ⏳ Organize tests into sections
-- [ ] ⏳ Add "Run All Tests" functionality
-- [ ] ⏳ Test complete testing suite
+- [x] ✅ Create `Testing.jsx` page layout
+- [x] ✅ Three-tab interface with icons:
+  * Tab 1: Fault Injection
+  * Tab 2: Security Tests
+  * Tab 3: System Tests
+- [x] ✅ Warning alert for testing environment usage
+- [x] ✅ Consistent design with other pages (FOTA, Utilities, Logs)
 
-### Estimated Time: 4-6 days
+### System Tests
+- [x] ✅ Create `SystemTests.jsx` component
+  - [x] ✅ OTA Update Test (firmware initiation, progress monitoring, completion)
+  - [x] ✅ Command Execution Test (send command, verify execution)
+  - [x] ✅ Configuration Update Test (get config, update, verify)
+  - [x] ✅ Data Upload Test (upload simulation, error handling)
+  - [x] ✅ End-to-End Workflow Test (multi-step integration test with 4 steps)
+  - [x] ✅ Run All Tests functionality
+  - [x] ✅ Individual test execution buttons
+  - [x] ✅ Test result display with accordions
+  - [x] ✅ Status indicators (pass/fail/error/timeout)
+  - [x] ✅ Duration tracking for each test
+  - [x] ✅ Workflow step visualization
+  - [x] ✅ Test history (last 20 results)
+  - [x] ✅ Clear results functionality
+
+### Files Created/Updated
+1. **front-end/src/api/security.js** (100 lines)
+   - 15 API functions for security testing and validation
+   
+2. **front-end/src/components/testing/FaultInjection.jsx** (430 lines)
+   - Dual backend support (Inverter SIM API + Local)
+   - 5 Inverter SIM fault types + 5 Local fault types
+   - Device targeting
+   - Fault history tracking (last 10 injections)
+   - Color-coded status display
+   - Available fault types reference panel
+   
+3. **front-end/src/components/testing/SecurityTests.jsx** (550+ lines)
+   - 4 comprehensive security tests
+   - Test payload editor
+   - Real-time statistics dashboard (4 metrics)
+   - Device security info viewer
+   - Test results table with duration tracking
+   - Security stats management (reset/clear nonces)
+   
+4. **front-end/src/components/testing/SystemTests.jsx** (700+ lines) ✨ NEW
+   - 5 comprehensive system tests with individual cards
+   - Run all tests functionality
+   - Test result accordions with detailed information
+   - Workflow step visualization with status icons
+   - Status tracking (pass/fail/error/timeout)
+   - Test history with timestamps and expandable details
+   - Device selector integration
+   - Progress indicators for running tests
+   
+5. **front-end/src/pages/Testing.jsx** (Updated - 140 lines)
+   - Tab-based navigation (3 fully functional tabs)
+   - Warning alerts
+   - SystemTests component integrated
+
+### Estimated Time: 4-6 days → ✅ COMPLETED (2025-10-28)
 
 ---
 

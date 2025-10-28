@@ -20,6 +20,7 @@ export default defineConfig({
       '/compression': 'http://localhost:5001',
       '/fault': 'http://localhost:5001',
       '/devices': 'http://localhost:5001',
+      '/utilities': 'http://localhost:5001',
       '/socket.io': {
         target: 'http://localhost:5001',
         ws: true,
