@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   Box, Typography, Grid, CircularProgress, Alert, 
   Paper, Table, TableBody, TableCell, TableContainer, 
@@ -24,6 +24,69 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [viewMode, setViewMode] = useState(0); // 0 = Charts, 1 = Table
+
+  // Categorize registers for grouping in charts (MOVED BEFORE USAGE)
+  const getCategoryForRegister = (registerName) => {
+    const name = registerName.toLowerCase();
+    if (name.includes('vac') || name.includes('iac') || name.includes('fac')) {
+      return 'ac_power';
+    } else if (name.includes('vpv') || name.includes('ipv')) {
+      return 'pv_input';
+    } else if (name.includes('pac') || name.includes('power')) {
+      return 'power';
+    } else if (name.includes('temp')) {
+      return 'temperature';
+    }
+    return 'other';
+  };
+
+  // Dynamically determine available registers from latest data
+  const availableRegisters = useMemo(() => {
+    if (!latestData?.registers) return [];
+    
+    // Get all register names that have values
+    return Object.keys(latestData.registers).filter(regName => 
+      latestData.registers[regName] !== null && 
+      latestData.registers[regName] !== undefined
+    );
+  }, [latestData]);
+
+  // Create dynamic register mapping with metadata
+  const registerConfig = useMemo(() => {
+    if (!latestData?.metadata || !availableRegisters.length) return [];
+    
+    return availableRegisters.map(regName => {
+      const metadata = latestData.metadata[regName];
+      if (!metadata) return null;
+      
+      return {
+        key: regName,
+        name: metadata.name,
+        unit: metadata.unit,
+        gain: metadata.gain,
+        decimals: metadata.decimals,
+        chartKey: regName.toLowerCase(),
+        category: getCategoryForRegister(regName)
+      };
+    }).filter(Boolean);
+  }, [latestData, availableRegisters]);
+
+  // Group registers by category for chart organization
+  const registersByCategory = useMemo(() => {
+    const grouped = {
+      ac_power: [],
+      pv_input: [],
+      power: [],
+      temperature: [],
+      other: []
+    };
+    
+    registerConfig.forEach(reg => {
+      grouped[reg.category].push(reg);
+    });
+    
+    return grouped;
+  }, [registerConfig]);
 
   // Icon mapping for different register types
   const getIconForRegister = (registerName) => {
@@ -81,24 +144,23 @@ const Dashboard = () => {
         end_time: endTime.toISOString(),
       });
       
-      // Transform historical data to chart format
+      // Transform historical data to chart format dynamically
       const rawHistoricalData = historicalResponse.data.data || [];
       const transformedData = rawHistoricalData.map(record => {
         const registers = record.registers || {};
-        return {
-          timestamp: record.timestamp,
-          // Map register names to chart keys
-          voltage: registers.Vac1 ? registers.Vac1 / 10 : 0, // Assuming gain of 10
-          current: registers.Iac1 ? registers.Iac1 / 10 : 0,
-          power: registers.Pac || 0,
-          frequency: registers.Fac1 ? registers.Fac1 / 100 : 0,
-          vpv1: registers.Vpv1 ? registers.Vpv1 / 10 : 0,
-          vpv2: registers.Vpv2 ? registers.Vpv2 / 10 : 0,
-          ipv1: registers.Ipv1 ? registers.Ipv1 / 10 : 0,
-          ipv2: registers.Ipv2 ? registers.Ipv2 / 10 : 0,
-          temperature: registers.Temperature ? registers.Temperature / 10 : 0,
-          exportPowerPct: registers.ExportPowerPct || 0
-        };
+        const transformed = { timestamp: record.timestamp };
+        
+        // Dynamically add all available registers with proper scaling
+        Object.keys(registers).forEach(regName => {
+          const metadata = latestResponse.data.metadata?.[regName];
+          if (metadata && registers[regName] !== null) {
+            const rawValue = registers[regName];
+            const scaledValue = rawValue / metadata.gain;
+            transformed[regName.toLowerCase()] = scaledValue;
+          }
+        });
+        
+        return transformed;
       });
       
       setHistoricalData(transformedData);
@@ -153,42 +215,26 @@ const Dashboard = () => {
             </Box>
           )}
 
-          {/* Metrics Cards - Only for Monitored Registers */}
-          {deviceConfig?.config?.registers && deviceConfig.config.registers.length > 0 && (
+          {/* Metrics Cards - Dynamic based on available registers */}
+          {registerConfig.length > 0 && (
             <Grid container spacing={3} sx={{ mb: 3 }}>
-              {deviceConfig.config.registers.map((registerKey, index) => {
-                // Map register key to actual register name in latestData
-                const registerNameMap = {
-                  'voltage': 'Vac1',
-                  'current': 'Iac1',
-                  'frequency': 'Fac1',
-                  'vpv1': 'Vpv1',
-                  'vpv2': 'Vpv2',
-                  'ipv1': 'Ipv1',
-                  'ipv2': 'Ipv2',
-                  'temperature': 'Temperature',
-                  'export_power_pct': 'ExportPowerPct',
-                  'power': 'Pac'
-                };
-
-                const registerName = registerNameMap[registerKey] || registerKey;
-                const metadata = latestData?.metadata?.[registerName];
-                const rawValue = latestData?.registers?.[registerName];
-
-                if (!metadata || rawValue === undefined) {
+              {registerConfig.map((reg, index) => {
+                const rawValue = latestData?.registers?.[reg.key];
+                
+                if (rawValue === undefined || rawValue === null) {
                   return null;
                 }
 
-                const actualValue = rawValue / metadata.gain;
-                const displayValue = actualValue.toFixed(metadata.decimals);
+                const actualValue = rawValue / reg.gain;
+                const displayValue = actualValue.toFixed(reg.decimals);
 
                 return (
-                  <Grid item xs={12} sm={6} md={4} lg={3} key={registerKey}>
+                  <Grid item xs={12} sm={6} md={4} lg={3} key={reg.key}>
                     <MetricsCard
-                      title={metadata.name}
+                      title={reg.name}
                       value={displayValue}
-                      unit={metadata.unit}
-                      icon={getIconForRegister(registerName)}
+                      unit={reg.unit}
+                      icon={getIconForRegister(reg.key)}
                       color={getColorForRegister(index)}
                     />
                   </Grid>
@@ -205,76 +251,112 @@ const Dashboard = () => {
                 <Tab label="Table View" />
               </Tabs>
 
-              {/* Charts View */}
+              {/* Charts View - Dynamic based on available register categories */}
               {viewMode === 0 && (
                 <Grid container spacing={3}>
-                  <Grid item xs={12}>
-                    <TimeSeriesChart
-                      title="Voltage & Current Over Time"
-                      data={historicalData}
-                      dataKeys={[
-                        { dataKey: 'voltage', name: 'Voltage (V)' },
-                        { dataKey: 'current', name: 'Current (A)' },
-                      ]}
-                      colors={['#1976d2', '#dc004e']}
-                      height={350}
-                      yAxisLabel="Value"
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <TimeSeriesChart
-                      title="Power & Temperature Over Time"
-                      data={historicalData}
-                      dataKeys={[
-                        { dataKey: 'power', name: 'Power (W)' },
-                        { dataKey: 'temperature', name: 'Temperature (°C)' },
-                      ]}
-                      colors={['#ff9800', '#f44336']}
-                      height={350}
-                      yAxisLabel="Value"
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <TimeSeriesChart
-                      title="PV Voltage & Current Over Time"
-                      data={historicalData}
-                      dataKeys={[
-                        { dataKey: 'vpv1', name: 'PV1 Voltage (V)' },
-                        { dataKey: 'vpv2', name: 'PV2 Voltage (V)' },
-                        { dataKey: 'ipv1', name: 'PV1 Current (A)' },
-                        { dataKey: 'ipv2', name: 'PV2 Current (A)' },
-                      ]}
-                      colors={['#4caf50', '#8bc34a', '#ff9800', '#ffc107']}
-                      height={350}
-                      yAxisLabel="Value"
-                    />
-                  </Grid>
+                  {/* AC Power Metrics Chart */}
+                  {registersByCategory.ac_power.length > 0 && (
+                    <Grid item xs={12}>
+                      <TimeSeriesChart
+                        title="AC Power Metrics"
+                        data={historicalData}
+                        dataKeys={registersByCategory.ac_power.map(reg => ({
+                          dataKey: reg.chartKey,
+                          name: `${reg.name} (${reg.unit})`
+                        }))}
+                        colors={['#1976d2', '#dc004e', '#4caf50', '#ff9800']}
+                        height={350}
+                        yAxisLabel="Value"
+                      />
+                    </Grid>
+                  )}
+
+                  {/* PV Input Metrics Chart */}
+                  {registersByCategory.pv_input.length > 0 && (
+                    <Grid item xs={12}>
+                      <TimeSeriesChart
+                        title="PV Input Metrics"
+                        data={historicalData}
+                        dataKeys={registersByCategory.pv_input.map(reg => ({
+                          dataKey: reg.chartKey,
+                          name: `${reg.name} (${reg.unit})`
+                        }))}
+                        colors={['#4caf50', '#8bc34a', '#ff9800', '#ffc107']}
+                        height={350}
+                        yAxisLabel="Value"
+                      />
+                    </Grid>
+                  )}
+
+                  {/* Power & Temperature Chart */}
+                  {(registersByCategory.power.length > 0 || registersByCategory.temperature.length > 0) && (
+                    <Grid item xs={12}>
+                      <TimeSeriesChart
+                        title="Power & Temperature"
+                        data={historicalData}
+                        dataKeys={[
+                          ...registersByCategory.power.map(reg => ({
+                            dataKey: reg.chartKey,
+                            name: `${reg.name} (${reg.unit})`
+                          })),
+                          ...registersByCategory.temperature.map(reg => ({
+                            dataKey: reg.chartKey,
+                            name: `${reg.name} (${reg.unit})`
+                          }))
+                        ]}
+                        colors={['#ff9800', '#f44336', '#9c27b0']}
+                        height={350}
+                        yAxisLabel="Value"
+                      />
+                    </Grid>
+                  )}
+
+                  {/* Other Metrics Chart */}
+                  {registersByCategory.other.length > 0 && (
+                    <Grid item xs={12}>
+                      <TimeSeriesChart
+                        title="Other Metrics"
+                        data={historicalData}
+                        dataKeys={registersByCategory.other.map(reg => ({
+                          dataKey: reg.chartKey,
+                          name: `${reg.name} (${reg.unit})`
+                        }))}
+                        colors={['#9c27b0', '#3f51b5', '#009688']}
+                        height={350}
+                        yAxisLabel="Value"
+                      />
+                    </Grid>
+                  )}
+
+                  {/* Show message if no data */}
+                  {registerConfig.length === 0 && (
+                    <Grid item xs={12}>
+                      <Alert severity="info">
+                        No register data available to display charts
+                      </Alert>
+                    </Grid>
+                  )}
                 </Grid>
               )}
 
-              {/* Table View */}
+              {/* Table View - Dynamic columns based on available registers */}
               {viewMode === 1 && (
                 <TableContainer sx={{ maxHeight: 600 }}>
                   <Table stickyHeader>
                     <TableHead>
                       <TableRow>
                         <TableCell>Timestamp</TableCell>
-                        <TableCell align="right">Voltage (V)</TableCell>
-                        <TableCell align="right">Current (A)</TableCell>
-                        <TableCell align="right">Power (W)</TableCell>
-                        <TableCell align="right">Frequency (Hz)</TableCell>
-                        <TableCell align="right">PV1 V (V)</TableCell>
-                        <TableCell align="right">PV1 I (A)</TableCell>
-                        <TableCell align="right">PV2 V (V)</TableCell>
-                        <TableCell align="right">PV2 I (A)</TableCell>
-                        <TableCell align="right">Temp (°C)</TableCell>
-                        <TableCell align="right">Export %</TableCell>
+                        {registerConfig.map(reg => (
+                          <TableCell key={reg.key} align="right">
+                            {reg.name} ({reg.unit})
+                          </TableCell>
+                        ))}
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {historicalData.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={11} align="center">
+                          <TableCell colSpan={registerConfig.length + 1} align="center">
                             <Typography color="text.secondary" sx={{ py: 4 }}>
                               No historical data available
                             </Typography>
@@ -286,16 +368,16 @@ const Dashboard = () => {
                             <TableCell>
                               {new Date(row.timestamp).toLocaleString()}
                             </TableCell>
-                            <TableCell align="right">{row.voltage.toFixed(2)}</TableCell>
-                            <TableCell align="right">{row.current.toFixed(2)}</TableCell>
-                            <TableCell align="right">{row.power.toFixed(0)}</TableCell>
-                            <TableCell align="right">{row.frequency.toFixed(2)}</TableCell>
-                            <TableCell align="right">{row.vpv1.toFixed(2)}</TableCell>
-                            <TableCell align="right">{row.ipv1.toFixed(2)}</TableCell>
-                            <TableCell align="right">{row.vpv2.toFixed(2)}</TableCell>
-                            <TableCell align="right">{row.ipv2.toFixed(2)}</TableCell>
-                            <TableCell align="right">{row.temperature.toFixed(1)}</TableCell>
-                            <TableCell align="right">{row.exportPowerPct.toFixed(0)}</TableCell>
+                            {registerConfig.map(reg => {
+                              const value = row[reg.chartKey];
+                              return (
+                                <TableCell key={reg.key} align="right">
+                                  {value !== undefined && value !== null 
+                                    ? value.toFixed(reg.decimals)
+                                    : '-'}
+                                </TableCell>
+                              );
+                            })}
                           </TableRow>
                         ))
                       )}

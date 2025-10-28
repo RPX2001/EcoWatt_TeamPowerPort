@@ -139,16 +139,25 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     // Feed the watchdog during long operations
     yield();
     
-    // Build JSON payload - reduced size to prevent stack overflow
-    DynamicJsonDocument doc(6144);  // Reduced from 8192 to 6144
+    // CRITICAL: Use heap allocation for large buffers to prevent stack overflow
+    // ESP32 task stack is limited (~4-8KB), we need ~10KB+ for JSON processing
     
-    doc["device_id"] = deviceID;
-    doc["timestamp"] = millis();
-    doc["data_type"] = "compressed_sensor_batch";
-    doc["total_samples"] = allData.size();
+    // Allocate JSON document on HEAP to prevent stack overflow
+    DynamicJsonDocument* doc = new DynamicJsonDocument(6144);
+    if (!doc) {
+        PRINT_ERROR("Failed to allocate JSON document");
+        http.end();
+        uploadFailures++;
+        return false;
+    }
+    
+    (*doc)["device_id"] = deviceID;
+    (*doc)["timestamp"] = millis();
+    (*doc)["data_type"] = "compressed_sensor_batch";
+    (*doc)["total_samples"] = allData.size();
     
     // Build register mapping from first entry
-    JsonObject registerMapping = doc["register_mapping"].to<JsonObject>();
+    JsonObject registerMapping = (*doc)["register_mapping"].to<JsonObject>();
     if (!allData.empty()) {
         const auto& firstEntry = allData[0];
         for (size_t i = 0; i < firstEntry.registerCount && i < REGISTER_COUNT; i++) {
@@ -159,7 +168,7 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     }
     
     // Compressed data packets
-    JsonArray compressedPackets = doc["compressed_data"].to<JsonArray>();
+    JsonArray compressedPackets = (*doc)["compressed_data"].to<JsonArray>();
     
     size_t totalOriginalBytes = 0;
     size_t totalCompressedBytes = 0;
@@ -179,9 +188,10 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
         JsonObject decompMeta = packet["decompression_metadata"].to<JsonObject>();
         decompMeta["method"] = entry.compressionMethod;
         decompMeta["register_count"] = entry.registerCount;
+        decompMeta["sample_count"] = entry.sampleCount;  // Number of samples in this packet
         decompMeta["original_size_bytes"] = entry.originalSize;
         decompMeta["compressed_size_bytes"] = entry.binaryData.size();
-        decompMeta["timestamp"] = entry.timestamp;
+        decompMeta["timestamp"] = entry.timestamp;  // First sample timestamp
         
         // Register layout for this packet
         JsonArray regLayout = decompMeta["register_layout"].to<JsonArray>();
@@ -202,7 +212,7 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     }
     
     // Overall session summary
-    JsonObject sessionSummary = doc["session_summary"].to<JsonObject>();
+    JsonObject sessionSummary = (*doc)["session_summary"].to<JsonObject>();
     sessionSummary["total_original_bytes"] = totalOriginalBytes;
     sessionSummary["total_compressed_bytes"] = totalCompressedBytes;
     sessionSummary["overall_academic_ratio"] = (totalOriginalBytes > 0) ? 
@@ -222,11 +232,31 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     // Send the JSON with compressed data embedded (base64 encoded)
     // The server will extract and decompress the compressed_data field
     
-    // Serialize the JSON to string
-    char jsonString[2048];
-    serializeJson(doc, jsonString, sizeof(jsonString));
+    // Allocate JSON string buffer on HEAP to prevent stack overflow
+    char* jsonString = new char[4096];
+    if (!jsonString) {
+        PRINT_ERROR("Failed to allocate JSON string buffer");
+        delete doc;
+        http.end();
+        uploadFailures++;
+        return false;
+    }
     
-    print("  [INFO] JSON payload size: %zu bytes\n", strlen(jsonString));
+    size_t jsonLen = serializeJson(*doc, jsonString, 4096);
+    
+    // Clean up JSON document (no longer needed)
+    delete doc;
+    
+    if (jsonLen == 0 || jsonLen >= 4095) {
+        PRINT_ERROR("JSON serialization failed or buffer too small (needed: %zu, have: 4096)", 
+                    jsonLen);
+        delete[] jsonString;
+        http.end();
+        uploadFailures++;
+        return false;
+    }
+    
+    print("  [INFO] JSON payload size: %zu bytes\n", jsonLen);
     
     // Apply Security Layer to the JSON string
     // The security layer will handle Base64 encoding for transport
@@ -235,23 +265,30 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     // Feed watchdog before security operation
     yield();
     
-    char* securedPayload = new char[8192];
+    // Allocate buffer for secured payload (base64 encoding increases size by ~1.37x + JSON overhead)
+    char* securedPayload = new char[8192];  // Large enough for 4096 JSON + base64 + security wrapper
     if (!securedPayload) {
         PRINT_ERROR("Failed to allocate memory for secured payload");
+        delete[] jsonString;  // Clean up jsonString
         http.end();
         uploadFailures++;
         return false;
     }
     
-    // Pass false for isCompressed since we're sending JSON (not raw binary)
-    // The JSON contains compressed data in the "compressed_data" field
+    // Pass FALSE for isCompressed - we're sending JSON (not raw binary)
+    // The JSON contains base64-encoded compressed data in "compressed_data" field
+    // The server will decode the JSON, then extract and decompress the binary data
     if (!SecurityLayer::securePayload(jsonString, securedPayload, 8192, false)) {
         PRINT_ERROR("Payload security failed");
+        delete[] jsonString;  // Clean up jsonString
         delete[] securedPayload;
         http.end();
         uploadFailures++;
         return false;
     }
+    
+    // JSON string no longer needed after securing
+    delete[] jsonString;
     
     PRINT_SUCCESS("Payload secured successfully");
     PRINT_PROGRESS("Uploading to server...");
@@ -286,11 +323,11 @@ void DataUploader::convertBinaryToBase64(const std::vector<uint8_t>& binaryData,
                                          char* result, size_t resultSize) {
     const char* chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     size_t pos = 0;
+    size_t i = 0;
     
-    for (size_t i = 0; i < binaryData.size() && pos < resultSize - 5; i += 3) {
-        uint32_t value = binaryData[i] << 16;
-        if (i + 1 < binaryData.size()) value |= binaryData[i + 1] << 8;
-        if (i + 2 < binaryData.size()) value |= binaryData[i + 2];
+    // Process complete 3-byte groups
+    for (; i + 2 < binaryData.size() && pos < resultSize - 5; i += 3) {
+        uint32_t value = (binaryData[i] << 16) | (binaryData[i + 1] << 8) | binaryData[i + 2];
         
         result[pos++] = chars[(value >> 18) & 0x3F];
         result[pos++] = chars[(value >> 12) & 0x3F];
@@ -298,7 +335,27 @@ void DataUploader::convertBinaryToBase64(const std::vector<uint8_t>& binaryData,
         result[pos++] = chars[value & 0x3F];
     }
     
-    while (pos % 4 && pos < resultSize - 1) result[pos++] = '=';
+    // Handle remaining 1 or 2 bytes
+    if (i < binaryData.size() && pos < resultSize - 5) {
+        size_t remaining = binaryData.size() - i;
+        uint32_t value = binaryData[i] << 16;
+        
+        if (remaining == 2) {
+            // 2 bytes remaining: encode as 3 chars + '='
+            value |= binaryData[i + 1] << 8;
+            result[pos++] = chars[(value >> 18) & 0x3F];
+            result[pos++] = chars[(value >> 12) & 0x3F];
+            result[pos++] = chars[(value >> 6) & 0x3F];
+            result[pos++] = '=';
+        } else {
+            // 1 byte remaining: encode as 2 chars + '=='
+            result[pos++] = chars[(value >> 18) & 0x3F];
+            result[pos++] = chars[(value >> 12) & 0x3F];
+            result[pos++] = '=';
+            result[pos++] = '=';
+        }
+    }
+    
     result[pos] = '\0';
 }
 

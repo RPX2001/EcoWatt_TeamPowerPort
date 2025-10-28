@@ -131,32 +131,52 @@ def receive_aggregated_data(device_id: str):
                     # Publish decompressed data to MQTT
                     mqtt_topic = f"ecowatt/data/{device_id}"
                     current_timestamp = time.time()
+                    
+                    # Extract register layout from first packet's metadata
+                    register_layout = []
+                    if isinstance(compressed_data, list) and len(compressed_data) > 0 and isinstance(compressed_data[0], dict):
+                        metadata = compressed_data[0].get('decompression_metadata', {})
+                        register_layout = metadata.get('register_layout', [])
+                    
+                    # Calculate samples based on register count
+                    registers_per_sample = len(register_layout) if register_layout else 10
+                    total_sample_count = len(all_decompressed) // registers_per_sample
+                    
                     mqtt_payload = {
                         'device_id': device_id,
                         'timestamp': current_timestamp,
                         'values': all_decompressed,
-                        'sample_count': len(all_decompressed),
+                        'sample_count': total_sample_count,
+                        'registers_per_sample': registers_per_sample,
+                        'register_layout': register_layout,
                         'packet_count': len(all_stats),
                         'compression_stats': {
                             'methods': [s.get('method', 'unknown') for s in all_stats],
-                            'total_samples': len(all_decompressed),
+                            'total_samples': total_sample_count,
                             'packets_processed': len(all_stats)
                         }
                     }
                     
                     # Store latest data for dashboard (both memory and database)
                     from utils.data_utils import store_device_latest_data
+                    
                     # Calculate average compression ratio
                     avg_compression_ratio = sum(s.get('compression_ratio', 0) for s in all_stats) / len(all_stats) if all_stats else None
+                    
                     # Get most common compression method
                     compression_method = all_stats[0].get('method', 'unknown') if all_stats else None
+                    
+                    # Extract first packet's timestamp for proper timestamp calculation
+                    first_packet_timestamp = compressed_data[0].get('decompression_metadata', {}).get('timestamp', current_timestamp * 1000) if isinstance(compressed_data, list) and len(compressed_data) > 0 and isinstance(compressed_data[0], dict) else current_timestamp * 1000
                     
                     store_device_latest_data(
                         device_id=device_id, 
                         values=all_decompressed, 
-                        timestamp=current_timestamp,
+                        timestamp=first_packet_timestamp,  # Use ESP32's timestamp in milliseconds
                         compression_method=compression_method,
-                        compression_ratio=avg_compression_ratio
+                        compression_ratio=avg_compression_ratio,
+                        sample_count=total_sample_count,
+                        register_layout=register_layout  # Pass the actual registers that were polled
                     )
                     
                     try:

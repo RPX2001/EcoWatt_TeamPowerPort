@@ -450,6 +450,11 @@ void TaskManager::compressionTask(void* parameter) {
                         packet.uncompressedSize = totalRegisterCount * sizeof(uint16_t);
                         packet.compressedSize = compressedVec.size();
                         
+                        // Copy register layout from first sample (all samples have same layout)
+                        packet.registerCount = sampleBatch[0].registerCount;
+                        memcpy(packet.registers, sampleBatch[0].registers, 
+                               sampleBatch[0].registerCount * sizeof(RegID));
+                        
                         // Determine compression method from header
                         if (packet.dataSize > 0) {
                             switch (packet.data[0]) {
@@ -541,11 +546,15 @@ void TaskManager::uploadTask(void* parameter) {
             SmartCompressedData smartData;
             smartData.binaryData.assign(packet.data, packet.data + packet.dataSize);  // Copy fixed buffer to vector
             smartData.timestamp = packet.timestamp;
-            smartData.registerCount = packet.sampleCount * 10; // Approximate
+            smartData.sampleCount = packet.sampleCount;  // Number of samples in this packet
+            smartData.registerCount = packet.registerCount;  // Actual number of registers per sample
             smartData.originalSize = packet.uncompressedSize;
             smartData.academicRatio = (float)packet.compressedSize / (float)packet.uncompressedSize;
             smartData.traditionalRatio = (float)packet.uncompressedSize / (float)packet.compressedSize;
             strncpy(smartData.compressionMethod, packet.compressionMethod, sizeof(smartData.compressionMethod) - 1);
+            
+            // Copy register layout
+            memcpy(smartData.registers, packet.registers, packet.registerCount * sizeof(RegID));
             
             if (DataUploader::addToQueue(smartData)) {
                 queuedCount++;
@@ -624,8 +633,8 @@ void TaskManager::commandTask(void* parameter) {
         // Feed watchdog before network operation
         yield();
         
-        // Acquire WiFi mutex for network commands (short timeout to avoid blocking)
-        if (xSemaphoreTake(wifiClientMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+        // Acquire WiFi mutex for network commands (5s timeout to allow for HTTP timeout)
+        if (xSemaphoreTake(wifiClientMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
             
             // Execute command using actual CommandExecutor API
             CommandExecutor::checkAndExecuteCommands();

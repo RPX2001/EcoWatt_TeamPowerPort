@@ -176,19 +176,27 @@ def poll_commands_route(device_id):
 
         logger.info(f"[Command] Device {device_id} polled, {len(commands)} commands returned")
 
-        return jsonify({
+        response = jsonify({
             'success': True,
             'device_id': device_id,
             'commands': commands,
             'count': len(commands)
-        }), 200
+        })
+        
+        # CRITICAL: Explicitly close connection to prevent ESP32 read timeouts
+        response.headers['Connection'] = 'close'
+        response.headers['Content-Type'] = 'application/json'
+        
+        return response, 200
         
     except Exception as e:
         logger.error(f"Error polling commands for {device_id}: {e}")
-        return jsonify({
+        error_response = jsonify({
             'success': False,
             'error': str(e)
-        }), 500
+        })
+        error_response.headers['Connection'] = 'close'
+        return error_response, 500
 
 
 @command_bp.route('/commands/<device_id>/result', methods=['POST'])
@@ -239,26 +247,36 @@ def submit_command_result_route(device_id):
         )
 
         if not updated:
-            return jsonify({
+            error_response = jsonify({
                 'success': False,
                 'error': f'Command {command_id} not found'
-            }), 404
+            })
+            error_response.headers['Connection'] = 'close'
+            return error_response, 404
 
         logger.info(f"[Command] Received result for command {command_id}: {status}")
 
-        return jsonify({
+        response = jsonify({
             'success': True,
             'device_id': device_id,
             'command_id': command_id,
             'status': 'completed' if success else 'failed'
-        }), 200
+        })
+        
+        # CRITICAL: Explicitly close connection to prevent ESP32 read timeouts
+        response.headers['Connection'] = 'close'
+        response.headers['Content-Type'] = 'application/json'
+        
+        return response, 200
         
     except Exception as e:
         logger.error(f"Error submitting command result: {e}")
-        return jsonify({
+        error_response = jsonify({
             'success': False,
             'error': str(e)
-        }), 500
+        })
+        error_response.headers['Connection'] = 'close'
+        return error_response, 500
 
 
 @command_bp.route('/commands/status/<command_id>', methods=['GET'])

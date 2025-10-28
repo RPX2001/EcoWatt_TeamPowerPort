@@ -63,14 +63,17 @@ void CommandExecutor::checkAndExecuteCommands() {
     PRINT_SECTION("COMMAND POLL");
     PRINT_PROGRESS("Checking for pending commands...");
 
-    // Create WiFiClient with extended connection timeout
+    // Create WiFiClient with REDUCED timeout (shorter than mutex hold time)
     WiFiClient client;
-    client.setTimeout(15000);  // 15 second connection timeout in MILLISECONDS
+    client.setTimeout(3000);  // 3 second connection timeout (must be < 5s mutex timeout)
     
     HTTPClient http;
     http.begin(client, pollURL);  // Use our WiFiClient with custom timeout
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(15000);  // 15 seconds HTTP timeout (in milliseconds)
+    http.addHeader("Connection", "close");  // CRITICAL: Force server to close connection (avoids indefinite read loops)
+    http.setConnectTimeout(3000);  // 3 seconds connect timeout
+    http.setTimeout(3000);         // 3 seconds read timeout
+    http.setReuse(false);          // Don't keep TCP connection alive
     
     // Feed watchdog before HTTP request
     yield();
@@ -78,61 +81,65 @@ void CommandExecutor::checkAndExecuteCommands() {
     // M4 Format: Use GET request (device_id is in URL)
     int httpResponseCode = http.GET();
 
-    if (httpResponseCode > 0) {
-        WiFiClient* stream = http.getStreamPtr();
-        static char responseBuffer[512];
-        int len = http.getSize();
-        int index = 0;
-
-        while (http.connected() && (len > 0 || len == -1)) {
-            if (stream->available()) {
-                char c = stream->read();
-                if (index < (int)sizeof(responseBuffer) - 1)
-                    responseBuffer[index++] = c;
-                if (len > 0) len--;
-            }
-        }
-        responseBuffer[index] = '\0';
-
+    if (httpResponseCode == 200) {
+        // Success - use getString() to avoid manual stream loop traps
+        String payload = http.getString();
+        
         StaticJsonDocument<512> responseDoc;
-        DeserializationError error = deserializeJson(responseDoc, responseBuffer);
+        DeserializationError error = deserializeJson(responseDoc, payload);
 
-        if (!error && responseDoc.containsKey("command")) {
-            const char* commandId = responseDoc["command"]["command_id"] | "";
-            const char* commandType = responseDoc["command"]["command_type"] | "";
-            
-            print("  [CMD] Received: %s (ID: %s)\n", commandType, commandId);
-            
-            // Extract parameters as JSON string
-            char parameters[256] = {0};
-            if (responseDoc["command"].containsKey("parameters")) {
-                serializeJson(responseDoc["command"]["parameters"], parameters, sizeof(parameters));
-                print("  [INFO] Parameters: %s\n", parameters);
-            }
-            
-            // Execute the command
-            bool success = executeCommand(commandId, commandType, parameters);
-            
-            // Send result back to server
-            char result[128];
-            snprintf(result, sizeof(result), "Command %s: %s", commandType, 
-                     success ? "executed successfully" : "failed");
-            sendCommandResult(commandId, success, result);
-            
-            if (success) {
-                PRINT_SUCCESS("Command executed successfully");
-            } else {
-                PRINT_ERROR("Command execution failed");
+        if (!error && responseDoc.containsKey("commands") && responseDoc["count"].as<int>() > 0) {
+            // Process first command from the array
+            JsonArray commands = responseDoc["commands"];
+            if (commands.size() > 0) {
+                JsonObject firstCmd = commands[0]["command"];
+                
+                const char* commandId = commands[0]["command_id"] | "";
+                const char* commandType = firstCmd["command_type"] | "";
+                
+                print("  [CMD] Received: %s (ID: %s)\n", commandType, commandId);
+                
+                // Extract parameters as JSON string
+                char parameters[256] = {0};
+                if (firstCmd.containsKey("parameters")) {
+                    serializeJson(firstCmd["parameters"], parameters, sizeof(parameters));
+                    print("  [INFO] Parameters: %s\n", parameters);
+                }
+                
+                // Execute the command
+                bool success = executeCommand(commandId, commandType, parameters);
+                
+                // Send result back to server
+                char result[128];
+                snprintf(result, sizeof(result), "Command %s: %s", commandType, 
+                         success ? "executed successfully" : "failed");
+                sendCommandResult(commandId, success, result);
+                
+                if (success) {
+                    PRINT_SUCCESS("Command executed successfully");
+                } else {
+                    PRINT_ERROR("Command execution failed");
+                }
             }
         } else if (error) {
             PRINT_ERROR("Failed to parse JSON response: %s", error.c_str());
         } else {
-            PRINT_INFO("No pending commands in queue");
+            // No commands - this is normal, don't print anything
+            // Silently skip to avoid log spam
         }
 
         http.end();
+    } else if (httpResponseCode == -1) {
+        // Connection timeout or failed - silently skip to avoid log spam
+        // This is normal when server is slow or network is congested
+        http.end();
+    } else if (httpResponseCode < 0) {
+        // Other HTTP client error (connection failed, etc)
+        PRINT_WARNING("Command poll failed - network error (code: %d)", httpResponseCode);
+        http.end();
     } else {
-        PRINT_ERROR("HTTP POST failed - Error code: %d", httpResponseCode);
+        // HTTP error response (4xx, 5xx)
+        PRINT_ERROR("HTTP GET failed - Error code: %d", httpResponseCode);
         http.end();
     }
 }
@@ -287,14 +294,17 @@ void CommandExecutor::sendCommandResult(const char* commandId, bool success, con
         return;
     }
 
-    // Create WiFiClient with extended connection timeout
+    // Create WiFiClient with timeout
     WiFiClient client;
-    client.setTimeout(15000);  // 15 second connection timeout in MILLISECONDS
+    client.setTimeout(5000);  // 5 second timeout
     
     HTTPClient http;
-    http.begin(client, resultURL);  // Use our WiFiClient with custom timeout
+    http.begin(client, resultURL);
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(15000);  // 15 seconds HTTP timeout (in milliseconds)
+    http.addHeader("Connection", "close");  // CRITICAL: Force server to close connection
+    http.setConnectTimeout(5000);  // 5 seconds connect timeout
+    http.setTimeout(5000);         // 5 seconds read timeout
+    http.setReuse(false);          // Don't keep TCP connection alive
 
     StaticJsonDocument<256> resultDoc;
     resultDoc["command_id"] = commandId;

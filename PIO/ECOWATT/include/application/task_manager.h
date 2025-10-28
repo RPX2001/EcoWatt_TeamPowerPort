@@ -81,6 +81,8 @@ struct CompressedPacket {
     size_t uncompressedSize;    // Original data size
     size_t compressedSize;      // Compressed data size
     char compressionMethod[32]; // Compression method used
+    RegID registers[16];        // Register IDs that were sampled (NEW)
+    size_t registerCount;       // Number of registers per sample (NEW)
 };
 
 /**

@@ -349,52 +349,96 @@ _device_latest_data: Dict[str, dict] = {}
 
 
 def store_device_latest_data(device_id: str, values: List[float], timestamp: float = None, 
-                             compression_method: str = None, compression_ratio: float = None):
+                             compression_method: str = None, compression_ratio: float = None,
+                             sample_count: int = None, register_layout: List[int] = None):
     """
     Store the latest data for a device with register mapping
+    Handles both single sample and batch of samples with variable register counts
     Saves to both in-memory cache (fast access) and database (persistent storage)
     
     Args:
         device_id: Device identifier
-        values: List of raw register values
-        timestamp: Unix timestamp (defaults to current time)
+        values: List of raw register values (can be multiple samples)
+        timestamp: Unix timestamp for first sample in MILLISECONDS (defaults to current time)
         compression_method: Compression method used (if any)
         compression_ratio: Compression ratio achieved (if compressed)
+        sample_count: Number of samples in the values list (if known)
+        register_layout: List of register IDs that were actually polled (e.g., [0, 1, 3, 7])
     """
     import time
     from datetime import datetime
     from database import Database
     
     if timestamp is None:
-        timestamp = time.time()
+        timestamp = time.time() * 1000  # Convert to milliseconds
     
-    # Map values to register names
-    registers = {}
-    for i, value in enumerate(values):
-        if i < len(REGISTER_NAMES):
-            registers[REGISTER_NAMES[i]] = value
+    # Determine registers per sample from layout or default to 10
+    if register_layout and len(register_layout) > 0:
+        registers_per_sample = len(register_layout)
+    else:
+        # Fallback: assume all 10 registers if layout not provided
+        registers_per_sample = 10
+        register_layout = list(range(10))
     
-    # Store in memory cache for fast access
-    _device_latest_data[device_id] = {
-        'timestamp': timestamp,
-        'values': values,
-        'registers': registers,
-        'updated_at': time.time()
-    }
+    # Determine number of samples
+    if sample_count is None:
+        num_samples = len(values) // registers_per_sample
+    else:
+        num_samples = sample_count
     
-    # Also persist to database for historical queries
-    try:
-        Database.save_sensor_data(
-            device_id=device_id,
-            timestamp=datetime.fromtimestamp(timestamp),
-            register_data=registers,
-            compression_method=compression_method,
-            compression_ratio=compression_ratio
-        )
-        logger.debug(f"Stored data for {device_id} to database and cache: {len(values)} values")
-    except Exception as e:
-        logger.error(f"Failed to save sensor data to database: {e}")
-        # Don't fail - at least we have it in memory cache
+    if len(values) % registers_per_sample != 0:
+        logger.warning(f"Value count {len(values)} is not multiple of {registers_per_sample}, truncating")
+        values = values[:num_samples * registers_per_sample]
+    
+    logger.info(f"Storing {num_samples} samples for {device_id} with {registers_per_sample} registers per sample")
+    logger.info(f"Register layout: {register_layout}")
+    
+    # Calculate time between samples (assume 1 second intervals)
+    time_interval_ms = 1000  # 1 second between samples
+    
+    # Store each sample individually with actual timestamps
+    for sample_idx in range(num_samples):
+        # Extract values for this sample
+        start_idx = sample_idx * registers_per_sample
+        end_idx = start_idx + registers_per_sample
+        sample_values = values[start_idx:end_idx]
+        
+        # Calculate timestamp for this sample (ESP32 timestamp is in milliseconds)
+        sample_timestamp_ms = timestamp + (sample_idx * time_interval_ms)
+        sample_timestamp_sec = sample_timestamp_ms / 1000.0  # Convert to seconds for Unix timestamp
+        
+        # Map values to ONLY the selected register names
+        registers = {}
+        for i, value in enumerate(sample_values):
+            if i < len(register_layout):
+                reg_id = register_layout[i]
+                if reg_id < len(REGISTER_NAMES):
+                    registers[REGISTER_NAMES[reg_id]] = value
+        
+        # Update in-memory cache (keep only latest)
+        _device_latest_data[device_id] = {
+            'timestamp': sample_timestamp_sec,
+            'values': sample_values,
+            'registers': registers,
+            'register_layout': register_layout,  # Store which registers were polled
+            'updated_at': time.time()
+        }
+        
+        # Persist each sample to database (ONLY selected registers)
+        try:
+            Database.save_sensor_data(
+                device_id=device_id,
+                timestamp=datetime.fromtimestamp(sample_timestamp_sec),
+                register_data=registers,  # Only contains selected registers
+                compression_method=compression_method if sample_idx == 0 else None,
+                compression_ratio=compression_ratio if sample_idx == 0 else None
+            )
+        except Exception as e:
+            logger.error(f"Failed to save sensor data to database: {e}")
+            # Don't fail - at least we have it in memory cache
+    
+    logger.debug(f"Stored {num_samples} samples for {device_id} with {registers_per_sample} registers each")
+
 
 
 def get_device_latest_data(device_id: str) -> Optional[dict]:
