@@ -393,7 +393,7 @@ def get_latest_data(device_id: str):
     """
     try:
         # Import the latest data cache from utils
-        from utils.data_utils import get_device_latest_data
+        from utils.data_utils import get_device_latest_data, REGISTER_METADATA
         
         latest_data = get_device_latest_data(device_id)
         
@@ -403,7 +403,8 @@ def get_latest_data(device_id: str):
                 'device_id': device_id,
                 'timestamp': latest_data.get('timestamp'),
                 'registers': latest_data.get('registers', {}),
-                'raw_values': latest_data.get('values', [])
+                'raw_values': latest_data.get('values', []),
+                'metadata': REGISTER_METADATA
             }), 200
         else:
             return jsonify({

@@ -6,25 +6,26 @@ const RegisterValues = ({ data }) => {
     return null;
   }
 
-  const { registers, timestamp } = data;
+  const { registers, timestamp, metadata } = data;
 
-  // Format register values for display
-  const formatValue = (key, value) => {
-    if (key.includes('Voltage')) {
-      return `${value.toFixed(2)} V`;
-    } else if (key.includes('Current')) {
-      return `${value.toFixed(3)} A`;
-    } else if (key.includes('Power')) {
-      return `${value.toFixed(2)} W`;
-    } else if (key.includes('Energy')) {
-      return `${value.toFixed(3)} kWh`;
-    } else if (key.includes('Frequency')) {
-      return `${value.toFixed(2)} Hz`;
-    } else if (key.includes('PowerFactor')) {
-      return value.toFixed(3);
-    } else {
+  // Format register values based on metadata
+  const formatValue = (registerName, value) => {
+    const meta = metadata?.[registerName];
+    if (!meta) {
       return value.toFixed(2);
     }
+
+    const actualValue = value / meta.gain;
+    return `${actualValue.toFixed(meta.decimals)} ${meta.unit}`;
+  };
+
+  // Get display name from metadata or format register name
+  const getDisplayName = (registerName) => {
+    const meta = metadata?.[registerName];
+    if (meta?.name) {
+      return meta.name;
+    }
+    return registerName.replace(/([A-Z])/g, ' $1').trim();
   };
 
   const timeAgo = timestamp 
@@ -36,7 +37,7 @@ const RegisterValues = ({ data }) => {
       <CardContent>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h6">
-            Current Register Values
+            Live Inverter Readings
           </Typography>
           <Chip 
             label={`Updated ${timeAgo}`} 
@@ -59,7 +60,7 @@ const RegisterValues = ({ data }) => {
                 }}
               >
                 <Typography variant="caption" color="text.secondary" gutterBottom>
-                  {key.replace(/([A-Z])/g, ' $1').trim()}
+                  {getDisplayName(key)}
                 </Typography>
                 <Typography variant="h6" component="div">
                   {formatValue(key, value)}

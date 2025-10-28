@@ -2,11 +2,22 @@ import { Card, CardContent, Typography, Grid, Box, Chip } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings';
 
 const DeviceConfiguration = ({ config }) => {
-  if (!config || !config.config_params) {
+  if (!config || !config.config) {
     return null;
   }
 
-  const params = config.config_params;
+  const params = config.config;
+
+  // Format time intervals for display
+  const formatInterval = (ms, unit = 's') => {
+    if (!ms) return 'Default';
+    if (unit === 's') {
+      return `${ms} s`;
+    } else if (unit === 'ms') {
+      return `${ms} ms`;
+    }
+    return ms;
+  };
 
   return (
     <Card>
@@ -17,7 +28,7 @@ const DeviceConfiguration = ({ config }) => {
             Device Configuration
           </Typography>
           <Chip 
-            label={config.version || 'v1.0'} 
+            label={config.device_id || 'Active'} 
             size="small" 
             color="success" 
             variant="outlined"
@@ -25,14 +36,17 @@ const DeviceConfiguration = ({ config }) => {
         </Box>
 
         <Grid container spacing={2}>
-          {/* Polling Interval */}
+          {/* Sampling Interval */}
           <Grid item xs={12} sm={6} md={4}>
             <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
               <Typography variant="caption" color="text.secondary">
-                Polling Interval
+                Sampling Interval
               </Typography>
               <Typography variant="h6">
-                {params.polling_interval_ms ? `${params.polling_interval_ms} ms` : 'Default'}
+                {formatInterval(params.sampling_interval)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                How often device reads from inverter
               </Typography>
             </Box>
           </Grid>
@@ -44,56 +58,97 @@ const DeviceConfiguration = ({ config }) => {
                 Upload Interval
               </Typography>
               <Typography variant="h6">
-                {params.upload_interval_ms ? `${params.upload_interval_ms} ms` : 'Default'}
+                {formatInterval(params.upload_interval)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                How often data is sent to cloud
               </Typography>
             </Box>
           </Grid>
 
-          {/* Batch Size */}
+          {/* Firmware Check Interval */}
           <Grid item xs={12} sm={6} md={4}>
             <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
               <Typography variant="caption" color="text.secondary">
-                Batch Size
+                Firmware Check Interval
               </Typography>
               <Typography variant="h6">
-                {params.batch_size || 'Auto'}
+                {formatInterval(params.firmware_check_interval)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                OTA update check frequency
               </Typography>
             </Box>
           </Grid>
 
-          {/* Compression Method */}
+          {/* Command Poll Interval */}
+          <Grid item xs={12} sm={6} md={4}>
+            <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                Command Poll Interval
+              </Typography>
+              <Typography variant="h6">
+                {formatInterval(params.command_poll_interval)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Check for pending commands
+              </Typography>
+            </Box>
+          </Grid>
+
+          {/* Config Poll Interval */}
+          <Grid item xs={12} sm={6} md={4}>
+            <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                Config Poll Interval
+              </Typography>
+              <Typography variant="h6">
+                {formatInterval(params.config_poll_interval)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Check for config updates
+              </Typography>
+            </Box>
+          </Grid>
+
+          {/* Compression Enabled */}
           <Grid item xs={12} sm={6} md={4}>
             <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
               <Typography variant="caption" color="text.secondary">
                 Compression
               </Typography>
               <Typography variant="h6">
-                {params.compression_method || 'Smart Selection'}
+                {params.compression_enabled !== false ? 'Enabled' : 'Disabled'}
               </Typography>
-            </Box>
-          </Grid>
-
-          {/* Security Enabled */}
-          <Grid item xs={12} sm={6} md={4}>
-            <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
               <Typography variant="caption" color="text.secondary">
-                Security Layer
-              </Typography>
-              <Typography variant="h6">
-                {params.security_enabled !== false ? 'Enabled' : 'Disabled'}
+                Data compression status
               </Typography>
             </Box>
           </Grid>
 
           {/* Active Registers */}
-          <Grid item xs={12} sm={6} md={4}>
+          <Grid item xs={12}>
             <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                Active Registers
+              <Typography variant="caption" color="text.secondary" gutterBottom>
+                Monitored Registers
               </Typography>
-              <Typography variant="h6">
-                {params.active_register_count || 'All'}
-              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1 }}>
+                {params.registers && params.registers.length > 0 ? (
+                  params.registers.map((reg) => (
+                    <Chip 
+                      key={reg} 
+                      label={reg} 
+                      size="small" 
+                      color="primary" 
+                      variant="outlined"
+                    />
+                  ))
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    All registers
+                  </Typography>
+                )}
+              </Box>
             </Box>
           </Grid>
         </Grid>

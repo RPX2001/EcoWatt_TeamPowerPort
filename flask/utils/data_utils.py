@@ -314,19 +314,34 @@ def deserialize_diagnostic_data(data: bytes) -> Optional[Dict]:
         return None
 
 
-# Register name mappings (for reference)
+# Register name mappings based on Modbus API Documentation
+# Addresses 0-9 as per In21-EN4440-API Service Documentation
 REGISTER_NAMES = [
-    'Voltage',
-    'Current',
-    'ActivePower',
-    'ReactivePower',
-    'ApparentPower',
-    'PowerFactor',
-    'Frequency',
-    'ImportEnergy',
-    'ExportEnergy',
-    'TotalSystemPower'
+    'Vac1',              # Address 0: L1 Phase Voltage (gain: 10, unit: V)
+    'Iac1',              # Address 1: L1 Phase Current (gain: 10, unit: A)
+    'Fac1',              # Address 2: L1 Phase Frequency (gain: 100, unit: Hz)
+    'Vpv1',              # Address 3: PV1 Input Voltage (gain: 10, unit: V)
+    'Vpv2',              # Address 4: PV2 Input Voltage (gain: 10, unit: V)
+    'Ipv1',              # Address 5: PV1 Input Current (gain: 10, unit: A)
+    'Ipv2',              # Address 6: PV2 Input Current (gain: 10, unit: A)
+    'Temperature',       # Address 7: Inverter Internal Temperature (gain: 10, unit: °C)
+    'ExportPowerPct',    # Address 8: Export Power Percentage (gain: 1, unit: %, R/W)
+    'Pac'                # Address 9: Inverter Output Power (gain: 1, unit: W)
 ]
+
+# Register display metadata
+REGISTER_METADATA = {
+    'Vac1': {'name': 'AC Voltage (L1)', 'unit': 'V', 'gain': 10, 'decimals': 1},
+    'Iac1': {'name': 'AC Current (L1)', 'unit': 'A', 'gain': 10, 'decimals': 2},
+    'Fac1': {'name': 'AC Frequency (L1)', 'unit': 'Hz', 'gain': 100, 'decimals': 2},
+    'Vpv1': {'name': 'PV1 Voltage', 'unit': 'V', 'gain': 10, 'decimals': 1},
+    'Vpv2': {'name': 'PV2 Voltage', 'unit': 'V', 'gain': 10, 'decimals': 1},
+    'Ipv1': {'name': 'PV1 Current', 'unit': 'A', 'gain': 10, 'decimals': 2},
+    'Ipv2': {'name': 'PV2 Current', 'unit': 'A', 'gain': 10, 'decimals': 2},
+    'Temperature': {'name': 'Inverter Temperature', 'unit': '°C', 'gain': 10, 'decimals': 1},
+    'ExportPowerPct': {'name': 'Export Power %', 'unit': '%', 'gain': 1, 'decimals': 0},
+    'Pac': {'name': 'Output Power', 'unit': 'W', 'gain': 1, 'decimals': 0}
+}
 
 
 # In-memory cache for latest device data
@@ -388,6 +403,7 @@ __all__ = [
     'deserialize_diagnostic_data',
     'store_device_latest_data',
     'get_device_latest_data',
-    'REGISTER_NAMES'
+    'REGISTER_NAMES',
+    'REGISTER_METADATA'
 ]
 

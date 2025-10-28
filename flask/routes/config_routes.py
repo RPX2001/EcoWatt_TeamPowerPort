@@ -19,17 +19,22 @@ device_configs: Dict[str, dict] = {}
 config_history: Dict[str, list] = {}
 
 # Available registers from Inverter SIM API Documentation
+# Based on Section 4: Modbus Data Registers
 AVAILABLE_REGISTERS = [
-    'voltage',      # Address 0 - Phase Voltage (Vac1/L1)
-    'current',      # Address 1 - Phase Current (Iac1/L1)
-    'frequency',    # Address 2 - Phase Frequency (Fac1/L1)
-    'vpv1',         # Address 3 - PV1 Input Voltage
-    'vpv2',         # Address 4 - PV2 Input Voltage
-    'ipv1',         # Address 5 - PV1 Input Current
-    'ipv2',         # Address 6 - PV2 Input Current
-    'temperature',  # Address 7 - Inverter Internal Temperature
-    'power',        # Address 9 - Inverter Output Power (Pac L)
+    {'id': 'voltage', 'name': 'Vac1 /L1 Phase voltage', 'address': 0, 'gain': 10, 'unit': 'V'},
+    {'id': 'current', 'name': 'Iac1 /L1 Phase current', 'address': 1, 'gain': 10, 'unit': 'A'},
+    {'id': 'frequency', 'name': 'Fac1 /L1 Phase frequency', 'address': 2, 'gain': 100, 'unit': 'Hz'},
+    {'id': 'vpv1', 'name': 'Vpv1 /PV1 input voltage', 'address': 3, 'gain': 10, 'unit': 'V'},
+    {'id': 'vpv2', 'name': 'Vpv2 /PV2 input voltage', 'address': 4, 'gain': 10, 'unit': 'V'},
+    {'id': 'ipv1', 'name': 'Ipv1 /PV1 input current', 'address': 5, 'gain': 10, 'unit': 'A'},
+    {'id': 'ipv2', 'name': 'Ipv2 /PV2 input current', 'address': 6, 'gain': 10, 'unit': 'A'},
+    {'id': 'temperature', 'name': 'Inverter internal temperature', 'address': 7, 'gain': 10, 'unit': '°C'},
+    {'id': 'export_power_pct', 'name': 'Set the export power percentage', 'address': 8, 'gain': 1, 'unit': '%', 'writable': True},
+    {'id': 'power', 'name': 'Pac L /Inverter current output power', 'address': 9, 'gain': 1, 'unit': 'W'},
 ]
+
+# Get list of register IDs for validation
+AVAILABLE_REGISTER_IDS = [reg['id'] for reg in AVAILABLE_REGISTERS]
 
 
 def get_default_config():
@@ -106,12 +111,12 @@ def validate_config(config: dict) -> tuple:
     # Validate registers
     if 'registers' in config:
         if isinstance(config['registers'], list) and len(config['registers']) > 0:
-            invalid_registers = [r for r in config['registers'] if r not in AVAILABLE_REGISTERS]
+            invalid_registers = [r for r in config['registers'] if r not in AVAILABLE_REGISTER_IDS]
             if not invalid_registers:
                 accepted.append('registers')
             else:
                 rejected.append('registers')
-                errors.append(f'Invalid registers: {invalid_registers}. Available: {AVAILABLE_REGISTERS}')
+                errors.append(f'Invalid registers: {invalid_registers}. Available: {AVAILABLE_REGISTER_IDS}')
         else:
             rejected.append('registers')
             errors.append('registers must be a non-empty list')
@@ -127,17 +132,21 @@ def get_config(device_id):
     Returns current device configuration or default if not set
     """
     try:
-        if device_id not in device_configs:
-            device_configs[device_id] = get_default_config()
+        config_is_default = device_id not in device_configs
         
-        config = device_configs[device_id]
+        if config_is_default:
+            config = get_default_config()
+        else:
+            config = device_configs[device_id]
         
-        logger.info(f"[Config] Configuration requested for device: {device_id}")
+        logger.info(f"[Config] Configuration requested for device: {device_id} (is_default: {config_is_default})")
         
         return jsonify({
             'success': True,
             'device_id': device_id,
             'config': config,
+            'is_default': config_is_default,
+            'available_registers': AVAILABLE_REGISTERS,
             'timestamp': time.time()
         }), 200
         

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Paper,
@@ -21,31 +21,47 @@ import { updateConfig } from '../../api/config';
  * Based on API Documentation Section 4: Modbus Data Registers
  */
 const AVAILABLE_REGISTERS = [
-  { id: 'voltage', name: 'Phase Voltage (Vac1/L1)', address: 0, unit: 'V', gain: 10, readOnly: true },
-  { id: 'current', name: 'Phase Current (Iac1/L1)', address: 1, unit: 'A', gain: 10, readOnly: true },
-  { id: 'frequency', name: 'Phase Frequency (Fac1/L1)', address: 2, unit: 'Hz', gain: 100, readOnly: true },
-  { id: 'vpv1', name: 'PV1 Input Voltage', address: 3, unit: 'V', gain: 10, readOnly: true },
-  { id: 'vpv2', name: 'PV2 Input Voltage', address: 4, unit: 'V', gain: 10, readOnly: true },
-  { id: 'ipv1', name: 'PV1 Input Current', address: 5, unit: 'A', gain: 10, readOnly: true },
-  { id: 'ipv2', name: 'PV2 Input Current', address: 6, unit: 'A', gain: 10, readOnly: true },
-  { id: 'temperature', name: 'Inverter Temperature', address: 7, unit: '°C', gain: 10, readOnly: true },
-  { id: 'power', name: 'Inverter Output Power (Pac L)', address: 9, unit: 'W', gain: 1, readOnly: true },
+  { id: 'voltage', name: 'Vac1 /L1 Phase voltage', address: 0, unit: 'V', gain: 10 },
+  { id: 'current', name: 'Iac1 /L1 Phase current', address: 1, unit: 'A', gain: 10 },
+  { id: 'frequency', name: 'Fac1 /L1 Phase frequency', address: 2, unit: 'Hz', gain: 100 },
+  { id: 'vpv1', name: 'Vpv1 /PV1 input voltage', address: 3, unit: 'V', gain: 10 },
+  { id: 'vpv2', name: 'Vpv2 /PV2 input voltage', address: 4, unit: 'V', gain: 10 },
+  { id: 'ipv1', name: 'Ipv1 /PV1 input current', address: 5, unit: 'A', gain: 10 },
+  { id: 'ipv2', name: 'Ipv2 /PV2 input current', address: 6, unit: 'A', gain: 10 },
+  { id: 'temperature', name: 'Inverter internal temperature', address: 7, unit: '°C', gain: 10 },
+  { id: 'export_power_pct', name: 'Set the export power percentage', address: 8, unit: '%', gain: 1, writable: true },
+  { id: 'power', name: 'Pac L /Inverter current output power', address: 9, unit: 'W', gain: 1 },
 ];
 
 const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
   const [config, setConfig] = useState({
-    sampling_interval: currentConfig?.sampling_interval || 2, // Device reads from inverter every 2s
-    upload_interval: currentConfig?.upload_interval || 15, // Device uploads to cloud every 15s
-    firmware_check_interval: currentConfig?.firmware_check_interval || 60, // Check for firmware updates every 60s
-    command_poll_interval: currentConfig?.command_poll_interval || 10, // Check for pending commands every 10s
-    config_poll_interval: currentConfig?.config_poll_interval || 5, // Check for config updates every 5s
-    compression_enabled: currentConfig?.compression_enabled ?? true,
-    registers: currentConfig?.registers || ['voltage', 'current', 'power'],
+    sampling_interval: 2,
+    upload_interval: 15,
+    firmware_check_interval: 60,
+    command_poll_interval: 10,
+    config_poll_interval: 5,
+    compression_enabled: true,
+    registers: ['voltage', 'current', 'power'],
   });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+
+  // Update local state when currentConfig changes
+  useEffect(() => {
+    if (currentConfig) {
+      setConfig({
+        sampling_interval: currentConfig.sampling_interval ?? 2,
+        upload_interval: currentConfig.upload_interval ?? 15,
+        firmware_check_interval: currentConfig.firmware_check_interval ?? 60,
+        command_poll_interval: currentConfig.command_poll_interval ?? 10,
+        config_poll_interval: currentConfig.config_poll_interval ?? 5,
+        compression_enabled: currentConfig.compression_enabled ?? true,
+        registers: currentConfig.registers ?? ['voltage', 'current', 'power'],
+      });
+    }
+  }, [currentConfig]);
 
   const handleInputChange = (field, value) => {
     setConfig((prev) => ({ ...prev, [field]: value }));
@@ -128,15 +144,17 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
   };
 
   const handleReset = () => {
-    setConfig({
-      sampling_interval: currentConfig?.sampling_interval || 2,
-      upload_interval: currentConfig?.upload_interval || 15,
-      firmware_check_interval: currentConfig?.firmware_check_interval || 60,
-      command_poll_interval: currentConfig?.command_poll_interval || 10,
-      config_poll_interval: currentConfig?.config_poll_interval || 5,
-      compression_enabled: currentConfig?.compression_enabled ?? true,
-      registers: currentConfig?.registers || ['voltage', 'current', 'power'],
-    });
+    if (currentConfig) {
+      setConfig({
+        sampling_interval: currentConfig.sampling_interval ?? 2,
+        upload_interval: currentConfig.upload_interval ?? 15,
+        firmware_check_interval: currentConfig.firmware_check_interval ?? 60,
+        command_poll_interval: currentConfig.command_poll_interval ?? 10,
+        config_poll_interval: currentConfig.config_poll_interval ?? 5,
+        compression_enabled: currentConfig.compression_enabled ?? true,
+        registers: currentConfig.registers ?? ['voltage', 'current', 'power'],
+      });
+    }
     setError(null);
     setSuccess(false);
   };

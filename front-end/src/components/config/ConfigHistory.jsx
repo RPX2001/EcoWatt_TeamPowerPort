@@ -103,6 +103,7 @@ const ConfigHistory = () => {
   };
 
   const getChangedFields = (current, previous) => {
+    if (!current) return [];
     if (!previous) return Object.keys(current);
     
     const changed = [];
@@ -115,6 +116,14 @@ const ConfigHistory = () => {
   };
 
   const renderConfigDiff = (current, previous) => {
+    if (!current) {
+      return (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          No configuration data available
+        </Alert>
+      );
+    }
+
     if (!previous) {
       return (
         <Alert severity="info" sx={{ mb: 2 }}>
@@ -182,6 +191,14 @@ const ConfigHistory = () => {
   };
 
   const renderConfigDetails = (config) => {
+    if (!config) {
+      return (
+        <Alert severity="warning">
+          No configuration data available
+        </Alert>
+      );
+    }
+
     return (
       <Box sx={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 1 }}>
         {/* Timing Parameters */}
@@ -332,10 +349,19 @@ const ConfigHistory = () => {
               </TableHead>
               <TableBody>
                 {history.map((entry, index) => {
+                  // Backend stores 'config_update', not 'config'
+                  const currentConfig = entry.config || entry.config_update;
+                  
+                  if (!entry || !currentConfig) {
+                    return null; // Skip invalid entries
+                  }
+
                   const previousEntry = index < history.length - 1 ? history[index + 1] : null;
+                  const previousConfig = previousEntry?.config || previousEntry?.config_update;
+                  
                   const changedFields = getChangedFields(
-                    entry.config,
-                    previousEntry?.config
+                    currentConfig,
+                    previousConfig
                   );
 
                   return (
@@ -358,9 +384,16 @@ const ConfigHistory = () => {
                         </TableCell>
                         <TableCell>
                           {previousEntry ? (
-                            <Typography variant="body2">
-                              {changedFields.length} field{changedFields.length !== 1 ? 's' : ''} changed
-                            </Typography>
+                            <Box>
+                              <Typography variant="body2" fontWeight="bold">
+                                {changedFields.length} field{changedFields.length !== 1 ? 's' : ''} changed
+                              </Typography>
+                              {changedFields.length > 0 && changedFields.length <= 3 && (
+                                <Typography variant="caption" color="text.secondary">
+                                  {changedFields.join(', ')}
+                                </Typography>
+                              )}
+                            </Box>
                           ) : (
                             <Chip label="Initial" size="small" color="primary" />
                           )}
@@ -384,17 +417,17 @@ const ConfigHistory = () => {
                                 <Typography variant="h6" gutterBottom>
                                   Changes
                                 </Typography>
-                                {renderConfigDiff(entry.config, previousEntry?.config)}
+                                {renderConfigDiff(currentConfig, previousConfig)}
                               </Box>
 
                               <Divider sx={{ my: 2 }} />
 
-                              {/* Full Config */}
+                              {/* Full Configuration Update */}
                               <Box>
                                 <Typography variant="h6" gutterBottom>
-                                  Full Configuration
+                                  Configuration Update
                                 </Typography>
-                                {renderConfigDetails(entry.config)}
+                                {renderConfigDetails(currentConfig)}
                               </Box>
                             </Box>
                           </Collapse>
