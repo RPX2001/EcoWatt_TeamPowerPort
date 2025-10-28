@@ -1,170 +1,113 @@
-# ESP32 EcoWatt Justfile
-# Build and test automation for PlatformIO project
-# Usage: just <recipe>
+# ESP32 EcoWatt - Task Automation
+# PlatformIO build and test automation
+# Usage: just <command>
 
-# Use local PlatformIO installation
-pio := "~/.platformio/penv/bin/platformio"
-
-# Default recipe - list all commands
+# List all available commands
 default:
     @just --list
 
+# ============================================================
+# Build & Upload
+# ============================================================
+
 # Build firmware for ESP32
 build:
-    {{pio}} run
+    pio run
+    @echo "✅ Firmware built: .pio/build/esp32dev/firmware.bin"
 
-# Upload firmware to device
+# Upload firmware to connected ESP32 device
 upload:
-    {{pio}} run --target upload
+    pio run --target upload
+    @echo "✅ Firmware uploaded to ESP32"
 
-# Clean build artifacts
-clean:
-    {{pio}} run --target clean
-    rm -rf .pio/build
+# Build and upload in one step
+flash: build upload
+    @echo "✅ Build and upload complete"
 
-# Run all unit tests
+# ============================================================
+# Testing
+# ============================================================
+
+# Run all test suites (M3, M4, component tests)
 test:
-    {{pio}} test
+    pio test
+    @echo "✅ All tests complete"
 
-# Run specific test suites
-test-diagnostics:
-    {{pio}} test --filter test_diagnostics*
+# Run M3 integration tests only (compression, acquisition, upload)
+test-m3:
+    pio test --filter test_m3_integration
+    @echo "✅ M3 integration tests complete"
 
+# Run M4 integration tests only (security, HMAC, OTA, commands, config)
+test-m4:
+    pio test --filter test_m4_integration
+    @echo "✅ M4 integration tests complete"
+
+# Run compression component tests
 test-compression:
-    {{pio}} test --filter test_compression*
+    pio test --filter test_compression
+    @echo "✅ Compression tests complete"
 
-test-aggregation:
-    {{pio}} test --filter test_aggregation*
+# Run acquisition component tests
+test-acquisition:
+    pio test --filter test_acquisition
+    @echo "✅ Acquisition tests complete"
 
+# Run security component tests (HMAC, nonce, anti-replay)
 test-security:
-    {{pio}} test --filter test_security*
+    pio test --filter "test_security*|test_mac_hmac|test_*antireplay"
+    @echo "✅ Security tests complete"
 
-test-protocol:
-    {{pio}} test --filter test_protocol*
+# Run FOTA component tests
+test-fota:
+    pio test --filter "test_fota*"
+    @echo "✅ FOTA tests complete"
 
 # Run all tests with verbose output
 test-verbose:
-    {{pio}} test -v
+    pio test -v
 
-# Build with diagnostics enabled
-build-with-diagnostics:
-    {{pio}} run -D ENABLE_DIAGNOSTICS=1
+# ============================================================
+# Monitoring & Debugging
+# ============================================================
 
-# Build for Wokwi simulator
-build-wokwi:
-    {{pio}} run -e wokwi
-
-# Run Wokwi simulator (requires VS Code Wokwi extension)
-# Open VS Code, press F1, type "Wokwi: Start Simulator"
-# Or use: code --open-url "vscode://wokwi.wokwi-vscode/start"
-run-wokwi: build-wokwi
-    @echo "✅ Firmware built successfully!"
-    @echo ""
-    @echo "📱 To run in Wokwi simulator:"
-    @echo "   1. Make sure VS Code Wokwi extension is installed"
-    @echo "   2. Press F1 in VS Code"
-    @echo "   3. Type 'Wokwi: Start Simulator'"
-    @echo ""
-    @echo "Or open the simulation directly in your browser:"
-    @echo "   https://wokwi.com/vscode"
-    @echo ""
-    @echo "Firmware location: .pio/build/wokwi/firmware.bin"
-
-# Monitor serial output
+# Monitor serial output from ESP32
 monitor:
-    {{pio}} device monitor --baud 115200
+    pio device monitor --baud 115200
 
-# Upload and immediately monitor
+# Upload firmware and immediately start monitoring
 flash-monitor: upload
-    platformio device monitor --baud 115200
-
-# Format code with clang-format
-format:
-    find src/ include/ -name "*.cpp" -o -name "*.h" | xargs clang-format -i --style=Google
-
-# Run static analysis
-lint:
-    @echo "Running cppcheck..."
-    cppcheck src/ include/ --enable=warning,performance,portability --suppress=missingIncludeSystem
-    @echo "✅ Lint complete"
-
-# Check code size
-size:
-    platformio run --target size
-
-# Generate documentation with Doxygen
-docs:
-    @if [ -f Doxyfile ]; then \
-        doxygen Doxyfile; \
-        echo "✅ Documentation generated in docs/html/"; \
-    else \
-        echo "❌ Doxyfile not found"; \
-    fi
-
-# Quick development cycle (build + test)
-quick: build test
-    @echo "✅ Quick cycle complete!"
-
-# Full validation (clean + build + all tests + lint)
-validate: clean build test-verbose lint
-    @echo "✅ Full validation complete!"
-
-# Update dependencies
-update-deps:
-    platformio pkg update
+    pio device monitor --baud 115200
 
 # List all connected devices
 devices:
-    platformio device list
+    pio device list
+    @echo ""
+    @echo "Use 'just monitor' to view serial output"
 
-# Create test report
-test-report:
-    @echo "Generating test report..."
-    platformio test --json-output-path test_report.json
-    @echo "✅ Test report saved to test_report.json"
+# ============================================================
+# Maintenance
+# ============================================================
 
-# Continuous testing (watch mode)
-watch:
-    @echo "Watching for changes... (Ctrl+C to stop)"
-    @while true; do \
-        inotifywait -r -e modify src/ include/ test/; \
-        clear; \
-        just test; \
-        sleep 1; \
-    done
+# Clean build artifacts
+clean:
+    pio run --target clean
+    rm -rf .pio/build
+    @echo "✅ Build artifacts cleaned"
 
-# Debug build (with debug symbols)
-debug-build:
-    platformio run --environment esp32dev --build-type debug
-
-# Profile memory usage
-memory-profile:
-    @platformio run --target size --environment esp32dev
-    @echo "\n=== Memory Usage Analysis ==="
-    @echo "Run after building to see RAM/Flash usage"
-
-# Backup source code
-backup:
-    @echo "Creating backup..."
-    @tar -czf ../ecowatt_backup_$(date +%Y%m%d_%H%M%S).tar.gz src/ include/ platformio.ini
-    @echo "✅ Backup created in parent directory"
-
-# Clean everything including dependencies
-distclean: clean
+# Complete clean (including dependencies)
+distclean:
     rm -rf .pio
-    @echo "✅ Complete clean done"
+    @echo "✅ Complete clean done (run 'pio run' to rebuild)"
 
-# Help message
-help:
-    @echo "EcoWatt ESP32 Build System"
+# Check firmware size (RAM and Flash usage)
+size:
+    pio run --target size
     @echo ""
-    @echo "Common commands:"
-    @echo "  just build              - Build firmware"
-    @echo "  just upload             - Upload to device"
-    @echo "  just test               - Run all tests"
-    @echo "  just test-compression   - Test compression only"
-    @echo "  just monitor            - Serial monitor"
-    @echo "  just validate           - Full validation"
-    @echo "  just build-wokwi        - Build for simulator"
-    @echo ""
-    @echo "Run 'just --list' for all commands"
+    @echo "=== Memory Usage Analysis ==="
+
+# Update PlatformIO dependencies
+update:
+    pio pkg update
+    @echo "✅ Dependencies updated"
+
