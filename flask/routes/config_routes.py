@@ -1,0 +1,290 @@
+"""
+Configuration Management Routes
+Handles remote configuration updates following Milestone 4 specification
+Based on: Milestone 4 - Remote Configuration Message Format
+"""
+
+from flask import Blueprint, jsonify, request
+import logging
+import time
+from typing import Dict, List
+
+logger = logging.getLogger(__name__)
+
+# Create blueprint
+config_bp = Blueprint('config', __name__)
+
+# In-memory configuration storage (in production, use database)
+device_configs: Dict[str, dict] = {}
+config_history: Dict[str, list] = {}
+
+# Available registers from Inverter SIM API Documentation
+AVAILABLE_REGISTERS = [
+    'voltage',      # Address 0 - Phase Voltage (Vac1/L1)
+    'current',      # Address 1 - Phase Current (Iac1/L1)
+    'frequency',    # Address 2 - Phase Frequency (Fac1/L1)
+    'vpv1',         # Address 3 - PV1 Input Voltage
+    'vpv2',         # Address 4 - PV2 Input Voltage
+    'ipv1',         # Address 5 - PV1 Input Current
+    'ipv2',         # Address 6 - PV2 Input Current
+    'temperature',  # Address 7 - Inverter Internal Temperature
+    'power',        # Address 9 - Inverter Output Power (Pac L)
+]
+
+
+def get_default_config():
+    """Get default configuration for new devices"""
+    return {
+        'sampling_interval': 2,           # Device reads from inverter every 2s
+        'upload_interval': 15,            # Device uploads to cloud every 15s
+        'firmware_check_interval': 60,    # Check for firmware updates every 60s
+        'command_poll_interval': 10,      # Check for pending commands every 10s
+        'config_poll_interval': 5,        # Check for config updates every 5s
+        'compression_enabled': True,
+        'registers': ['voltage', 'current', 'power']  # Default registers to monitor
+    }
+
+
+def validate_config(config: dict) -> tuple:
+    """
+    Validate configuration parameters
+    Returns: (is_valid, accepted_params, rejected_params, unchanged_params, errors)
+    """
+    accepted = []
+    rejected = []
+    unchanged = []
+    errors = []
+
+    # Validate sampling_interval
+    if 'sampling_interval' in config:
+        if 1 <= config['sampling_interval'] <= 300:
+            accepted.append('sampling_interval')
+        else:
+            rejected.append('sampling_interval')
+            errors.append('sampling_interval must be between 1 and 300 seconds')
+
+    # Validate upload_interval
+    if 'upload_interval' in config:
+        if 10 <= config['upload_interval'] <= 3600:
+            accepted.append('upload_interval')
+        else:
+            rejected.append('upload_interval')
+            errors.append('upload_interval must be between 10 and 3600 seconds')
+
+    # Validate firmware_check_interval
+    if 'firmware_check_interval' in config:
+        if 30 <= config['firmware_check_interval'] <= 86400:
+            accepted.append('firmware_check_interval')
+        else:
+            rejected.append('firmware_check_interval')
+            errors.append('firmware_check_interval must be between 30 and 86400 seconds')
+
+    # Validate command_poll_interval
+    if 'command_poll_interval' in config:
+        if 5 <= config['command_poll_interval'] <= 300:
+            accepted.append('command_poll_interval')
+        else:
+            rejected.append('command_poll_interval')
+            errors.append('command_poll_interval must be between 5 and 300 seconds')
+
+    # Validate config_poll_interval
+    if 'config_poll_interval' in config:
+        if 1 <= config['config_poll_interval'] <= 300:
+            accepted.append('config_poll_interval')
+        else:
+            rejected.append('config_poll_interval')
+            errors.append('config_poll_interval must be between 1 and 300 seconds')
+
+    # Validate compression_enabled
+    if 'compression_enabled' in config:
+        if isinstance(config['compression_enabled'], bool):
+            accepted.append('compression_enabled')
+        else:
+            rejected.append('compression_enabled')
+            errors.append('compression_enabled must be a boolean')
+
+    # Validate registers
+    if 'registers' in config:
+        if isinstance(config['registers'], list) and len(config['registers']) > 0:
+            invalid_registers = [r for r in config['registers'] if r not in AVAILABLE_REGISTERS]
+            if not invalid_registers:
+                accepted.append('registers')
+            else:
+                rejected.append('registers')
+                errors.append(f'Invalid registers: {invalid_registers}. Available: {AVAILABLE_REGISTERS}')
+        else:
+            rejected.append('registers')
+            errors.append('registers must be a non-empty list')
+
+    return len(rejected) == 0, accepted, rejected, unchanged, errors
+
+
+@config_bp.route('/config/<device_id>', methods=['GET'])
+def get_config(device_id):
+    """
+    Get current configuration for a device
+    
+    Returns current device configuration or default if not set
+    """
+    try:
+        if device_id not in device_configs:
+            device_configs[device_id] = get_default_config()
+        
+        config = device_configs[device_id]
+        
+        logger.info(f"[Config] Configuration requested for device: {device_id}")
+        
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'config': config,
+            'timestamp': time.time()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting config for {device_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@config_bp.route('/config/<device_id>', methods=['PUT', 'POST'])
+def update_config(device_id):
+    """
+    Update device configuration
+    Following Milestone 4 Remote Configuration Message Format:
+    
+    Cloud → Device:
+    {
+      "config_update": {
+        "sampling_interval": 5,
+        "registers": ["voltage", "current", "frequency"]
+      }
+    }
+    
+    Device → Cloud Acknowledgment:
+    {
+      "config_ack": {
+        "accepted": ["sampling_interval", "registers"],
+        "rejected": [],
+        "unchanged": []
+      }
+    }
+    
+    Configuration changes take effect after the next upload cycle, without reboot.
+    """
+    try:
+        data = request.get_json()
+        
+        if not data or 'config_update' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Missing config_update in request body'
+            }), 400
+        
+        config_update = data['config_update']
+        
+        # Get current config or create default
+        if device_id not in device_configs:
+            device_configs[device_id] = get_default_config()
+        
+        current_config = device_configs[device_id]
+        
+        # Validate new configuration
+        is_valid, accepted, rejected, unchanged, errors = validate_config(config_update)
+        
+        # Apply accepted parameters
+        for param in accepted:
+            old_value = current_config.get(param)
+            new_value = config_update[param]
+            
+            if old_value == new_value:
+                accepted.remove(param)
+                unchanged.append(param)
+            else:
+                current_config[param] = new_value
+        
+        # Store updated config
+        device_configs[device_id] = current_config
+        
+        # Log configuration change
+        if device_id not in config_history:
+            config_history[device_id] = []
+        
+        config_history[device_id].append({
+            'timestamp': time.time(),
+            'config_update': config_update,
+            'accepted': accepted,
+            'rejected': rejected,
+            'unchanged': unchanged,
+            'errors': errors
+        })
+        
+        # Keep only last 50 history entries
+        if len(config_history[device_id]) > 50:
+            config_history[device_id] = config_history[device_id][-50:]
+        
+        logger.info(f"[Config] Configuration updated for {device_id} - Accepted: {accepted}, Rejected: {rejected}, Unchanged: {unchanged}")
+        
+        # Return acknowledgment following Milestone 4 format
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'config_ack': {
+                'accepted': accepted,
+                'rejected': rejected,
+                'unchanged': unchanged,
+                'errors': errors if rejected else []
+            },
+            'current_config': current_config,
+            'timestamp': time.time(),
+            'note': 'Configuration will take effect after the next upload cycle'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error updating config for {device_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@config_bp.route('/config/<device_id>/history', methods=['GET'])
+def get_config_history(device_id):
+    """
+    Get configuration change history for a device
+    
+    Query parameters:
+        limit: Number of history entries to return (default: 10, max: 50)
+    """
+    try:
+        limit = int(request.args.get('limit', 10))
+        limit = min(limit, 50)  # Cap at 50
+        
+        if device_id not in config_history:
+            return jsonify({
+                'success': True,
+                'device_id': device_id,
+                'history': [],
+                'count': 0
+            }), 200
+        
+        history = config_history[device_id][-limit:]
+        
+        logger.info(f"[Config] History requested for {device_id}, returning {len(history)} entries")
+        
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'history': history,
+            'count': len(history),
+            'total_changes': len(config_history[device_id])
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting config history for {device_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

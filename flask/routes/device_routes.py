@@ -18,39 +18,19 @@ devices_registry: Dict[str, dict] = {}
 
 
 def initialize_mock_devices():
-    """Initialize some mock devices for testing"""
+    """Initialize a single mock device for testing"""
     import time
     
     mock_devices = [
         {
             'device_id': 'ESP32_001',
-            'device_name': 'Living Room Monitor',
+            'device_name': 'EcoWatt Device',
             'location': 'Building A - Floor 1',
-            'description': 'Energy monitor for living room circuits',
+            'description': 'Primary energy monitor and inverter interface',
             'status': 'active',
             'firmware_version': '1.0.4',
             'registered_at': time.time() - 86400,  # 1 day ago
-            'last_seen': time.time() - 300  # 5 minutes ago
-        },
-        {
-            'device_id': 'ESP32_002',
-            'device_name': 'Kitchen Monitor',
-            'location': 'Building A - Floor 1',
-            'description': 'Energy monitor for kitchen appliances',
-            'status': 'active',
-            'firmware_version': '1.0.4',
-            'registered_at': time.time() - 172800,  # 2 days ago
-            'last_seen': time.time() - 600  # 10 minutes ago
-        },
-        {
-            'device_id': 'ESP32_003',
-            'device_name': 'Office Monitor',
-            'location': 'Building B - Floor 2',
-            'description': 'Energy monitor for office equipment',
-            'status': 'active',
-            'firmware_version': '1.0.3',
-            'registered_at': time.time() - 259200,  # 3 days ago
-            'last_seen': time.time() - 120  # 2 minutes ago
+            'last_seen': time.time() - 30  # 30 seconds ago
         }
     ]
     
@@ -58,7 +38,7 @@ def initialize_mock_devices():
         device_id = device.pop('device_id')
         devices_registry[device_id] = device
     
-    logger.info(f"Initialized {len(mock_devices)} mock devices")
+    logger.info(f"Initialized {len(mock_devices)} mock device(s)")
 
 
 # Initialize mock devices on module load

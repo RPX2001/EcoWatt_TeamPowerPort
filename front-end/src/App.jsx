@@ -8,6 +8,7 @@ import Box from '@mui/material/Box';
 import Toolbar from '@mui/material/Toolbar';
 import Navbar from './components/common/Navbar';
 import Sidebar from './components/common/Sidebar';
+import Footer from './components/common/Footer';
 import Dashboard from './pages/Dashboard';
 import Configuration from './pages/Configuration';
 import Commands from './pages/Commands';
@@ -43,30 +44,32 @@ function App() {
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <BrowserRouter>
-          <Box sx={{ display: 'flex' }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
             <Navbar onMenuClick={handleMenuClick} />
-            <Sidebar open={sidebarOpen} onClose={handleSidebarClose} />
-            <Box
-              component="main"
-              sx={{
-                flexGrow: 1,
-                p: 3,
-                width: '100%',
-                minHeight: '100vh',
-                bgcolor: 'background.default',
-              }}
-            >
-              <Toolbar /> {/* Spacer for fixed navbar */}
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/config" element={<Configuration />} />
-                <Route path="/commands" element={<Commands />} />
-                <Route path="/fota" element={<FOTA />} />
-                <Route path="/logs" element={<Logs />} />
-                <Route path="/utilities" element={<Utilities />} />
-                <Route path="/testing" element={<Testing />} />
-              </Routes>
+            <Box sx={{ display: 'flex', flexGrow: 1 }}>
+              <Sidebar open={sidebarOpen} onClose={handleSidebarClose} />
+              <Box
+                component="main"
+                sx={{
+                  flexGrow: 1,
+                  p: 3,
+                  width: '100%',
+                  bgcolor: 'background.default',
+                }}
+              >
+                <Toolbar /> {/* Spacer for fixed navbar */}
+                <Routes>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/config" element={<Configuration />} />
+                  <Route path="/commands" element={<Commands />} />
+                  <Route path="/fota" element={<FOTA />} />
+                  <Route path="/logs" element={<Logs />} />
+                  <Route path="/utilities" element={<Utilities />} />
+                  <Route path="/testing" element={<Testing />} />
+                </Routes>
+              </Box>
             </Box>
+            <Footer />
           </Box>
         </BrowserRouter>
       </ThemeProvider>
