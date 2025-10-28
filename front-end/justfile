@@ -1,0 +1,61 @@
+# Frontend justfile for EcoWatt project
+
+# Default recipe - show available commands
+default:
+    @just --list
+
+# Install dependencies
+install:
+    npm install
+
+# Start development server
+dev:
+    npm run dev
+
+# Build for production (outputs to ../flask/static/frontend)
+build:
+    npm run build
+
+# Preview production build
+preview:
+    npm run preview
+
+# Run all tests
+test:
+    npm run test
+
+# Run tests in watch mode
+test-watch:
+    npm run test:watch
+
+# Run tests with UI
+test-ui:
+    npm run test:ui
+
+# Run tests with coverage
+test-coverage:
+    npm run test:coverage
+
+# Open Cypress for E2E testing
+cypress:
+    npm run cypress:open
+
+# Run Cypress tests headless
+cypress-run:
+    npm run cypress:run
+
+# Run linter
+lint:
+    npm run lint
+
+# Clean node_modules and reinstall
+clean-install:
+    rm -rf node_modules package-lock.json
+    npm install
+
+# Clean build artifacts
+clean:
+    rm -rf dist ../flask/static/frontend
+
+# Full clean and rebuild
+rebuild: clean-install build

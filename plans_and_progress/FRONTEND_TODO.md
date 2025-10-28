@@ -4,16 +4,16 @@
 
 ---
 
-## Pre-Development Setup ⏳
+## Pre-Development Setup ✅ COMPLETED
 
 ### Environment & Tools
-- [ ] ⏳ Choose UI framework (Material-UI vs Tailwind CSS)
-- [ ] ⏳ Decide on charting library (Recharts vs Chart.js)
-- [ ] ⏳ Confirm deployment strategy (Flask static vs separate)
-- [ ] ⏳ Install Node.js and npm/yarn
-- [ ] ⏳ Initialize Vite + React project
-- [ ] ⏳ Install dependencies (axios, react-router, UI library, charts)
-- [ ] ⏳ Setup ESLint and Prettier
+- [x] ✅ Choose UI framework (Material-UI)
+- [x] ✅ Decide on charting library (Recharts)
+- [x] ✅ Confirm deployment strategy (Flask static)
+- [x] ✅ Install Node.js and npm/yarn
+- [x] ✅ Initialize Vite + React project
+- [x] ✅ Install dependencies (axios, react-router, UI library, charts)
+- [ ] ⏳ Setup ESLint and Prettier (basic setup done, can customize)
 - [ ] ⏳ Configure CORS in Flask for frontend development
 
 ### Flask Backend Enhancements
@@ -26,16 +26,30 @@
 
 ---
 
-## Phase 1: Setup & Core Dashboard 🎯
+## Phase 1: Setup & Core Dashboard 🔄 IN PROGRESS
 
 ### Project Initialization
-- [ ] ⏳ Create Vite project: `npm create vite@latest ecowatt-frontend -- --template react`
-- [ ] ⏳ Install UI framework: `npm install @mui/material @emotion/react @emotion/styled`
-- [ ] ⏳ Install routing: `npm install react-router-dom`
-- [ ] ⏳ Install HTTP client: `npm install axios`
-- [ ] ⏳ Install charting library: `npm install recharts`
-- [ ] ⏳ Install icons: `npm install @mui/icons-material`
-- [ ] ⏳ Install date utilities: `npm install date-fns`
+- [x] ✅ Create Vite project in `front-end` folder
+- [x] ✅ Install UI framework: Material-UI
+- [x] ✅ Install routing: react-router-dom
+- [x] ✅ Install HTTP client: axios
+- [x] ✅ Install charting library: recharts
+- [x] ✅ Install icons: @mui/icons-material
+- [x] ✅ Install date utilities: date-fns
+- [x] ✅ Install React Query: @tanstack/react-query
+- [x] ✅ Install Socket.IO client: socket.io-client
+
+### Basic Structure
+- [x] ✅ Create folder structure (api, components, pages, etc.)
+- [x] ✅ Setup Vite config with Flask proxy
+- [x] ✅ Create axios configuration
+- [x] ✅ Create WebSocket configuration
+- [x] ✅ Create MUI theme
+- [x] ✅ Setup test configuration
+- [x] ✅ Add testing scripts to package.json
+- [x] ✅ Create initial App.jsx with providers
+- [x] ✅ Create justfile for common commands
+- [x] ✅ Verify setup works
 
 ### Basic Layout
 - [ ] ⏳ Create `src/components/common/Navbar.jsx`

@@ -21,3 +21,8 @@ From Now on
 1. When making changes update them in one of 4 files in the directory plans_and_progress as appropriate
 
 2. Create suitable just commands for repeatble command excution and use that command
+
+3. Always follow an iterative method while creating files/stuff or writing codes
+meaing systamatically implement each feature and do the testing then only move to next.
+
+4. Update the to-do list as progressing further
