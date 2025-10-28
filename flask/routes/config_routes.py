@@ -129,9 +129,30 @@ def get_config(device_id):
     """
     Get current configuration for a device
     
-    Returns current device configuration or default if not set
+    Returns pending config from database (if any), otherwise current config or default
+    ESP32 polls this endpoint to check for configuration updates
     """
     try:
+        from database import Database
+        
+        # First check if there's a pending config in database (takes priority)
+        pending_config = Database.get_pending_config(device_id)
+        
+        if pending_config:
+            # Return pending config for ESP32 to apply
+            logger.info(f"[Config] Returning PENDING config for {device_id} (created: {pending_config['created_at']})")
+            return jsonify({
+                'success': True,
+                'device_id': device_id,
+                'config': pending_config['config'],
+                'is_default': False,
+                'is_pending': True,
+                'available_registers': AVAILABLE_REGISTERS,
+                'timestamp': time.time(),
+                'note': 'This is a pending configuration update - send acknowledgment after applying'
+            }), 200
+        
+        # No pending config - return current config or default
         config_is_default = device_id not in device_configs
         
         if config_is_default:
@@ -139,13 +160,14 @@ def get_config(device_id):
         else:
             config = device_configs[device_id]
         
-        logger.info(f"[Config] Configuration requested for device: {device_id} (is_default: {config_is_default})")
+        logger.info(f"[Config] Configuration requested for device: {device_id} (is_default: {config_is_default}, no pending updates)")
         
         return jsonify({
             'success': True,
             'device_id': device_id,
             'config': config,
             'is_default': config_is_default,
+            'is_pending': False,
             'available_registers': AVAILABLE_REGISTERS,
             'timestamp': time.time()
         }), 200
@@ -156,7 +178,6 @@ def get_config(device_id):
             'success': False,
             'error': str(e)
         }), 500
-
 
 @config_bp.route('/config/<device_id>', methods=['PUT', 'POST'])
 def update_config(device_id):
@@ -184,6 +205,8 @@ def update_config(device_id):
     Configuration changes take effect after the next upload cycle, without reboot.
     """
     try:
+        from database import Database
+        
         data = request.get_json()
         
         if not data or 'config_update' not in data:
@@ -198,7 +221,7 @@ def update_config(device_id):
         if device_id not in device_configs:
             device_configs[device_id] = get_default_config()
         
-        current_config = device_configs[device_id]
+        current_config = device_configs[device_id].copy()
         
         # Validate new configuration
         is_valid, accepted, rejected, unchanged, errors = validate_config(config_update)
@@ -214,10 +237,14 @@ def update_config(device_id):
             else:
                 current_config[param] = new_value
         
-        # Store updated config
+        # Store updated config in memory
         device_configs[device_id] = current_config
         
-        # Log configuration change
+        # CRITICAL: Save to database (REPLACES any pending config)
+        # This implements the "override not queue" behavior
+        Database.save_config(device_id=device_id, config=current_config)
+        
+        # Log configuration change in memory history
         if device_id not in config_history:
             config_history[device_id] = []
         
@@ -234,7 +261,7 @@ def update_config(device_id):
         if len(config_history[device_id]) > 50:
             config_history[device_id] = config_history[device_id][-50:]
         
-        logger.info(f"[Config] Configuration updated for {device_id} - Accepted: {accepted}, Rejected: {rejected}, Unchanged: {unchanged}")
+        logger.info(f"[Config] Configuration updated for {device_id} (REPLACED pending) - Accepted: {accepted}, Rejected: {rejected}")
         
         # Return acknowledgment following Milestone 4 format
         return jsonify({
@@ -248,7 +275,7 @@ def update_config(device_id):
             },
             'current_config': current_config,
             'timestamp': time.time(),
-            'note': 'Configuration will take effect after the next upload cycle'
+            'note': 'Configuration will take effect after ESP32 polls (latest config replaces previous pending)'
         }), 200
         
     except Exception as e:
@@ -293,6 +320,69 @@ def get_config_history(device_id):
         
     except Exception as e:
         logger.error(f"Error getting config history for {device_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@config_bp.route('/config/<device_id>/acknowledge', methods=['POST'])
+def acknowledge_config(device_id):
+    """
+    Receive acknowledgment from ESP32 after config is applied
+    
+    Expected JSON body:
+    {
+        "status": "applied" | "failed",
+        "timestamp": 1234567890,  # Unix timestamp
+        "error_msg": "Optional error message if failed"
+    }
+    """
+    try:
+        from database import Database
+        
+        if not request.is_json:
+            return jsonify({
+                'success': False,
+                'error': 'Content-Type must be application/json'
+            }), 400
+        
+        data = request.get_json()
+        
+        # Validate required fields
+        if 'status' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Missing required field: status'
+            }), 400
+        
+        status = data['status']
+        error_msg = data.get('error_msg')
+        
+        # Update database with acknowledgment
+        success = Database.update_config_status(
+            device_id=device_id,
+            status=status,
+            error_msg=error_msg
+        )
+        
+        if success:
+            logger.info(f"[Config] ESP32 acknowledged config for {device_id}: {status}")
+            return jsonify({
+                'success': True,
+                'device_id': device_id,
+                'message': 'Config acknowledgment received',
+                'status': status
+            }), 200
+        else:
+            logger.warning(f"[Config] No pending config found for {device_id} to acknowledge")
+            return jsonify({
+                'success': False,
+                'error': 'No pending config found to acknowledge'
+            }), 404
+        
+    except Exception as e:
+        logger.error(f"Error acknowledging config for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

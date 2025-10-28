@@ -2,7 +2,7 @@
 
 **EcoWatt Smart Monitoring System - Server Test Suite**  
 **Milestones:** M3, M4 Integration Testing  
-**Last Updated:** 2025-10-28
+**Last Updated:** 2025-10-29
 
 ---
 
@@ -10,17 +10,25 @@
 
 1. [Overview](#overview)
 2. [Test Architecture](#test-architecture)
-3. [M3 Integration Tests](#m3-integration-tests)
-4. [M4 Integration Tests](#m4-integration-tests)
-5. [Test Execution](#test-execution)
-6. [Test Results](#test-results)
-7. [Troubleshooting](#troubleshooting)
+3. [Database & Flask Integration Tests](#database--flask-integration-tests)
+4. [M3 Integration Tests](#m3-integration-tests)
+5. [M4 Integration Tests](#m4-integration-tests)
+6. [Test Execution](#test-execution)
+7. [Test Results](#test-results)
+8. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Overview
 
 The Flask test suite validates the complete cloud backend functionality across multiple milestones:
+
+**Database & Flask Integration Testing:**
+- Database schema validation
+- CRUD operations for all tables
+- Flask endpoint testing
+- Data persistence verification
+- End-to-end workflows
 
 **M3 Testing Focus:**
 - Data upload and buffering
@@ -51,20 +59,31 @@ The Flask test suite validates the complete cloud backend functionality across m
 ```
 flask/tests/
 ├── integration_tests/
-│   ├── test_m3_flask_integration.py    # M3 integration suite
-│   ├── test_m3_simple.py               # M3 simplified tests
-│   ├── test_m4_flask_integration.py    # M4 integration suite
-│   ├── diagnostics_data/               # Test diagnostic logs
-│   ├── nonce_state.json                # Nonce tracking state
-│   └── security_audit.log              # Security event log
+│   ├── test_database_flask_integration.py  # NEW: Database & Flask tests
+│   ├── test_m3_flask_integration.py        # M3 integration suite
+│   ├── test_m3_simple.py                   # M3 simplified tests
+│   ├── test_m4_flask_integration.py        # M4 integration suite
+│   ├── diagnostics_data/                   # Test diagnostic logs
+│   ├── nonce_state.json                    # Nonce tracking state
+│   └── security_audit.log                  # Security event log
 │
 └── unit_tests/
     └── (placeholder for future unit tests)
 ```
 
-### Test Coordination Architecture
+### Test Coverage Summary
 
-```
+**test_database_flask_integration.py (12 tests - ALL PASSING ✓)**
+- Database schema validation
+- Sensor data CRUD operations
+- Command queue management
+- Device configuration management
+- Firmware update tracking
+- Data retention/cleanup
+- Flask endpoint validation
+- End-to-end workflows
+
+---
 ┌─────────────────────────────────────────────────────────────┐
 │  pytest Runner                                              │
 │  (test_m4_flask_integration.py)                            │

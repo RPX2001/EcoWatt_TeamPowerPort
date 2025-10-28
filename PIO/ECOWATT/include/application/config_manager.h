@@ -102,6 +102,16 @@ public:
      */
     static void printCurrentConfig();
 
+    /**
+     * @brief Send configuration acknowledgment to Flask server
+     * 
+     * Sends POST request to /config/{device_id}/acknowledge with status
+     * 
+     * @param status "applied" if successful, "failed" if error
+     * @param message Optional message (error description if failed)
+     */
+    static void sendConfigAcknowledgment(const char* status, const char* message = nullptr);
+
 private:
     static char changesURL[256];
     static char deviceID[64];

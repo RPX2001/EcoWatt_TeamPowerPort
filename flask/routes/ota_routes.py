@@ -5,6 +5,7 @@ Handles firmware update endpoints
 
 from flask import Blueprint, request, jsonify
 import logging
+import time
 
 from handlers import (
     check_for_update,
@@ -475,3 +476,77 @@ def list_firmwares():
             'error': str(e)
         }), 500
 
+
+@ota_bp.route('/ota/<device_id>/complete', methods=['POST'])
+def ota_complete(device_id):
+    """
+    Receive OTA completion status from ESP32 after reboot
+    
+    Expected JSON body:
+    {
+        "version": "1.0.5",  # New version after update
+        "status": "success" | "failed" | "rolled_back",
+        "timestamp": 1234567890,  # Unix timestamp
+        "error_msg": "Optional error message if failed",
+        "download_status": "success" | "failed"  # Optional: status before reboot
+    }
+    """
+    try:
+        from database import Database
+        
+        if not request.is_json:
+            return jsonify({
+                'success': False,
+                'error': 'Content-Type must be application/json'
+            }), 400
+        
+        data = request.get_json()
+        
+        # Validate required fields
+        if 'version' not in data or 'status' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Missing required fields: version, status'
+            }), 400
+        
+        version = data['version']
+        status = data['status']
+        error_msg = data.get('error_msg')
+        
+        # Update database with installation status
+        success = Database.update_ota_install_status(
+            device_id=device_id,
+            to_version=version,
+            status=status,
+            error_msg=error_msg
+        )
+        
+        if success:
+            logger.info(f"[OTA] ESP32 reported OTA completion for {device_id}: v{version} - {status}")
+            
+            # Also update OTA session status in memory (for compatibility)
+            from handlers.ota_handler import ota_sessions
+            if device_id in ota_sessions:
+                ota_sessions[device_id]['status'] = status
+                ota_sessions[device_id]['completed_at'] = time.time()
+            
+            return jsonify({
+                'success': True,
+                'device_id': device_id,
+                'message': 'OTA completion status received',
+                'version': version,
+                'status': status
+            }), 200
+        else:
+            logger.warning(f"[OTA] No OTA record found for {device_id} version {version}")
+            return jsonify({
+                'success': False,
+                'error': 'No matching OTA record found'
+            }), 404
+        
+    except Exception as e:
+        logger.error(f"Error recording OTA completion for {device_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

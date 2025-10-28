@@ -149,6 +149,7 @@ PIO/ECOWATT/*.log
 .Trashes
 ehthumbs.db
 Thumbs.db
+*.db
 
 # ============================================================
 # Node.js (if used for tooling)

@@ -138,6 +138,10 @@ bool ConfigManager::applyRegisterChanges(const RegID** newSelection, size_t* new
     currentConfig.registerCount = *newCount;
     
     print("[ConfigManager] Applied register changes: %zu registers\n", *newCount);
+    
+    // Send acknowledgment to Flask server
+    sendConfigAcknowledgment("applied", "Register selection updated successfully");
+    
     return true;
 }
 
@@ -146,6 +150,10 @@ bool ConfigManager::applyPollFrequencyChange(uint64_t* newFreq) {
     currentConfig.pollFrequency = *newFreq;
     
     print("[ConfigManager] Applied poll frequency change: %llu μs\n", *newFreq);
+    
+    // Send acknowledgment to Flask server
+    sendConfigAcknowledgment("applied", "Poll frequency updated successfully");
+    
     return true;
 }
 
@@ -154,6 +162,10 @@ bool ConfigManager::applyUploadFrequencyChange(uint64_t* newFreq) {
     currentConfig.uploadFrequency = *newFreq;
     
     print("[ConfigManager] Applied upload frequency change: %llu μs\n", *newFreq);
+    
+    // Send acknowledgment to Flask server
+    sendConfigAcknowledgment("applied", "Upload frequency updated successfully");
+    
     return true;
 }
 
@@ -186,4 +198,53 @@ void ConfigManager::printCurrentConfig() {
     print("  Upload Frequency:  %llu μs (%.2f s)\n", 
           currentConfig.uploadFrequency, currentConfig.uploadFrequency / 1000000.0);
     print("===========================================\n\n");
+}
+
+void ConfigManager::sendConfigAcknowledgment(const char* status, const char* message) {
+    /**
+     * Send configuration acknowledgment to Flask server
+     * POST /config/{device_id}/acknowledge
+     * Body: {"status": "applied"|"failed", "timestamp": 123456, "error_msg": "..."}
+     */
+    
+    if (WiFi.status() != WL_CONNECTED) {
+        print("[ConfigManager] WiFi not connected. Cannot send acknowledgment.\n");
+        return;
+    }
+    
+    // Construct acknowledgment URL
+    char ackURL[512];
+    snprintf(ackURL, sizeof(ackURL), "%s/acknowledge", changesURL);
+    
+    HTTPClient http;
+    http.begin(ackURL);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(3000);
+    
+    // Create JSON payload
+    StaticJsonDocument<256> doc;
+    doc["status"] = status;
+    doc["timestamp"] = millis() / 1000;  // Unix timestamp in seconds
+    if (message != nullptr && strlen(message) > 0) {
+        doc["error_msg"] = message;
+    }
+    
+    String payload;
+    serializeJson(doc, payload);
+    
+    print("[ConfigManager] Sending acknowledgment: %s\n", payload.c_str());
+    
+    int httpCode = http.POST(payload);
+    
+    if (httpCode > 0) {
+        if (httpCode == 200) {
+            print("[ConfigManager] ✅ Acknowledgment sent successfully\n");
+        } else {
+            print("[ConfigManager] ⚠️ Acknowledgment sent but received code: %d\n", httpCode);
+        }
+    } else {
+        print("[ConfigManager] ❌ Failed to send acknowledgment: %d\n", httpCode);
+    }
+    
+    http.end();
 }

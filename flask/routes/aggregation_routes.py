@@ -128,9 +128,20 @@ def receive_aggregated_data(device_id: str):
                         }
                     }
                     
-                    # Store latest data for dashboard
+                    # Store latest data for dashboard (both memory and database)
                     from utils.data_utils import store_device_latest_data
-                    store_device_latest_data(device_id, all_decompressed, current_timestamp)
+                    # Calculate average compression ratio
+                    avg_compression_ratio = sum(s.get('compression_ratio', 0) for s in all_stats) / len(all_stats) if all_stats else None
+                    # Get most common compression method
+                    compression_method = all_stats[0].get('method', 'unknown') if all_stats else None
+                    
+                    store_device_latest_data(
+                        device_id=device_id, 
+                        values=all_decompressed, 
+                        timestamp=current_timestamp,
+                        compression_method=compression_method,
+                        compression_ratio=avg_compression_ratio
+                    )
                     
                     try:
                         publish_mqtt(mqtt_topic, json.dumps(mqtt_payload))
@@ -327,7 +338,7 @@ def reset_compression_stats():
 @aggregation_bp.route('/aggregation/historical/<device_id>', methods=['GET'])
 def get_historical_data(device_id: str):
     """
-    Get historical aggregated data for a device
+    Get historical aggregated data for a device from database
     
     Args:
         device_id: Device identifier
@@ -335,39 +346,65 @@ def get_historical_data(device_id: str):
     Query parameters:
         start_time: Start timestamp (ISO format or unix timestamp)
         end_time: End timestamp (ISO format or unix timestamp)
-        limit: Maximum number of records (default: 100)
+        limit: Maximum number of records (default: 1000, max: 10000)
         
     Returns:
-        JSON with historical sensor data
+        JSON with historical sensor data from database
     """
     try:
-        start_time = request.args.get('start_time')
-        end_time = request.args.get('end_time')
-        limit = int(request.args.get('limit', 100))
+        from database import Database
+        from datetime import datetime, timedelta
         
-        # In a real implementation, this would query a database
-        # For now, return mock historical data
-        import random
-        current_time = time.time()
+        # Parse query parameters
+        start_time_str = request.args.get('start_time')
+        end_time_str = request.args.get('end_time')
+        limit = min(int(request.args.get('limit', 1000)), 10000)  # Cap at 10k records
+        
+        # Convert timestamps if provided
+        start_time = None
+        end_time = None
+        
+        if start_time_str:
+            try:
+                # Try parsing as unix timestamp
+                start_time = datetime.fromtimestamp(float(start_time_str))
+            except ValueError:
+                # Try parsing as ISO format
+                start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+        
+        if end_time_str:
+            try:
+                end_time = datetime.fromtimestamp(float(end_time_str))
+            except ValueError:
+                end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
+        
+        # Query database for historical data
+        historical_data = Database.get_historical_sensor_data(
+            device_id=device_id,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit
+        )
+        
+        # Format response
         data_points = []
-        
-        for i in range(min(limit, 50)):
-            timestamp = current_time - (i * 60)  # 1 minute intervals
-            data_points.append({
-                'timestamp': timestamp,
-                'voltage': 230 + random.uniform(-5, 5),
-                'current': 4 + random.uniform(-0.5, 0.5),
-                'power': 950 + random.uniform(-50, 50),
-                'energy': 12 + random.uniform(0, 1),
-                'frequency': 50.0,
-                'power_factor': 0.95
-            })
+        for record in historical_data:
+            data_point = {
+                'timestamp': record['timestamp'],
+                'registers': record['register_data'],
+                'compression_method': record['compression_method'],
+                'compression_ratio': record['compression_ratio']
+            }
+            data_points.append(data_point)
         
         return jsonify({
             'success': True,
             'device_id': device_id,
             'data': data_points,
-            'count': len(data_points)
+            'count': len(data_points),
+            'start_time': start_time.isoformat() if start_time else None,
+            'end_time': end_time.isoformat() if end_time else None,
+            'limit': limit
         }), 200
         
     except Exception as e:

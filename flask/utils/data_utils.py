@@ -344,20 +344,26 @@ REGISTER_METADATA = {
 }
 
 
-# In-memory cache for latest device data
+# In-memory cache for latest device data (for quick access)
 _device_latest_data: Dict[str, dict] = {}
 
 
-def store_device_latest_data(device_id: str, values: List[float], timestamp: float = None):
+def store_device_latest_data(device_id: str, values: List[float], timestamp: float = None, 
+                             compression_method: str = None, compression_ratio: float = None):
     """
     Store the latest data for a device with register mapping
+    Saves to both in-memory cache (fast access) and database (persistent storage)
     
     Args:
         device_id: Device identifier
         values: List of raw register values
         timestamp: Unix timestamp (defaults to current time)
+        compression_method: Compression method used (if any)
+        compression_ratio: Compression ratio achieved (if compressed)
     """
     import time
+    from datetime import datetime
+    from database import Database
     
     if timestamp is None:
         timestamp = time.time()
@@ -368,6 +374,7 @@ def store_device_latest_data(device_id: str, values: List[float], timestamp: flo
         if i < len(REGISTER_NAMES):
             registers[REGISTER_NAMES[i]] = value
     
+    # Store in memory cache for fast access
     _device_latest_data[device_id] = {
         'timestamp': timestamp,
         'values': values,
@@ -375,7 +382,19 @@ def store_device_latest_data(device_id: str, values: List[float], timestamp: flo
         'updated_at': time.time()
     }
     
-    logger.debug(f"Stored latest data for {device_id}: {len(values)} values")
+    # Also persist to database for historical queries
+    try:
+        Database.save_sensor_data(
+            device_id=device_id,
+            timestamp=datetime.fromtimestamp(timestamp),
+            register_data=registers,
+            compression_method=compression_method,
+            compression_ratio=compression_ratio
+        )
+        logger.debug(f"Stored data for {device_id} to database and cache: {len(values)} values")
+    except Exception as e:
+        logger.error(f"Failed to save sensor data to database: {e}")
+        # Don't fail - at least we have it in memory cache
 
 
 def get_device_latest_data(device_id: str) -> Optional[dict]:

@@ -43,6 +43,7 @@ from handlers.command_handler import (
     command_history,  # For test access
     command_stats     # For test access
 )
+from database import Database
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,16 @@ def queue_command_route(device_id):
             }), 500
         
         command_id = result
+
+        # Persist command in database for history and reliability
+        try:
+            Database.save_command(command_id=command_id, device_id=device_id, command={
+                'action': action,
+                'target_register': target_register,
+                'value': value
+            })
+        except Exception as e:
+            logger.warning(f"[Command] Failed to persist command {command_id} to DB: {e}")
         
         logger.info(f"[Command] Queued command {command_id} for device {device_id}: {action}")
         
@@ -145,17 +156,26 @@ def poll_commands_route(device_id):
     try:
         limit = int(request.args.get('limit', 10))
         
-        # Use handler to poll commands
-        success, commands = handler_poll_commands(device_id, limit)
-        
-        if not success:
-            return jsonify({
-                'success': False,
-                'error': 'Failed to poll commands'
-            }), 500
-        
+        # Query pending commands from database
+        pending = Database.get_pending_commands(device_id)
+
+        commands = []
+        for row in pending:
+            cmd = {
+                'command_id': row['command_id'],
+                'command': row['command']
+            }
+            commands.append(cmd)
+
+        # Mark commands as dispatched to avoid re-sending
+        for cmd in commands:
+            try:
+                Database.update_command_status(cmd['command_id'], 'dispatched')
+            except Exception as e:
+                logger.warning(f"[Command] Failed to mark command {cmd['command_id']} as dispatched: {e}")
+
         logger.info(f"[Command] Device {device_id} polled, {len(commands)} commands returned")
-        
+
         return jsonify({
             'success': True,
             'device_id': device_id,
@@ -210,23 +230,22 @@ def submit_command_result_route(device_id):
         success = (status == 'success')
         executed_at = result.get('executed_at')
         
-        # Use handler to submit result
-        submitted = handler_submit_result(
-            device_id=device_id,
+        # Persist result in database
+        updated = Database.update_command_status(
             command_id=command_id,
-            success=success,
-            result_data={'executed_at': executed_at} if executed_at else None,
-            error_message=result.get('error')
+            status='completed' if success else 'failed',
+            result={'executed_at': executed_at} if executed_at else None,
+            error_msg=result.get('error')
         )
-        
-        if not submitted:
+
+        if not updated:
             return jsonify({
                 'success': False,
                 'error': f'Command {command_id} not found'
             }), 404
-        
+
         logger.info(f"[Command] Received result for command {command_id}: {status}")
-        
+
         return jsonify({
             'success': True,
             'device_id': device_id,
