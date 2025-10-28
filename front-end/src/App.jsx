@@ -55,6 +55,8 @@ function App() {
                   p: 3,
                   width: '100%',
                   bgcolor: 'background.default',
+                  marginLeft: sidebarOpen ? 0 : '-240px',
+                  transition: 'margin-left 0.3s ease',
                 }}
               >
                 <Toolbar /> {/* Spacer for fixed navbar */}

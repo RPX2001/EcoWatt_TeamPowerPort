@@ -44,23 +44,12 @@ import {
 } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
 import { getCommandHistory } from '../../api/commands';
-import { getDevices } from '../../api/devices';
 
-const CommandHistory = () => {
-  const [selectedDevice, setSelectedDevice] = useState('all');
+const CommandHistory = ({ deviceId }) => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [expandedRows, setExpandedRows] = useState(new Set());
-
-  // Fetch devices for filter
-  const { data: devicesData } = useQuery({
-    queryKey: ['devices'],
-    queryFn: getDevices,
-    staleTime: 30000
-  });
-
-  const devices = devicesData?.data?.devices || [];
 
   // Fetch command history
   const {
@@ -69,39 +58,19 @@ const CommandHistory = () => {
     isError,
     error
   } = useQuery({
-    queryKey: ['commandHistory', selectedDevice],
+    queryKey: ['commandHistory', deviceId],
     queryFn: async () => {
-      if (selectedDevice === 'all') {
-        // Fetch for all devices
-        const allHistory = await Promise.all(
-          devices.map(device =>
-            getCommandHistory(device.device_id)
-              .then(res => ({
-                device_id: device.device_id,
-                commands: res.data.commands || []
-              }))
-              .catch(() => ({
-                device_id: device.device_id,
-                commands: []
-              }))
-          )
-        );
-        return allHistory.flatMap(d =>
-          d.commands.map(cmd => ({ ...cmd, device_id: d.device_id }))
-        );
-      } else {
-        const res = await getCommandHistory(selectedDevice);
-        return (res.data.commands || []).map(cmd => ({
-          ...cmd,
-          device_id: selectedDevice
-        }));
+      if (!deviceId) {
+        return { commands: [] };
       }
+      const res = await getCommandHistory(deviceId);
+      return res.data;
     },
-    enabled: devices.length > 0,
+    enabled: !!deviceId,
     staleTime: 10000
   });
 
-  const allCommands = historyData || [];
+  const allCommands = historyData?.commands || [];
 
   // Filter by status
   const filteredCommands = statusFilter === 'all'
@@ -113,11 +82,6 @@ const CommandHistory = () => {
     page * rowsPerPage,
     page * rowsPerPage + rowsPerPage
   );
-
-  const handleDeviceChange = (event) => {
-    setSelectedDevice(event.target.value);
-    setPage(0);
-  };
 
   const handleStatusChange = (event) => {
     setStatusFilter(event.target.value);
@@ -200,23 +164,6 @@ const CommandHistory = () => {
           </Typography>
           
           <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-            {/* Device Filter */}
-            <FormControl size="small" sx={{ minWidth: 200 }}>
-              <InputLabel>Device</InputLabel>
-              <Select
-                value={selectedDevice}
-                label="Device"
-                onChange={handleDeviceChange}
-              >
-                <MenuItem value="all">All Devices</MenuItem>
-                {devices.map((device) => (
-                  <MenuItem key={device.device_id} value={device.device_id}>
-                    {device.device_name || device.device_id}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
             {/* Status Filter */}
             <FormControl size="small" sx={{ minWidth: 150 }}>
               <InputLabel>Status</InputLabel>
@@ -235,29 +182,36 @@ const CommandHistory = () => {
           </Stack>
         </Box>
 
+        {/* No Device Selected */}
+        {!deviceId && (
+          <Alert severity="info">
+            Please select a device to view command history.
+          </Alert>
+        )}
+
         {/* Loading State */}
-        {isLoading && (
+        {deviceId && isLoading && (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
             <CircularProgress />
           </Box>
         )}
 
         {/* Error State */}
-        {isError && (
+        {deviceId && isError && (
           <Alert severity="error" sx={{ mb: 2 }}>
             Error loading command history: {error?.message || 'Unknown error'}
           </Alert>
         )}
 
         {/* Empty State */}
-        {!isLoading && !isError && filteredCommands.length === 0 && (
+        {deviceId && !isLoading && !isError && filteredCommands.length === 0 && (
           <Alert severity="info">
             No command history found
           </Alert>
         )}
 
         {/* History Table */}
-        {!isLoading && !isError && filteredCommands.length > 0 && (
+        {deviceId && !isLoading && !isError && filteredCommands.length > 0 && (
           <>
             <TableContainer>
               <Table>
@@ -265,10 +219,10 @@ const CommandHistory = () => {
                   <TableRow>
                     <TableCell width={50}></TableCell>
                     <TableCell>Timestamp</TableCell>
-                    <TableCell>Device</TableCell>
                     <TableCell>Command</TableCell>
                     <TableCell>Status</TableCell>
                     <TableCell>Result</TableCell>
+                    <TableCell>Acknowledged</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -289,11 +243,6 @@ const CommandHistory = () => {
                         </TableCell>
                         <TableCell>
                           {formatTimestamp(command.timestamp)}
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" fontWeight="medium">
-                            {command.device_id}
-                          </Typography>
                         </TableCell>
                         <TableCell>
                           <Typography variant="body2">
@@ -321,11 +270,28 @@ const CommandHistory = () => {
                             {command.result || '-'}
                           </Typography>
                         </TableCell>
+                        <TableCell>
+                          {command.acknowledged_at ? (
+                            <Chip
+                              label={`✓ ${new Date(command.acknowledged_at * 1000).toLocaleString()}`}
+                              color="success"
+                              size="small"
+                              variant="outlined"
+                            />
+                          ) : (
+                            <Chip
+                              label="Pending"
+                              color="warning"
+                              size="small"
+                              variant="outlined"
+                            />
+                          )}
+                        </TableCell>
                       </TableRow>
                       
                       {/* Expanded Details Row */}
                       <TableRow>
-                        <TableCell colSpan={6} sx={{ p: 0, border: 0 }}>
+                        <TableCell colSpan={7} sx={{ p: 0, border: 0 }}>
                           <Collapse in={expandedRows.has(command.command_id)}>
                             <Box sx={{ p: 2, bgcolor: 'grey.50' }}>
                               <Typography variant="subtitle2" gutterBottom>

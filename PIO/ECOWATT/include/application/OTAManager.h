@@ -95,6 +95,8 @@ public:
     bool downloadAndApplyFirmware();
     bool verifyAndReboot();
     void handleRollback();
+    bool reportOTACompletionStatus(); // Report OTA result to Flask after reboot
+    bool runDiagnostics(); // Run post-OTA diagnostics (moved to public)
     
     // Progress and status methods
     OTAProgress getProgress();
@@ -168,7 +170,7 @@ private:
     // Private methods - Progress and state management
     void saveProgress();
     void loadProgress();
-    bool runDiagnostics();
+    // runDiagnostics() moved to public section
     void setError(const String& message);
     void setOTAState(OTAState newState);
     void updateProgress(uint32_t bytes, uint16_t chunks);

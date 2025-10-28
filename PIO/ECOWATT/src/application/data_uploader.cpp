@@ -127,10 +127,14 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     
     print("  [INFO] Sending %zu packets to server\n", allData.size());
     
+    // Create WiFiClient with extended connection timeout
+    WiFiClient client;
+    client.setTimeout(15000);  // 15 second connection timeout in MILLISECONDS
+    
     HTTPClient http;
-    http.begin(uploadURL);
+    http.begin(client, uploadURL);  // Use our WiFiClient with custom timeout
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(10000);  // 10 second timeout - increased for stability
+    http.setTimeout(15000);  // 15 second HTTP timeout (in milliseconds)
     
     // Feed the watchdog during long operations
     yield();
@@ -206,10 +210,6 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     sessionSummary["overall_savings_percent"] = (totalOriginalBytes > 0) ? 
         (1.0f - (float)totalCompressedBytes / (float)totalOriginalBytes) * 100.0f : 0.0f;
     
-    // Serialize to string
-    char jsonString[2048];
-    serializeJson(doc, jsonString, sizeof(jsonString));
-    
     // Print compression statistics
     float savingsPercent = (totalOriginalBytes > 0) ? 
         (1.0f - (float)totalCompressedBytes / (float)totalOriginalBytes) * 100.0f : 0.0f;
@@ -218,10 +218,21 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
           totalOriginalBytes, totalCompressedBytes, savingsPercent);
     print("  [INFO] Sending %zu packets\n", allData.size());
     
-    // Apply Security Layer
-    PRINT_PROGRESS("Encrypting payload with AES-128...");
+    // INDUSTRY STANDARD APPROACH:
+    // Send the JSON with compressed data embedded (base64 encoded)
+    // The server will extract and decompress the compressed_data field
     
-    // Feed watchdog before heavy encryption operation
+    // Serialize the JSON to string
+    char jsonString[2048];
+    serializeJson(doc, jsonString, sizeof(jsonString));
+    
+    print("  [INFO] JSON payload size: %zu bytes\n", strlen(jsonString));
+    
+    // Apply Security Layer to the JSON string
+    // The security layer will handle Base64 encoding for transport
+    PRINT_PROGRESS("Securing payload with HMAC...");
+    
+    // Feed watchdog before security operation
     yield();
     
     char* securedPayload = new char[8192];
@@ -232,15 +243,17 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
         return false;
     }
     
-    if (!SecurityLayer::securePayload(jsonString, securedPayload, 8192)) {
-        PRINT_ERROR("Payload encryption failed");
+    // Pass false for isCompressed since we're sending JSON (not raw binary)
+    // The JSON contains compressed data in the "compressed_data" field
+    if (!SecurityLayer::securePayload(jsonString, securedPayload, 8192, false)) {
+        PRINT_ERROR("Payload security failed");
         delete[] securedPayload;
         http.end();
         uploadFailures++;
         return false;
     }
     
-    PRINT_SUCCESS("Payload encrypted successfully");
+    PRINT_SUCCESS("Payload secured successfully");
     PRINT_PROGRESS("Uploading to server...");
     
     // Feed watchdog before HTTP POST

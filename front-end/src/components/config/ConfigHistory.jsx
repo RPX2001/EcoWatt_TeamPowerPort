@@ -41,31 +41,9 @@ import {
 } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
 import { getConfigHistory } from '../../api/config';
-import { getDevices } from '../../api/devices';
 
-const ConfigHistory = () => {
-  const [selectedDevice, setSelectedDevice] = useState('');
+const ConfigHistory = ({ deviceId }) => {
   const [expandedRows, setExpandedRows] = useState(new Set());
-
-  // Fetch devices
-  const { 
-    data: devicesData, 
-    isLoading: devicesLoading,
-    isError: devicesError 
-  } = useQuery({
-    queryKey: ['devices'],
-    queryFn: getDevices,
-    staleTime: 30000
-  });
-
-  const devices = devicesData?.data?.devices || [];
-
-  // Auto-select first device
-  React.useEffect(() => {
-    if (devices.length > 0 && !selectedDevice) {
-      setSelectedDevice(devices[0].device_id);
-    }
-  }, [devices, selectedDevice]);
 
   // Fetch config history
   const {
@@ -74,17 +52,13 @@ const ConfigHistory = () => {
     isError,
     error
   } = useQuery({
-    queryKey: ['configHistory', selectedDevice],
-    queryFn: () => getConfigHistory(selectedDevice),
-    enabled: !!selectedDevice,
+    queryKey: ['configHistory', deviceId],
+    queryFn: () => getConfigHistory(deviceId),
+    enabled: !!deviceId,
     staleTime: 10000
   });
 
   const history = historyData?.data?.history || [];
-
-  const handleDeviceChange = (event) => {
-    setSelectedDevice(event.target.value);
-  };
 
   const toggleRowExpand = (index) => {
     setExpandedRows(prev => {
@@ -270,73 +244,38 @@ const ConfigHistory = () => {
               Configuration History
             </Typography>
           </Stack>
-          
-          {/* Loading Devices */}
-          {devicesLoading && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <CircularProgress size={20} />
-              <Typography variant="body2" color="text.secondary">
-                Loading devices...
-              </Typography>
-            </Box>
-          )}
-
-          {/* Device Error */}
-          {devicesError && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              Error loading devices. Please refresh the page.
-            </Alert>
-          )}
-
-          {/* No Devices */}
-          {!devicesLoading && !devicesError && devices.length === 0 && (
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              No devices available. Please add a device first.
-            </Alert>
-          )}
-
-          {/* Device Filter */}
-          {!devicesLoading && !devicesError && devices.length > 0 && (
-            <FormControl size="small" sx={{ minWidth: 250 }}>
-              <InputLabel>Device</InputLabel>
-              <Select
-                value={selectedDevice}
-                label="Device"
-                onChange={handleDeviceChange}
-              >
-                {devices.map((device) => (
-                  <MenuItem key={device.device_id} value={device.device_id}>
-                    {device.device_name || device.device_id}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
         </Box>
 
         {/* Loading State */}
-        {selectedDevice && isLoading && (
+        {deviceId && isLoading && (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
             <CircularProgress />
           </Box>
         )}
 
         {/* Error State */}
-        {selectedDevice && isError && (
+        {deviceId && isError && (
           <Alert severity="error" sx={{ mb: 2 }}>
             Error loading configuration history: {error?.message || 'Unknown error'}
           </Alert>
         )}
 
+        {/* No Device Selected */}
+        {!deviceId && (
+          <Alert severity="info">
+            Please select a device to view configuration history.
+          </Alert>
+        )}
+
         {/* Empty State */}
-        {selectedDevice && !isLoading && !isError && history.length === 0 && (
+        {deviceId && !isLoading && !isError && history.length === 0 && (
           <Alert severity="info">
             No configuration history found for this device
           </Alert>
         )}
 
         {/* History Table */}
-        {selectedDevice && !isLoading && !isError && history.length > 0 && (
+        {deviceId && !isLoading && !isError && history.length > 0 && (
           <TableContainer>
             <Table>
               <TableHead>
@@ -345,6 +284,7 @@ const ConfigHistory = () => {
                   <TableCell>Timestamp</TableCell>
                   <TableCell>Changes</TableCell>
                   <TableCell>Status</TableCell>
+                  <TableCell>Acknowledged</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -404,6 +344,23 @@ const ConfigHistory = () => {
                             color="success"
                             size="small"
                           />
+                        </TableCell>
+                        <TableCell>
+                          {entry.acknowledged_at ? (
+                            <Chip
+                              label={`✓ ${new Date(entry.acknowledged_at * 1000).toLocaleString()}`}
+                              color="success"
+                              size="small"
+                              variant="outlined"
+                            />
+                          ) : (
+                            <Chip
+                              label="Pending"
+                              color="warning"
+                              size="small"
+                              variant="outlined"
+                            />
+                          )}
                         </TableCell>
                       </TableRow>
 

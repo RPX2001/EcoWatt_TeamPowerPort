@@ -97,7 +97,7 @@ bool SecurityLayer::syncNonceWithServer(const char* serverURL, const char* devic
     snprintf(url, sizeof(url), "%s/security/%s/nonce", serverURL, deviceID);
     
     http.begin(url);
-    http.setTimeout(5000);
+    http.setTimeout(10000);
     
     int httpCode = http.GET();
     
@@ -126,7 +126,7 @@ bool SecurityLayer::syncNonceWithServer(const char* serverURL, const char* devic
     return false;
 }
 
-bool SecurityLayer::securePayload(const char* payload, char* securedPayload, size_t securedPayloadSize) {
+bool SecurityLayer::securePayload(const char* payload, char* securedPayload, size_t securedPayloadSize, bool isCompressed) {
     if (!payload || !securedPayload || securedPayloadSize == 0) {
         print("Security Layer: Invalid parameters\n");
         return false;
@@ -184,6 +184,7 @@ bool SecurityLayer::securePayload(const char* payload, char* securedPayload, siz
     (*doc)["payload"] = encodedPayload;
     (*doc)["mac"] = hmacHex;
     (*doc)["encrypted"] = ENABLE_ENCRYPTION;
+    (*doc)["compressed"] = isCompressed;  // NEW: Add compressed flag
     
     size_t jsonLen = serializeJson(*doc, securedPayload, securedPayloadSize);
     

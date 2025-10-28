@@ -42,12 +42,10 @@ const Commands = () => {
         Commands
       </Typography>
 
-      {activeTab === 0 && (
-        <DeviceSelector 
-          selectedDevice={selectedDevice} 
-          onDeviceChange={handleDeviceChange} 
-        />
-      )}
+      <DeviceSelector 
+        selectedDevice={selectedDevice} 
+        onDeviceChange={handleDeviceChange} 
+      />
 
       <Box sx={{ mt: 3 }}>
         <Tabs value={activeTab} onChange={handleTabChange} sx={{ mb: 2 }}>
@@ -70,9 +68,9 @@ const Commands = () => {
           </Alert>
         )}
 
-        {activeTab === 1 && <CommandQueue />}
+        {activeTab === 1 && <CommandQueue deviceId={selectedDevice} />}
 
-        {activeTab === 2 && <CommandHistory />}
+        {activeTab === 2 && <CommandHistory deviceId={selectedDevice} />}
       </Box>
     </Box>
   );

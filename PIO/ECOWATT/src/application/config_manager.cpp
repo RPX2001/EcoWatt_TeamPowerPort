@@ -46,10 +46,14 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
         return;
     }
 
+    // Create WiFiClient with extended connection timeout
+    WiFiClient client;
+    client.setTimeout(15000);  // 15 second connection timeout in MILLISECONDS
+    
     HTTPClient http;
-    http.begin(changesURL);
+    http.begin(client, changesURL);  // Use our WiFiClient with custom timeout
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(2000);  // 2 second timeout (watchdog safe)
+    http.setTimeout(15000);  // 15 seconds HTTP timeout (in milliseconds)
 
     // M4 Format: Use GET request (device_id is in URL)
     int httpResponseCode = http.GET();
@@ -216,10 +220,14 @@ void ConfigManager::sendConfigAcknowledgment(const char* status, const char* mes
     char ackURL[512];
     snprintf(ackURL, sizeof(ackURL), "%s/acknowledge", changesURL);
     
+    // Create WiFiClient with extended connection timeout
+    WiFiClient client;
+    client.setTimeout(15000);  // 15 second connection timeout in MILLISECONDS
+    
     HTTPClient http;
-    http.begin(ackURL);
+    http.begin(client, ackURL);  // Use our WiFiClient with custom timeout
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(3000);
+    http.setTimeout(15000);  // 15 seconds HTTP timeout (in milliseconds)
     
     // Create JSON payload
     StaticJsonDocument<256> doc;

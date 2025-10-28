@@ -51,7 +51,7 @@ class ProtocolAdapter
 
     // retry & timeout
     const int maxRetries = 3;
-    const int httpTimeout = 5000; // ms
+    const int httpTimeout = 10000; // ms
 
     bool sendRequest(const char* url, const char* frameHex, char* outResponseJson, size_t outSize);
     void printErrorCode(int code);

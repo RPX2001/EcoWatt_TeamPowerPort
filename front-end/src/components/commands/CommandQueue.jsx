@@ -38,21 +38,10 @@ import {
 } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { pollCommands } from '../../api/commands';
-import { getDevices } from '../../api/devices';
 
-const CommandQueue = () => {
-  const [selectedDevice, setSelectedDevice] = useState('all');
+const CommandQueue = ({ deviceId }) => {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const queryClient = useQueryClient();
-
-  // Fetch devices for filter
-  const { data: devicesData } = useQuery({
-    queryKey: ['devices'],
-    queryFn: getDevices,
-    staleTime: 30000
-  });
-
-  const devices = devicesData?.data?.devices || [];
 
   // Fetch pending commands with auto-refresh
   const {
@@ -62,40 +51,20 @@ const CommandQueue = () => {
     error,
     refetch
   } = useQuery({
-    queryKey: ['pendingCommands', selectedDevice],
+    queryKey: ['pendingCommands', deviceId],
     queryFn: async () => {
-      if (selectedDevice === 'all') {
-        // Fetch for all devices
-        const allCommands = await Promise.all(
-          devices.map(device => 
-            pollCommands(device.device_id)
-              .then(res => ({
-                device_id: device.device_id,
-                commands: res.data.commands || []
-              }))
-              .catch(() => ({
-                device_id: device.device_id,
-                commands: []
-              }))
-          )
-        );
-        return allCommands.flatMap(d => 
-          d.commands.map(cmd => ({ ...cmd, device_id: d.device_id }))
-        );
-      } else {
-        const res = await pollCommands(selectedDevice);
-        return (res.data.commands || []).map(cmd => ({
-          ...cmd,
-          device_id: selectedDevice
-        }));
+      if (!deviceId) {
+        return { commands: [] };
       }
+      const res = await pollCommands(deviceId);
+      return res.data;
     },
-    enabled: devices.length > 0,
+    enabled: !!deviceId,
     refetchInterval: autoRefresh ? 10000 : false, // 10 seconds
     staleTime: 5000
   });
 
-  const commands = commandsData || [];
+  const commands = commandsData?.commands || [];
 
   // Cancel command mutation
   const cancelMutation = useMutation({
@@ -112,10 +81,6 @@ const CommandQueue = () => {
     if (window.confirm('Are you sure you want to cancel this command?')) {
       cancelMutation.mutate(commandId);
     }
-  };
-
-  const handleDeviceChange = (event) => {
-    setSelectedDevice(event.target.value);
   };
 
   const handleManualRefresh = () => {
@@ -164,23 +129,6 @@ const CommandQueue = () => {
           </Stack>
           
           <Stack direction="row" spacing={2}>
-            {/* Device Filter */}
-            <FormControl size="small" sx={{ minWidth: 200 }}>
-              <InputLabel>Device</InputLabel>
-              <Select
-                value={selectedDevice}
-                label="Device"
-                onChange={handleDeviceChange}
-              >
-                <MenuItem value="all">All Devices</MenuItem>
-                {devices.map((device) => (
-                  <MenuItem key={device.device_id} value={device.device_id}>
-                    {device.device_name || device.device_id}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
             {/* Manual Refresh */}
             <Tooltip title="Refresh now">
               <IconButton onClick={handleManualRefresh} color="primary">
@@ -190,29 +138,36 @@ const CommandQueue = () => {
           </Stack>
         </Box>
 
+        {/* No Device Selected */}
+        {!deviceId && (
+          <Alert severity="info">
+            Please select a device to view command queue.
+          </Alert>
+        )}
+
         {/* Loading State */}
-        {isLoading && (
+        {deviceId && isLoading && (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
             <CircularProgress />
           </Box>
         )}
 
         {/* Error State */}
-        {isError && (
+        {deviceId && isError && (
           <Alert severity="error" sx={{ mb: 2 }}>
             Error loading commands: {error?.message || 'Unknown error'}
           </Alert>
         )}
 
         {/* Empty State */}
-        {!isLoading && !isError && commands.length === 0 && (
+        {deviceId && !isLoading && !isError && commands.length === 0 && (
           <Alert severity="info">
             No pending commands in the queue
           </Alert>
         )}
 
         {/* Commands Table */}
-        {!isLoading && !isError && commands.length > 0 && (
+        {deviceId && !isLoading && !isError && commands.length > 0 && (
           <TableContainer>
             <Table>
               <TableHead>

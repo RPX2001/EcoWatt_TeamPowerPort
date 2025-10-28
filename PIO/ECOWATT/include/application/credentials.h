@@ -9,4 +9,8 @@
 
 #define FLASK_SERVER_URL "http://192.168.194.249:5001"
 
+// Device Identification - UNIFORM across all modules
+#define DEVICE_ID "ESP32_001"
+#define DEVICE_NAME "EcoWatt Smart Monitor"
+
 #endif // CREDENTIALS_H

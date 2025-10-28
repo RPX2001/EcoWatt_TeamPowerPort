@@ -820,8 +820,11 @@ bool OTAManager::runDiagnostics()
     }
     
     // Test 4: Test basic HTTP communication
+    WiFiClient client;
+    client.setTimeout(10000);  // 10 second connection timeout
+    
     HTTPClient http;
-    http.begin(serverURL + "/ota/status");
+    http.begin(client, serverURL + "/ota/status");
     http.addHeader("Content-Type", "application/json");
     
     int httpCode = http.GET();
@@ -854,13 +857,87 @@ bool OTAManager::runDiagnostics()
     }
 }
 
+// Report OTA completion status to Flask server after successful reboot
+bool OTAManager::reportOTACompletionStatus()
+{
+    Serial.println("=== REPORTING OTA COMPLETION STATUS TO FLASK ===");
+    
+    // Check WiFi connectivity first
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("ERROR: WiFi not connected, cannot report OTA status");
+        return false;
+    }
+    
+    // Get current running partition info
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    esp_ota_img_states_t ota_state;
+    String status = "success";
+    String error_msg = "";
+    
+    if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK) {
+        if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+            // Still pending - need to run diagnostics first
+            Serial.println("WARNING: OTA image still pending verification");
+            status = "pending_verify";
+        } else if (ota_state == ESP_OTA_IMG_VALID) {
+            // Successfully verified
+            status = "success";
+            Serial.println("✓ OTA image verified and marked valid");
+        } else if (ota_state == ESP_OTA_IMG_INVALID) {
+            // Failed and rolled back
+            status = "rolled_back";
+            error_msg = "Firmware validation failed, rolled back to previous version";
+            Serial.println("✗ OTA image invalid - rolled back");
+        } else {
+            // Aborted
+            status = "failed";
+            error_msg = "OTA process aborted";
+            Serial.println("✗ OTA image aborted");
+        }
+    } else {
+        Serial.println("ERROR: Could not get partition state");
+        return false;
+    }
+    
+    // Prepare JSON payload
+    DynamicJsonDocument doc(512);
+    doc["version"] = currentVersion;
+    doc["status"] = status;
+    doc["timestamp"] = millis() / 1000; // Unix timestamp (seconds since boot)
+    
+    if (error_msg.length() > 0) {
+        doc["error_msg"] = error_msg;
+    }
+    
+    String payload;
+    serializeJson(doc, payload);
+    
+    // Send POST request to Flask: /ota/<device_id>/complete
+    String endpoint = "/ota/" + deviceID + "/complete";
+    String response;
+    
+    bool success = httpPost(endpoint, payload, response);
+    
+    if (success) {
+        Serial.println("✓ OTA completion status reported successfully");
+        return true;
+    } else {
+        Serial.println("✗ Failed to report OTA completion status");
+        return false;
+    }
+}
+
 // HTTP POST helper function
 bool OTAManager::httpPost(const String& endpoint, const String& payload, String& response)
 {
+    // Create WiFiClient with extended connection timeout
+    WiFiClient client;
+    client.setTimeout(30000);  // 30 second connection timeout in MILLISECONDS
+    
     HTTPClient http;
-    http.begin(serverURL + endpoint);
+    http.begin(client, serverURL + endpoint);  // Use our WiFiClient with custom timeout
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(30000); // 30 seconds
+    http.setTimeout(30000); // 30 seconds HTTP timeout (in milliseconds)
     
     Serial.printf("POST %s\n", endpoint.c_str());
     Serial.printf("Payload: %s\n", payload.c_str());
@@ -886,9 +963,13 @@ bool OTAManager::httpPost(const String& endpoint, const String& payload, String&
 
 bool OTAManager::httpGet(const String& endpoint, String& response)
 {
+    // Create WiFiClient with extended connection timeout
+    WiFiClient client;
+    client.setTimeout(30000);  // 30 second connection timeout in MILLISECONDS
+    
     HTTPClient http;
-    http.begin(serverURL + endpoint);
-    http.setTimeout(30000); // 30 seconds
+    http.begin(client, serverURL + endpoint);  // Use our WiFiClient with custom timeout
+    http.setTimeout(30000); // 30 seconds HTTP timeout (in milliseconds)
     
     Serial.printf("GET %s\n", endpoint.c_str());
     

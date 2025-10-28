@@ -28,23 +28,12 @@ import {
   Clear as ClearIcon,
   Search as SearchIcon
 } from '@mui/icons-material';
-import { useQuery } from '@tanstack/react-query';
-import { getDevices } from '../../api/devices';
 
 const LogFilters = ({ 
   filters, 
   onFilterChange, 
   onClearFilters 
 }) => {
-  // Fetch devices for filter dropdown
-  const { data: devicesData } = useQuery({
-    queryKey: ['devices'],
-    queryFn: getDevices,
-    staleTime: 30000
-  });
-
-  const devices = devicesData?.data?.devices || [];
-
   const logLevels = [
     { value: 'all', label: 'All Levels' },
     { value: 'info', label: 'INFO' },
@@ -52,10 +41,6 @@ const LogFilters = ({
     { value: 'error', label: 'ERROR' },
     { value: 'debug', label: 'DEBUG' }
   ];
-
-  const handleDeviceChange = (event) => {
-    onFilterChange({ ...filters, deviceId: event.target.value });
-  };
 
   const handleLevelChange = (event) => {
     onFilterChange({ ...filters, level: event.target.value });
@@ -75,7 +60,6 @@ const LogFilters = ({
 
   const getActiveFilterCount = () => {
     let count = 0;
-    if (filters.deviceId && filters.deviceId !== 'all') count++;
     if (filters.level && filters.level !== 'all') count++;
     if (filters.search) count++;
     if (filters.startDate) count++;
@@ -88,25 +72,6 @@ const LogFilters = ({
   return (
     <Paper sx={{ p: 2, mb: 2 }}>
       <Grid container spacing={2} alignItems="center">
-        {/* Device Filter */}
-        <Grid item xs={12} sm={6} md={3}>
-          <FormControl fullWidth size="small">
-            <InputLabel>Device</InputLabel>
-            <Select
-              value={filters.deviceId || 'all'}
-              label="Device"
-              onChange={handleDeviceChange}
-            >
-              <MenuItem value="all">All Devices</MenuItem>
-              {devices.map((device) => (
-                <MenuItem key={device.device_id} value={device.device_id}>
-                  {device.device_name || device.device_id}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Grid>
-
         {/* Log Level Filter */}
         <Grid item xs={12} sm={6} md={3}>
           <FormControl fullWidth size="small">

@@ -37,9 +37,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getAllDiagnostics, getDeviceDiagnostics, clearAllDiagnostics, clearDeviceDiagnostics } from '../../api/diagnostics';
 import LogFilters from './LogFilters';
 
-const LogViewer = () => {
+const LogViewer = ({ deviceId = null }) => {
   const [filters, setFilters] = useState({
-    deviceId: 'all',
     level: 'all',
     search: '',
     startDate: '',
@@ -57,14 +56,15 @@ const LogViewer = () => {
     isError,
     refetch
   } = useQuery({
-    queryKey: ['diagnostics', filters.deviceId],
+    queryKey: ['diagnostics', deviceId],
     queryFn: () => {
-      if (filters.deviceId === 'all') {
+      if (!deviceId) {
         return getAllDiagnostics(100);
       } else {
-        return getDeviceDiagnostics(filters.deviceId, 100);
+        return getDeviceDiagnostics(deviceId, 100);
       }
     },
+    enabled: true,
     refetchInterval: autoRefresh ? 5000 : false,
     staleTime: 3000
   });
@@ -72,10 +72,10 @@ const LogViewer = () => {
   // Clear diagnostics mutation
   const clearMutation = useMutation({
     mutationFn: () => {
-      if (filters.deviceId === 'all') {
+      if (!deviceId) {
         return clearAllDiagnostics();
       } else {
-        return clearDeviceDiagnostics(filters.deviceId);
+        return clearDeviceDiagnostics(deviceId);
       }
     },
     onSuccess: () => {
@@ -96,7 +96,6 @@ const LogViewer = () => {
 
   const handleClearFilters = () => {
     setFilters({
-      deviceId: 'all',
       level: 'all',
       search: '',
       startDate: '',
@@ -179,14 +178,21 @@ const LogViewer = () => {
   const getFilteredLogs = () => {
     let logs = [];
 
-    if (filters.deviceId === 'all') {
+    if (!deviceId) {
+      // All devices
       const allDiagnostics = diagnosticsData?.data?.diagnostics || {};
-      Object.keys(allDiagnostics).forEach(deviceId => {
-        const deviceLogs = allDiagnostics[deviceId] || [];
-        logs = [...logs, ...deviceLogs.map(log => ({ ...log, device_id: deviceId }))];
+      Object.keys(allDiagnostics).forEach(devId => {
+        const deviceLogs = allDiagnostics[devId] || [];
+        logs = [...logs, ...deviceLogs.map(log => ({ ...log, device_id: devId }))];
       });
     } else {
+      // Specific device
       logs = diagnosticsData?.data?.diagnostics || [];
+    }
+
+    // Ensure logs is an array
+    if (!Array.isArray(logs)) {
+      logs = [];
     }
 
     // Sort by timestamp (newest first)
@@ -306,25 +312,31 @@ const LogViewer = () => {
 
       {/* Log Display */}
       <Paper sx={{ p: 0, maxHeight: 600, overflow: 'auto' }}>
-        {isLoading && (
+        {!deviceId && (
+          <Alert severity="info" sx={{ m: 2 }}>
+            Please select a device to view diagnostic logs.
+          </Alert>
+        )}
+
+        {deviceId && isLoading && (
           <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
             <CircularProgress />
           </Box>
         )}
 
-        {isError && (
+        {deviceId && isError && (
           <Alert severity="error" sx={{ m: 2 }}>
             Error loading diagnostics logs
           </Alert>
         )}
 
-        {!isLoading && !isError && filteredLogs.length === 0 && (
+        {deviceId && !isLoading && !isError && filteredLogs.length === 0 && (
           <Alert severity="info" sx={{ m: 2 }}>
             No logs found. Adjust filters or wait for new diagnostic data.
           </Alert>
         )}
 
-        {!isLoading && !isError && filteredLogs.length > 0 && (
+        {deviceId && !isLoading && !isError && filteredLogs.length > 0 && (
           <List sx={{ p: 0 }}>
             {filteredLogs.map((log, index) => (
               <React.Fragment key={index}>

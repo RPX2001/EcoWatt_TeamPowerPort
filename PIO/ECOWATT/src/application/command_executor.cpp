@@ -63,10 +63,14 @@ void CommandExecutor::checkAndExecuteCommands() {
     PRINT_SECTION("COMMAND POLL");
     PRINT_PROGRESS("Checking for pending commands...");
 
+    // Create WiFiClient with extended connection timeout
+    WiFiClient client;
+    client.setTimeout(15000);  // 15 second connection timeout in MILLISECONDS
+    
     HTTPClient http;
-    http.begin(pollURL);
+    http.begin(client, pollURL);  // Use our WiFiClient with custom timeout
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(3000);  // Reduced to 3 seconds to avoid watchdog
+    http.setTimeout(15000);  // 15 seconds HTTP timeout (in milliseconds)
     
     // Feed watchdog before HTTP request
     yield();
@@ -283,10 +287,14 @@ void CommandExecutor::sendCommandResult(const char* commandId, bool success, con
         return;
     }
 
+    // Create WiFiClient with extended connection timeout
+    WiFiClient client;
+    client.setTimeout(15000);  // 15 second connection timeout in MILLISECONDS
+    
     HTTPClient http;
-    http.begin(resultURL);
+    http.begin(client, resultURL);  // Use our WiFiClient with custom timeout
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(2000);  // 2 second timeout (watchdog safe)
+    http.setTimeout(15000);  // 15 seconds HTTP timeout (in milliseconds)
 
     StaticJsonDocument<256> resultDoc;
     resultDoc["command_id"] = commandId;

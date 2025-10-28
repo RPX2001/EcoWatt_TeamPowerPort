@@ -38,6 +38,7 @@ public:
      * @param payload Original JSON payload to secure
      * @param securedPayload Output buffer for secured JSON
      * @param securedPayloadSize Size of the output buffer
+     * @param isCompressed Whether the payload contains compressed binary data
      * @return true if successful, false if buffer too small or operation failed
      * 
      * Output format:
@@ -45,10 +46,11 @@ public:
      *   "nonce": 10001,
      *   "payload": "base64_encoded_data",
      *   "mac": "hmac_sha256_hex_string",
-     *   "encrypted": false
+     *   "encrypted": false,
+     *   "compressed": false
      * }
      */
-    static bool securePayload(const char* payload, char* securedPayload, size_t securedPayloadSize);
+    static bool securePayload(const char* payload, char* securedPayload, size_t securedPayloadSize, bool isCompressed = false);
     
     /**
      * @brief Get the current nonce value

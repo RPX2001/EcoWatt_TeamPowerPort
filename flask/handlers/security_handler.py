@@ -178,7 +178,7 @@ def get_core_security_stats(device_id: Optional[str] = None) -> dict:
             return dict(core_security_stats)
 
 
-def verify_secured_payload_core(secured_data: str, device_id: str) -> str:
+def verify_secured_payload_core(secured_data: str, device_id: str):
     """
     Verify HMAC and decrypt (if encrypted) the secured payload from ESP32.
     
@@ -187,7 +187,7 @@ def verify_secured_payload_core(secured_data: str, device_id: str) -> str:
         device_id: Device identifier for nonce tracking
         
     Returns:
-        Original JSON string if verification succeeds
+        str or bytes: Original JSON string if uncompressed, bytes if compressed
         
     Raises:
         SecurityError: If verification fails
@@ -206,8 +206,9 @@ def verify_secured_payload_core(secured_data: str, device_id: str) -> str:
         payload_b64 = data['payload']
         mac_received = data['mac']
         encrypted = data.get('encrypted', False)
+        compressed = data.get('compressed', False)  # NEW: Check if payload is compressed
         
-        logger.debug(f"[Security] Verifying payload: nonce={nonce}, encrypted={encrypted}")
+        logger.debug(f"[Security] Verifying payload: nonce={nonce}, encrypted={encrypted}, compressed={compressed}")
         
         # Step 1: Anti-replay protection - Check nonce
         with nonce_lock_core:
@@ -242,50 +243,81 @@ def verify_secured_payload_core(secured_data: str, device_id: str) -> str:
             except Exception as e:
                 raise SecurityError(f"AES decryption failed: {e}")
         
-        # Convert to string
-        try:
-            payload_str = payload_bytes.decode('utf-8')
-            logger.debug(f"[Security Debug] UTF-8 decoded: {len(payload_str)} characters")
-        except Exception as e:
-            logger.error(f"[Security Debug] UTF-8 decode failed on {len(payload_bytes)} bytes")
-            logger.error(f"[Security Debug] First 100 bytes: {payload_bytes[:100]}")
-            logger.error(f"[Security Debug] Last 100 bytes: {payload_bytes[-100:]}")
-            raise SecurityError(f"Failed to decode payload to UTF-8: {e}")
+        # Step 4: Handle compressed vs uncompressed payloads
+        if compressed:
+            # For compressed data, keep as bytes - don't decode to UTF-8
+            logger.info(f"[Security Debug] Device: {device_id}")
+            logger.info(f"[Security Debug] Nonce: {nonce}")
+            logger.info(f"[Security Debug] Compressed payload: {len(payload_bytes)} bytes")
+            
+            # Calculate HMAC for verification (use raw bytes)
+            nonce_bytes = nonce.to_bytes(4, 'big')
+            data_to_sign = nonce_bytes + payload_bytes
+            mac_calculated = hmac.new(PSK_HMAC, data_to_sign, hashlib.sha256).hexdigest()
+            
+            logger.debug(f"[Security Debug] HMAC calculated: {mac_calculated}")
+            logger.debug(f"[Security Debug] HMAC received: {mac_received}")
+            
+            # Verify HMAC
+            if not hmac.compare_digest(mac_calculated, mac_received):
+                log_security_event('MAC_FAIL', device_id, f"MAC mismatch (compressed)")
+                raise SecurityError(
+                    f"HMAC verification failed! Calculated: {mac_calculated[:16]}..., "
+                    f"Received: {mac_received[:16]}..."
+                )
+            
+            # Update nonce and return bytes
+            with nonce_lock_core:
+                last_valid_nonce[device_id] = nonce
+            save_nonce_state()
+            
+            log_security_event('VALID', device_id, f"Compressed payload verified")
+            logger.info(f"✓ Security validation successful (compressed) for {device_id}")
+            
+            return payload_bytes  # Return bytes for compressed data
         
-        # Debug logging
-        logger.info(f"[Security Debug] Device: {device_id}")
-        logger.info(f"[Security Debug] Nonce: {nonce}")
-        logger.info(f"[Security Debug] Payload (decoded): {payload_str[:100]}...")
-        logger.info(f"[Security Debug] Payload length: {len(payload_str)}")
-        
-        # Step 4: Calculate HMAC for verification
-        nonce_bytes = nonce.to_bytes(4, 'big')
-        data_to_sign = nonce_bytes + payload_str.encode('utf-8')
-        mac_calculated = hmac.new(PSK_HMAC, data_to_sign, hashlib.sha256).hexdigest()
-        
-        logger.info(f"[Security Debug] HMAC calculated: {mac_calculated}")
-        logger.info(f"[Security Debug] HMAC received: {mac_received}")
-        
-        # Step 5: Verify HMAC
-        if not hmac.compare_digest(mac_calculated, mac_received):
-            log_security_event('MAC_FAIL', device_id, f"MAC mismatch")
-            raise SecurityError(
-                f"HMAC verification failed! Calculated: {mac_calculated[:16]}..., "
-                f"Received: {mac_received[:16]}..."
-            )
-        
-        # Step 6: Update nonce tracker
-        with nonce_lock_core:
-            last_valid_nonce[device_id] = nonce
-        
-        # Save nonce state to persistent storage
-        save_nonce_state()
-        
-        # Log successful verification
-        log_security_event('VALID', device_id, f"Nonce: {nonce}")
-        
-        logger.debug(f"[Security] ✓ Verification successful: nonce={nonce}")
-        return payload_str
+        else:
+            # For uncompressed data, decode to UTF-8 string as before
+            try:
+                payload_str = payload_bytes.decode('utf-8')
+                logger.debug(f"[Security Debug] UTF-8 decoded: {len(payload_str)} characters")
+            except Exception as e:
+                logger.error(f"[Security Debug] UTF-8 decode failed on {len(payload_bytes)} bytes")
+                logger.error(f"[Security Debug] First 100 bytes: {payload_bytes[:100]}")
+                logger.error(f"[Security Debug] Last 100 bytes: {payload_bytes[-100:]}")
+                raise SecurityError(f"Failed to decode payload to UTF-8: {e}")
+            
+            # Debug logging
+            logger.info(f"[Security Debug] Device: {device_id}")
+            logger.info(f"[Security Debug] Nonce: {nonce}")
+            logger.info(f"[Security Debug] Payload (decoded): {payload_str[:100]}...")
+            logger.info(f"[Security Debug] Payload length: {len(payload_str)}")
+            
+            # Calculate HMAC for verification
+            nonce_bytes = nonce.to_bytes(4, 'big')
+            data_to_sign = nonce_bytes + payload_str.encode('utf-8')
+            mac_calculated = hmac.new(PSK_HMAC, data_to_sign, hashlib.sha256).hexdigest()
+            
+            logger.info(f"[Security Debug] HMAC calculated: {mac_calculated}")
+            logger.info(f"[Security Debug] HMAC received: {mac_received}")
+            
+            # Verify HMAC
+            if not hmac.compare_digest(mac_calculated, mac_received):
+                log_security_event('MAC_FAIL', device_id, f"MAC mismatch")
+                raise SecurityError(
+                    f"HMAC verification failed! Calculated: {mac_calculated[:16]}..., "
+                    f"Received: {mac_received[:16]}..."
+                )
+            
+            # Update nonce tracker
+            with nonce_lock_core:
+                last_valid_nonce[device_id] = nonce
+            save_nonce_state()
+            
+            log_security_event('VALID', device_id, f"Payload verified")
+            logger.info(f"✓ Security validation successful for {device_id}")
+            
+            return payload_str  # Return string for uncompressed data
         
     except json.JSONDecodeError as e:
         raise SecurityError(f"Invalid JSON in secured payload: {e}")

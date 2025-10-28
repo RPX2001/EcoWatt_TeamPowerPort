@@ -28,6 +28,9 @@
 #include "application/credentials.h"
 #include "peripheral/arduino_wifi.h"
 #include "esp_task_wdt.h"
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <WiFi.h>
 
 // ============================================
 // Global Objects
@@ -47,6 +50,61 @@ Arduino_Wifi Wifi;
 void enhanceDictionaryForOptimalCompression() {
     // Dictionary enhancement happens automatically in compression module
     print("[Main] Compression dictionary ready\n");
+}
+
+/**
+ * @brief Register device with Flask server
+ */
+bool registerDeviceWithServer() {
+    print("[Main] Registering device with server...\n");
+    
+    if (WiFi.status() != WL_CONNECTED) {
+        print("[Main] WiFi not connected. Cannot register device.\n");
+        return false;
+    }
+    
+    // Create WiFiClient with extended timeout
+    WiFiClient client;
+    client.setTimeout(10000);  // 10 second connection timeout
+    
+    HTTPClient http;
+    http.begin(client, FLASK_SERVER_URL "/devices");
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(10000);  // 10 seconds
+    
+    // Create registration JSON
+    StaticJsonDocument<256> doc;
+    doc["device_id"] = DEVICE_ID;
+    doc["device_name"] = DEVICE_NAME;
+    doc["firmware_version"] = FIRMWARE_VERSION;
+    doc["location"] = "Default Location";
+    doc["description"] = "EcoWatt Energy Monitor";
+    
+    String payload;
+    serializeJson(doc, payload);
+    
+    print("[Main] Sending registration: %s\n", payload.c_str());
+    
+    int httpCode = http.POST(payload);
+    
+    if (httpCode == 201) {
+        print("[Main] ✓ Device registered successfully\n");
+        http.end();
+        return true;
+    } else if (httpCode == 409) {
+        print("[Main] ✓ Device already registered\n");
+        http.end();
+        return true;
+    } else if (httpCode > 0) {
+        String response = http.getString();
+        print("[Main] ⚠ Registration response (%d): %s\n", httpCode, response.c_str());
+        http.end();
+        return false;
+    } else {
+        print("[Main] ✗ Registration failed: %s\n", http.errorToString(httpCode).c_str());
+        http.end();
+        return false;
+    }
 }
 
 // ============================================
@@ -78,10 +136,38 @@ void setup()
     print("[Main] Initializing OTA Manager...\n");
     otaManager = new OTAManager(
         FLASK_SERVER_URL ":5001",
-        "ESP32_EcoWatt_Smart",
+        DEVICE_ID,
         FIRMWARE_VERSION
     );
+    
+    // Handle rollback if new firmware failed
     otaManager->handleRollback();
+    
+    // Run post-OTA diagnostics to verify system health
+    print("[Main] Running post-boot diagnostics...\n");
+    bool diagnosticsPassed = otaManager->runDiagnostics();
+    
+    if (diagnosticsPassed) {
+        print("[Main] ✓ Diagnostics passed - firmware stable\n");
+        
+        // Register device with server (auto-registration)
+        print("[Main] Attempting device auto-registration...\n");
+        if (registerDeviceWithServer()) {
+            print("[Main] ✓ Device registration complete\n");
+        } else {
+            print("[Main] ⚠ Device registration failed (will retry later)\n");
+        }
+        
+        // Report OTA completion status to Flask server
+        print("[Main] Reporting OTA status to server...\n");
+        if (otaManager->reportOTACompletionStatus()) {
+            print("[Main] ✓ OTA status reported successfully\n");
+        } else {
+            print("[Main] ⚠ Failed to report OTA status (will retry later)\n");
+        }
+    } else {
+        print("[Main] ✗ Diagnostics failed - system may be unstable\n");
+    }
     
     // Get configuration from NVS
     uint64_t pollFreq = nvs::getPollFreq();
@@ -106,17 +192,17 @@ void setup()
     print("  - OTA Check:    %lu ms\n", otaFreqMs);
     
     // Initialize Data Uploader (M4 format: /aggregated/<device_id>)
-    DataUploader::init(FLASK_SERVER_URL "/aggregated/ESP32_001", "ESP32_001");
+    DataUploader::init(FLASK_SERVER_URL "/aggregated/" DEVICE_ID, DEVICE_ID);
     
     // Initialize Command Executor (M4 format: /commands/<device_id>/poll)
     CommandExecutor::init(
-        FLASK_SERVER_URL "/commands/ESP32_001/poll",
-        FLASK_SERVER_URL "/commands/ESP32_001/result",
-        "ESP32_001"
+        FLASK_SERVER_URL "/commands/" DEVICE_ID "/poll",
+        FLASK_SERVER_URL "/commands/" DEVICE_ID "/result",
+        DEVICE_ID
     );
     
     // Initialize Config Manager (M4 format: /config/<device_id>)
-    ConfigManager::init(FLASK_SERVER_URL "/config/ESP32_001", "ESP32_001");
+    ConfigManager::init(FLASK_SERVER_URL "/config/" DEVICE_ID, DEVICE_ID);
     
     // Enhance compression dictionary
     enhanceDictionaryForOptimalCompression();

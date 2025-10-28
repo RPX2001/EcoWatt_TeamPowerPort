@@ -6,10 +6,14 @@ Uses SQLite with 7-day auto-cleanup
 
 import sqlite3
 import json
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 import threading
 from typing import Dict, List, Optional, Any
+
+# Logger
+logger = logging.getLogger(__name__)
 
 # Thread-safe database connection pool
 _thread_local = threading.local()
@@ -104,7 +108,7 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_initiated_at ON ota_updates(initiated_at)')
         
         conn.commit()
-        print("[Database] Schema initialized successfully")
+        logger.info("[Database] Schema initialized successfully")
         
         # Run initial cleanup
         Database.cleanup_old_data()
@@ -528,7 +532,7 @@ class Database:
         conn.commit()
         
         if sensor_deleted + commands_deleted + config_deleted + ota_deleted > 0:
-            print(f"[Database] Cleanup: Deleted {sensor_deleted} sensor records, "
+            logger.info(f"[Database] Cleanup: Deleted {sensor_deleted} sensor records, "
                   f"{commands_deleted} commands, {config_deleted} configs, {ota_deleted} OTA records")
         
         return {

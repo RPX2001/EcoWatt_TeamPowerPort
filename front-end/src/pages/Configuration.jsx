@@ -81,12 +81,10 @@ const Configuration = () => {
         Configuration
       </Typography>
 
-      {activeTab === 0 && (
-        <DeviceSelector 
-          selectedDevice={selectedDevice} 
-          onDeviceChange={handleDeviceChange} 
-        />
-      )}
+      <DeviceSelector 
+        selectedDevice={selectedDevice} 
+        onDeviceChange={handleDeviceChange} 
+      />
 
       {isDefaultConfig && selectedDevice && activeTab === 0 && (
         <Alert severity="info" sx={{ mt: 2 }}>
@@ -120,7 +118,7 @@ const Configuration = () => {
           </Alert>
         )}
 
-        {activeTab === 1 && <ConfigHistory />}
+        {activeTab === 1 && <ConfigHistory deviceId={selectedDevice} />}
       </Box>
     </Box>
   );

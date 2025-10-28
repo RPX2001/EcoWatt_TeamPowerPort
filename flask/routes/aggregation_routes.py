@@ -53,9 +53,19 @@ def receive_aggregated_data(device_id: str):
                 }), 401
             
             # Parse the decrypted payload
+            # Note: decrypted_payload can be either str (uncompressed JSON) or bytes (compressed binary)
             try:
-                data = json.loads(decrypted_payload)
-                logger.info(f"Secured payload validated for {device_id}")
+                if isinstance(decrypted_payload, bytes):
+                    # This shouldn't happen for aggregated endpoint - compressed binary should be inside JSON
+                    logger.error(f"Unexpected binary payload for {device_id}")
+                    return jsonify({
+                        'success': False,
+                        'error': 'Unexpected binary payload format'
+                    }), 400
+                else:
+                    # Uncompressed JSON payload (may contain compressed_data field inside)
+                    data = json.loads(decrypted_payload)
+                    logger.info(f"Secured payload validated for {device_id}")
             except Exception as e:
                 logger.error(f"Failed to parse decrypted payload: {e}")
                 return jsonify({
@@ -82,8 +92,14 @@ def receive_aggregated_data(device_id: str):
         
         # Check if data contains compressed payload
         if 'compressed_data' in data:
-            # Handle compressed data - can be array of packets or single base64
+            # Handle compressed data - can be array of packets, single base64, or raw bytes
             compressed_data = data['compressed_data']
+            
+            # If compressed_data is bytes (from secured compressed payload), convert to base64
+            if isinstance(compressed_data, bytes):
+                import base64
+                compressed_data = base64.b64encode(compressed_data).decode('ascii')
+                logger.info(f"Converted {len(data['compressed_data'])} raw bytes to base64: {len(compressed_data)} chars")
             
             # If compressed_data is a list of packets, process each packet
             if isinstance(compressed_data, list):

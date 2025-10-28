@@ -37,12 +37,18 @@ import {
   getOTAStats,
   getCommandStats
 } from '../api/diagnostics';
+import DeviceSelector from '../components/dashboard/DeviceSelector';
 import StatisticsCard from '../components/common/StatisticsCard';
 import DiagnosticsSummary from '../components/diagnostics/DiagnosticsSummary';
 import LogViewer from '../components/diagnostics/LogViewer';
 
 const Logs = () => {
   const [activeTab, setActiveTab] = useState(0);
+  const [selectedDevice, setSelectedDevice] = useState(null);
+
+  const handleDeviceChange = (deviceId) => {
+    setSelectedDevice(deviceId);
+  };
 
   // Fetch all statistics
   const { data: allStatsData } = useQuery({
@@ -79,11 +85,11 @@ const Logs = () => {
     refetchInterval: 30000
   });
 
-  const allStats = allStatsData?.data || {};
-  const compressionStats = compressionData?.data || {};
-  const securityStats = securityData?.data || {};
-  const otaStats = otaData?.data || {};
-  const commandStats = commandData?.data || {};
+  const allStats = allStatsData?.data?.statistics || {};
+  const compressionStats = compressionData?.data?.statistics || {};
+  const securityStats = securityData?.data?.statistics || {};
+  const otaStats = otaData?.data?.statistics || {};
+  const commandStats = commandData?.data?.statistics || {};
 
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue);
@@ -100,6 +106,12 @@ const Logs = () => {
           System health, statistics, and diagnostic information
         </Typography>
       </Box>
+
+      {/* Device Selector */}
+      <DeviceSelector 
+        selectedDevice={selectedDevice} 
+        onDeviceChange={handleDeviceChange} 
+      />
 
       {/* Tabs */}
       <Paper sx={{ mb: 3 }}>
@@ -139,35 +151,35 @@ const Logs = () => {
             <Grid container spacing={3} sx={{ mb: 4 }}>
               <Grid item xs={12} sm={6} md={3}>
                 <StatisticsCard
-                  title="Total Messages"
-                  value={compressionStats.total_messages || 0}
+                  title="Total Decompressions"
+                  value={compressionStats.total_decompressions || 0}
                   icon={CompressionIcon}
                   color="primary"
                 />
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <StatisticsCard
-                  title="Compressed"
-                  value={compressionStats.compressed_messages || 0}
+                  title="Successful"
+                  value={compressionStats.successful_decompressions || 0}
                   icon={CompressionIcon}
-                  color="info"
-                  subtitle={`${Math.round((compressionStats.compressed_messages || 0) / Math.max(compressionStats.total_messages || 1, 1) * 100)}% of total`}
+                  color="success"
+                  subtitle={`${Math.round((compressionStats.success_rate || 0))}% success rate`}
                 />
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <StatisticsCard
                   title="Avg Compression"
-                  value={Math.round((compressionStats.average_compression_ratio || 0) * 100)}
+                  value={Math.round((compressionStats.average_ratio || 0) * 100)}
                   unit="%"
                   icon={CompressionIcon}
-                  color="success"
+                  color="info"
                   subtitle="Space saved"
                 />
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <StatisticsCard
                   title="Total Savings"
-                  value={Math.round((compressionStats.total_bytes_saved || 0) / 1024)}
+                  value={Math.round((compressionStats.bytes_saved || 0) / 1024)}
                   unit=" KB"
                   icon={CompressionIcon}
                   color="primary"
@@ -182,16 +194,16 @@ const Logs = () => {
             <Grid container spacing={3} sx={{ mb: 4 }}>
               <Grid item xs={12} sm={6} md={3}>
                 <StatisticsCard
-                  title="Verified Messages"
-                  value={securityStats.verified_messages || 0}
+                  title="Total Validations"
+                  value={securityStats.total_validations || 0}
                   icon={SecurityIcon}
-                  color="success"
+                  color="primary"
                 />
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <StatisticsCard
-                  title="Failed Verifications"
-                  value={securityStats.failed_verifications || 0}
+                  title="Failed Validations"
+                  value={securityStats.failed_validations || 0}
                   icon={SecurityIcon}
                   color="error"
                 />
@@ -199,18 +211,18 @@ const Logs = () => {
               <Grid item xs={12} sm={6} md={3}>
                 <StatisticsCard
                   title="Success Rate"
-                  value={Math.round((securityStats.success_rate || 0) * 100)}
+                  value={Math.round(securityStats.success_rate || 0)}
                   unit="%"
                   icon={SecurityIcon}
-                  color="info"
+                  color="success"
                 />
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <StatisticsCard
-                  title="Active Keys"
-                  value={securityStats.active_keys || 0}
+                  title="Replay Attacks Blocked"
+                  value={securityStats.replay_attacks_blocked || 0}
                   icon={SecurityIcon}
-                  color="primary"
+                  color="warning"
                 />
               </Grid>
             </Grid>
@@ -223,7 +235,7 @@ const Logs = () => {
               <Grid item xs={12} sm={6} md={3}>
                 <StatisticsCard
                   title="Total Updates"
-                  value={otaStats.total_updates || 0}
+                  value={otaStats.total_updates_initiated || 0}
                   icon={OTAIcon}
                   color="primary"
                 />
@@ -234,6 +246,7 @@ const Logs = () => {
                   value={otaStats.successful_updates || 0}
                   icon={OTAIcon}
                   color="success"
+                  subtitle={`${Math.round(otaStats.success_rate || 0)}% success`}
                 />
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
@@ -269,8 +282,8 @@ const Logs = () => {
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <StatisticsCard
-                  title="Successful"
-                  value={commandStats.successful_commands || 0}
+                  title="Completed"
+                  value={commandStats.completed_commands || 0}
                   icon={CommandIcon}
                   color="success"
                 />
@@ -297,12 +310,12 @@ const Logs = () => {
 
         {/* System Health Tab */}
         {activeTab === 1 && (
-          <DiagnosticsSummary />
+          <DiagnosticsSummary deviceId={selectedDevice} />
         )}
 
         {/* Logs Tab */}
         {activeTab === 2 && (
-          <LogViewer />
+          <LogViewer deviceId={selectedDevice} />
         )}
       </Box>
     </Container>

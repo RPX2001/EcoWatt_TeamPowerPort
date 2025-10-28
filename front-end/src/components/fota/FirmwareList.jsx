@@ -75,7 +75,7 @@ const FirmwareList = () => {
     staleTime: 30000
   });
 
-  const firmwareList = firmwareData?.data?.firmware || [];
+  const firmwareList = firmwareData?.data?.firmwares || [];  // Fixed: was 'firmware', should be 'firmwares'
   const devices = devicesData?.data?.devices || [];
 
   // Delete firmware mutation

@@ -117,7 +117,7 @@ export const uploadFirmware = (file, version, onProgress) => {
  * @returns {Promise} API response with firmware list
  */
 export const getFirmwareList = () => {
-  return api.get('/ota/firmware/list');
+  return api.get('/ota/firmwares');
 };
 
 /**
