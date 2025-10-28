@@ -151,6 +151,7 @@ private:
     bool requestManifest();
     bool downloadChunk(uint16_t chunkNumber);
     bool httpPost(const String& endpoint, const String& payload, String& response);
+    bool httpGet(const String& endpoint, String& response);
     
     // Private methods - Cryptographic operations
     bool decryptChunk(const uint8_t* encrypted, size_t encLen, uint8_t* decrypted, size_t* decLen, uint16_t chunkNumber);

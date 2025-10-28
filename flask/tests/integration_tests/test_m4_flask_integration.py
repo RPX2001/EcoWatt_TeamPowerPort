@@ -28,14 +28,11 @@ import sys
 from pathlib import Path
 from flask import Flask
 
-# Add scripts directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / 'scripts'))
+# Add flask directory to path (tests/integration_tests -> flask/)
+flask_dir = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(flask_dir))
 
-try:
-    from flask_server_modular import app
-except ImportError:
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-    from flask_server_modular import app
+from flask_server_modular import app
 
 from handlers.security_handler import (
     validate_secured_payload, 
@@ -44,8 +41,8 @@ from handlers.security_handler import (
     clear_nonces,
     PSK_HMAC
 )
-from handlers.command_handler import queue_command, get_pending_commands, get_command_status
-from handlers.ota_handler import check_update_available, get_firmware_info
+from handlers.command_handler import queue_command, poll_commands, get_command_status
+from handlers.ota_handler import check_for_update
 from utils.logger_utils import get_logger
 
 logger = get_logger(__name__)

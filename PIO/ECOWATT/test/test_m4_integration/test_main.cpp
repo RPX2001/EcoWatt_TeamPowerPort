@@ -311,9 +311,25 @@ void printTestResult(int testNum, const String& testName, bool passed, const Str
 // TEST IMPLEMENTATIONS
 // ============================================================================
 
+void resetServerNonces() {
+    // Clear nonces on server to avoid replay issues from previous test runs
+    HTTPClient http;
+    String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/security/nonces";
+    http.begin(url);
+    int httpCode = http.sendRequest("DELETE");
+    http.end();
+    
+    Serial.println("[SETUP] Cleared server nonce history");
+    delay(500);  // Give server time to process
+}
+
 void test_01_connectivity() {
     current_test++;
     String testName = "Server Connectivity";
+    
+    // Reset nonces before starting tests
+    resetServerNonces();
+    
     syncTest(current_test, testName, "starting", "");
     
     bool passed = false;
@@ -363,7 +379,7 @@ void test_02_secured_upload_valid() {
     
     // Use high fixed nonce to avoid conflicts with test 4
     unsigned long savedNonce = nonce_counter;
-    nonce_counter = 100001;
+    nonce_counter = 200001;  // Much higher to avoid any conflicts
     String securedPayload = createSecuredPayload(dataPayload);
     nonce_counter = savedNonce;
     
@@ -398,7 +414,7 @@ void test_03_secured_upload_invalid_hmac() {
     
     StaticJsonDocument<512> doc;
     doc["payload"] = "{\"current\":2.5}";
-    doc["nonce"] = 100002;  // Use high fixed nonce to avoid conflicts
+    doc["nonce"] = 200002;  // Use high fixed nonce to avoid conflicts
     doc["mac"] = "invalid_hmac_value_1234567890abcdef";
     doc["device_id"] = DEVICE_ID;
     
@@ -449,7 +465,7 @@ void test_04_anti_replay_duplicate_nonce() {
     unsigned long savedNonce = nonce_counter;
     
     // Create first secured payload with fixed nonce
-    nonce_counter = 100003;  // Use high fixed nonce
+    nonce_counter = 200003;  // Use high fixed nonce
     String payload = createSecuredPayload(dataPayload);
     
     // Send first request

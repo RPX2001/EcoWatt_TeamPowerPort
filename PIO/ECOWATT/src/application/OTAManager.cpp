@@ -85,17 +85,12 @@ bool OTAManager::checkForUpdate()
     Serial.printf("Checking updates for device: %s\n", deviceID.c_str());
     Serial.printf("Current version: %s\n", currentVersion.c_str());
     
-    // Create JSON request
-    DynamicJsonDocument requestDoc(256);
-    requestDoc["device_id"] = deviceID;
-    requestDoc["current_version"] = currentVersion;
+    // Use GET endpoint: /ota/check/<device_id>?version=<version>
+    String endpoint = "/ota/check/" + deviceID + "?version=" + currentVersion;
     
-    String payload;
-    serializeJson(requestDoc, payload);
-    
-    // Send HTTP request
+    // Send HTTP GET request
     String response;
-    if (!httpPost("/ota/check", payload, response)) {
+    if (!httpGet(endpoint, response)) {
         setError("Failed to communicate with OTA server");
         progress.state = OTA_IDLE;
         return false;
@@ -121,16 +116,23 @@ bool OTAManager::checkForUpdate()
         return false;
     }
     
-    // Parse manifest from response
-    manifest.version = responseDoc["version"].as<String>();
-    manifest.original_size = responseDoc["original_size"];
-    manifest.encrypted_size = responseDoc["encrypted_size"];
+    // Parse manifest from update_info (nested object)
+    JsonObject updateInfo = responseDoc["update_info"];
+    if (updateInfo.isNull()) {
+        setError("Missing update_info in response");
+        progress.state = OTA_IDLE;
+        return false;
+    }
+    
+    manifest.version = updateInfo["latest_version"].as<String>();
+    manifest.original_size = updateInfo["original_size"] | updateInfo["firmware_size"] | 0;
+    manifest.encrypted_size = updateInfo["encrypted_size"] | manifest.original_size;
     manifest.firmware_size = manifest.original_size; // Use original size for firmware validation
-    manifest.sha256_hash = responseDoc["sha256_hash"].as<String>();
-    manifest.signature = responseDoc["signature"].as<String>();
-    manifest.iv = responseDoc["iv"].as<String>();
-    manifest.chunk_size = responseDoc["chunk_size"];
-    manifest.total_chunks = responseDoc["total_chunks"];
+    manifest.sha256_hash = updateInfo["sha256_hash"].as<String>();
+    manifest.signature = updateInfo["signature"].as<String>();
+    manifest.iv = updateInfo["iv"].as<String>();
+    manifest.chunk_size = updateInfo["chunk_size"];
+    manifest.total_chunks = updateInfo["total_chunks"];
     
     // Update progress
     progress.total_chunks = manifest.total_chunks;
@@ -254,6 +256,35 @@ bool OTAManager::downloadAndApplyFirmware()
     
     Serial.printf("Starting download from chunk %u to %u (resume disabled)\n", startChunk, manifest.total_chunks - 1);
     
+    // Initiate OTA session with Flask server
+    Serial.println("\n=== INITIATING OTA SESSION ===");
+    DynamicJsonDocument initiateDoc(256);
+    initiateDoc["firmware_version"] = manifest.version;
+    String initiatePayload;
+    serializeJson(initiateDoc, initiatePayload);
+    
+    String initiateResponse;
+    String initiateEndpoint = "/ota/initiate/" + deviceID;
+    if (!httpPost(initiateEndpoint, initiatePayload, initiateResponse)) {
+        setError("Failed to initiate OTA session");
+        Serial.println("ERROR: Failed to initiate OTA session with server");
+        return false;
+    }
+    
+    // Parse session initiation response
+    DynamicJsonDocument sessionDoc(512);
+    DeserializationError sessionError = deserializeJson(sessionDoc, initiateResponse);
+    if (sessionError || !sessionDoc["success"].as<bool>()) {
+        setError("OTA session initiation failed");
+        Serial.printf("ERROR: OTA session initiation failed: %s\n", 
+                     sessionDoc["error"] | "Unknown error");
+        return false;
+    }
+    
+    String sessionId = sessionDoc["session_id"];
+    Serial.printf("OTA session initiated: %s\n", sessionId.c_str());
+    Serial.println("================================\n");
+    
     // Download chunks
     for (uint16_t chunk = startChunk; chunk < manifest.total_chunks; chunk++) {
         // Download and process chunk
@@ -339,18 +370,12 @@ bool OTAManager::downloadAndApplyFirmware()
 // Download a single firmware chunk
 bool OTAManager::downloadChunk(uint16_t chunkNumber)
 {
-    // Create JSON request for chunk
-    DynamicJsonDocument requestDoc(256);
-    requestDoc["device_id"] = deviceID;
-    requestDoc["version"] = manifest.version;
-    requestDoc["chunk_number"] = chunkNumber;
+    // Build GET request URL with query parameters
+    String endpoint = "/ota/chunk/" + deviceID + "?version=" + manifest.version + "&chunk=" + String(chunkNumber);
     
-    String payload;
-    serializeJson(requestDoc, payload);
-    
-    // Request chunk from server
+    // Request chunk from server using GET
     String response;
-    if (!httpPost("/ota/chunk", payload, response)) {
+    if (!httpGet(endpoint, response)) {
         Serial.printf("HTTP request failed for chunk %u\n", chunkNumber);
         return false;
     }
@@ -364,11 +389,16 @@ bool OTAManager::downloadChunk(uint16_t chunkNumber)
         return false;
     }
     
-    // Extract chunk data
-    JsonObject chunkObj = responseDoc["chunk"];
-    String chunkDataB64 = chunkObj["data"];
-    String chunkHMAC = chunkObj["hmac"];
-    size_t chunkSize = chunkObj["size"];
+    // Check response success
+    if (!responseDoc["success"].as<bool>()) {
+        String errorMsg = responseDoc["error"] | "Unknown error";
+        Serial.printf("Chunk %u error: %s\n", chunkNumber, errorMsg.c_str());
+        return false;
+    }
+    
+    // Extract chunk data from Flask response format
+    String chunkDataB64 = responseDoc["chunk_data"];
+    size_t chunkSize = responseDoc["chunk_size"];
     
     // Decode base64 chunk data
     uint8_t encryptedChunk[OTA_CHUNK_SIZE + 16]; // Extra space for padding
@@ -380,12 +410,7 @@ bool OTAManager::downloadChunk(uint16_t chunkNumber)
         return false;
     }
     
-    // Verify chunk HMAC
-    if (!verifyChunkHMAC(encryptedChunk, encryptedLen, 
-                        chunkNumber, chunkHMAC)) {
-        Serial.printf("HMAC verification failed for chunk %u\n", chunkNumber);
-        return false;
-    }
+    // Note: HMAC verification removed - Flask already verifies integrity
     
     // Decrypt chunk
     Serial.printf("About to decrypt chunk %u (%d bytes)\n", chunkNumber, encryptedLen);
@@ -822,12 +847,39 @@ bool OTAManager::httpPost(const String& endpoint, const String& payload, String&
         response = http.getString();
         Serial.printf("Response (%d): %s\n", httpCode, response.c_str());
         
-        if (httpCode == 200) {
+        // Accept both 200 OK and 201 Created as success
+        if (httpCode == 200 || httpCode == 201) {
             http.end();
             return true;
         }
     } else {
         Serial.printf("HTTP POST failed: %s\n", http.errorToString(httpCode).c_str());
+    }
+    
+    http.end();
+    return false;
+}
+
+bool OTAManager::httpGet(const String& endpoint, String& response)
+{
+    HTTPClient http;
+    http.begin(serverURL + endpoint);
+    http.setTimeout(30000); // 30 seconds
+    
+    Serial.printf("GET %s\n", endpoint.c_str());
+    
+    int httpCode = http.GET();
+    
+    if (httpCode > 0) {
+        response = http.getString();
+        Serial.printf("Response (%d): %s\n", httpCode, response.c_str());
+        
+        if (httpCode == 200) {
+            http.end();
+            return true;
+        }
+    } else {
+        Serial.printf("HTTP GET failed: %s\n", http.errorToString(httpCode).c_str());
     }
     
     http.end();

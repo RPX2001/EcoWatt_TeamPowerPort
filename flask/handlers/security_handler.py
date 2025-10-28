@@ -465,6 +465,10 @@ def clear_nonces(device_id: Optional[str] = None) -> bool:
                 # Clear our tracking
                 count = len(nonce_store)
                 nonce_store.clear()
+                # Also clear core security layer
+                clear_all_nonces()
+                # Persist the cleared state
+                save_nonce_state()
                 logger.info(f"Cleared local nonce tracking for all {count} devices")
             else:
                 # Clear specific device
@@ -472,6 +476,8 @@ def clear_nonces(device_id: Optional[str] = None) -> bool:
                     del nonce_store[device_id]
                 # Also clear in core security layer
                 reset_nonce_core(device_id)
+                # Persist the change
+                save_nonce_state()
                 logger.info(f"Cleared nonces for device: {device_id}")
         
         return True

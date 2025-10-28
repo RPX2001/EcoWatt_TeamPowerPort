@@ -12,27 +12,32 @@ import json
 
 logger = logging.getLogger(__name__)
 
-# Firmware directory
-FIRMWARE_DIR = Path('./firmware')
+# Firmware directory (absolute path relative to this file's parent directory)
+FIRMWARE_DIR = Path(__file__).parent.parent / 'firmware'
 
 
 def _get_latest_firmware_version() -> Optional[str]:
     """Get the latest firmware version from manifest files"""
     try:
         if not FIRMWARE_DIR.exists():
+            logger.error(f"Firmware directory does not exist: {FIRMWARE_DIR}")
             return None
         
         # Look for manifest files
         manifests = list(FIRMWARE_DIR.glob('*_manifest.json'))
+        logger.info(f"Found {len(manifests)} manifest files: {[m.name for m in manifests]}")
         if not manifests:
             return None
         
         # Get most recent manifest
         latest_manifest = max(manifests, key=lambda p: p.stat().st_mtime)
+        logger.info(f"Latest manifest by mtime: {latest_manifest.name} (mtime: {latest_manifest.stat().st_mtime})")
         
         with open(latest_manifest, 'r') as f:
             manifest_data = json.load(f)
-            return manifest_data.get('version')
+            version = manifest_data.get('version')
+            logger.info(f"Latest firmware version detected: {version}")
+            return version
     except Exception as e:
         logger.error(f"Error getting latest firmware version: {e}")
         return None
@@ -122,10 +127,14 @@ def check_for_update(device_id: str, current_version: str) -> Tuple[bool, Option
                     'available': True,
                     'latest_version': latest_version,
                     'current_version': current_version,
-                    'firmware_size': manifest.get('size', 0),
-                    'chunk_size': manifest.get('chunk_size', 4096),
-                    'total_chunks': manifest.get('total_chunks', 0),
+                    'original_size': manifest.get('original_size', 0),
+                    'encrypted_size': manifest.get('encrypted_size', 0),
+                    'firmware_size': manifest.get('original_size', 0),  # Alias for compatibility
+                    'sha256_hash': manifest.get('sha256_hash', ''),
                     'signature': manifest.get('signature', ''),
+                    'iv': manifest.get('iv', ''),
+                    'chunk_size': manifest.get('chunk_size', 1024),
+                    'total_chunks': manifest.get('total_chunks', 0),
                     'release_notes': manifest.get('release_notes', '')
                 }
                 
