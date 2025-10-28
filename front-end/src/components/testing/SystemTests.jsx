@@ -160,15 +160,13 @@ const SystemTests = () => {
     const startTime = Date.now();
 
     try {
-      // Send a test command (set power to 50%)
-      const commandResult = await sendCommand({
-        device_id: deviceId,
-        command_type: 'write_register',
-        parameters: {
-          register: 8,
-          value: 50
-        }
-      });
+      // Send a test command (set power to 50%) using M4 format
+      const commandResult = await sendCommand(
+        deviceId,
+        'write_register',
+        'export_power', // target_register (register 8)
+        50              // value
+      );
 
       if (!commandResult.data.success) {
         throw new Error('Failed to send command');
@@ -328,13 +326,14 @@ const SystemTests = () => {
       if (!configResult.data.success) throw new Error('Failed to get config');
       steps[0].status = 'pass';
 
-      // Step 2: Send command
+      // Step 2: Send command using M4 format
       steps.push({ step: 'Send Command', status: 'running' });
-      const cmdResult = await sendCommand({
-        device_id: deviceId,
-        command_type: 'write_register',
-        parameters: { register: 8, value: 75 }
-      });
+      const cmdResult = await sendCommand(
+        deviceId,
+        'write_register',
+        'export_power', // target_register (register 8)
+        75              // value
+      );
       if (!cmdResult.data.success) throw new Error('Failed to send command');
       steps[1].status = 'pass';
 

@@ -37,7 +37,7 @@ import {
   Timer as TimerIcon
 } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getPendingCommands } from '../../api/commands';
+import { pollCommands } from '../../api/commands';
 import { getDevices } from '../../api/devices';
 
 const CommandQueue = () => {
@@ -68,7 +68,7 @@ const CommandQueue = () => {
         // Fetch for all devices
         const allCommands = await Promise.all(
           devices.map(device => 
-            getPendingCommands(device.device_id)
+            pollCommands(device.device_id)
               .then(res => ({
                 device_id: device.device_id,
                 commands: res.data.commands || []
@@ -83,7 +83,7 @@ const CommandQueue = () => {
           d.commands.map(cmd => ({ ...cmd, device_id: d.device_id }))
         );
       } else {
-        const res = await getPendingCommands(selectedDevice);
+        const res = await pollCommands(selectedDevice);
         return (res.data.commands || []).map(cmd => ({
           ...cmd,
           device_id: selectedDevice

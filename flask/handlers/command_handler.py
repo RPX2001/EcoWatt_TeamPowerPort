@@ -22,6 +22,7 @@ command_stats = {
     'pending_commands': 0,
     'executing_commands': 0,
     'completed_commands': 0,
+    'successful_commands': 0,  # Alias for completed_commands (for compatibility)
     'failed_commands': 0,
     'last_reset': datetime.now().isoformat()
 }
@@ -158,6 +159,7 @@ def submit_command_result(
             command_stats['executing_commands'] -= 1
             if success:
                 command_stats['completed_commands'] += 1
+                command_stats['successful_commands'] += 1  # Keep both in sync
             else:
                 command_stats['failed_commands'] += 1
         
@@ -265,6 +267,7 @@ def reset_command_stats() -> bool:
                 'pending_commands': 0,
                 'executing_commands': 0,
                 'completed_commands': 0,
+                'successful_commands': 0,
                 'failed_commands': 0,
                 'last_reset': datetime.now().isoformat()
             }

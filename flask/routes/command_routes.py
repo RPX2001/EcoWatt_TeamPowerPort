@@ -30,24 +30,39 @@ import time
 import uuid
 from typing import Dict, List
 
+# Import command handler functions
+from handlers.command_handler import (
+    queue_command as handler_queue_command,
+    poll_commands as handler_poll_commands,
+    submit_command_result as handler_submit_result,
+    get_command_status as handler_get_status,
+    get_command_history as handler_get_history,
+    get_command_stats as handler_get_stats,  # NOTE: returns dict directly, not tuple
+    reset_command_stats as handler_reset_stats,
+    command_queues,  # For test access
+    command_history,  # For test access
+    command_stats     # For test access
+)
+
 logger = logging.getLogger(__name__)
 
 # Create blueprint
 command_bp = Blueprint('command', __name__)
 
-# In-memory command storage (in production, use database)
-command_queue: Dict[str, list] = {}  # device_id -> list of pending commands
-command_history: Dict[str, list] = {}  # device_id -> list of executed commands
-command_status: Dict[str, dict] = {}  # command_id -> command details
-
 
 @command_bp.route('/commands/<device_id>', methods=['POST'])
-def queue_command(device_id):
+def queue_command_route(device_id):
     """
     Queue a command for execution
     
-    Following Milestone 4 format:
-    Request: { "action": "write_register", "register_address": 8, "register_value": 50 }
+    STRICT Milestone 4 format:
+    Request: {
+      "command": {
+        "action": "write_register",
+        "target_register": "export_power",
+        "value": 50
+      }
+    }
     Response: { "success": true, "command_id": "uuid", "note": "..." }
     
     Commands are queued and executed at next communication window.
@@ -55,37 +70,49 @@ def queue_command(device_id):
     try:
         data = request.get_json()
         
-        if not data or 'action' not in data:
+        if not data or 'command' not in data:
             return jsonify({
                 'success': False,
-                'error': 'Missing action in request body'
+                'error': 'command field is required'
             }), 400
         
-        # Generate command ID
-        command_id = str(uuid.uuid4())
+        command_data = data['command']
+        if not isinstance(command_data, dict):
+            return jsonify({
+                'success': False,
+                'error': 'command must be an object with action, target_register, and value'
+            }), 400
         
-        # Create command object
-        command = {
-            'command_id': command_id,
-            'device_id': device_id,
-            'action': data['action'],
-            'parameters': {k: v for k, v in data.items() if k != 'action'},
-            'status': 'pending',
-            'queued_at': time.time(),
-            'executed_at': None,
-            'result': None
-        }
+        if 'action' not in command_data:
+            return jsonify({
+                'success': False,
+                'error': 'command.action is required'
+            }), 400
         
-        # Add to queue
-        if device_id not in command_queue:
-            command_queue[device_id] = []
+        # Extract M4 format fields
+        action = command_data['action']
+        target_register = command_data.get('target_register')
+        value = command_data.get('value')
         
-        command_queue[device_id].append(command)
+        # Use handler to queue command (store full command object)
+        success, result = handler_queue_command(
+            device_id=device_id,
+            command=action,
+            parameters={
+                'target_register': target_register,
+                'value': value
+            }
+        )
         
-        # Track in status dict
-        command_status[command_id] = command
+        if not success:
+            return jsonify({
+                'success': False,
+                'error': result
+            }), 500
         
-        logger.info(f"[Command] Queued command {command_id} for device {device_id}: {data['action']}")
+        command_id = result
+        
+        logger.info(f"[Command] Queued command {command_id} for device {device_id}: {action}")
         
         return jsonify({
             'success': True,
@@ -102,40 +129,42 @@ def queue_command(device_id):
         }), 500
 
 
-@command_bp.route('/commands/<device_id>/pending', methods=['GET'])
-def get_pending_commands(device_id):
+@command_bp.route('/commands/<device_id>/poll', methods=['GET'])
+def poll_commands_route(device_id):
     """
-    Get pending commands for a device
+    Poll for pending commands - SINGLE STANDARD ENDPOINT
     
-    Used by device to poll for commands at configured interval (command_poll_interval)
+    Used by ESP32 device to poll for commands at configured interval
+    Frontend and tests use this same endpoint
+    
+    Query params:
+    - limit: max commands to return (default: 10)
+    
+    Response: { "success": true, "commands": [...], "count": n }
     """
     try:
         limit = int(request.args.get('limit', 10))
         
-        if device_id not in command_queue:
+        # Use handler to poll commands
+        success, commands = handler_poll_commands(device_id, limit)
+        
+        if not success:
             return jsonify({
-                'success': True,
-                'device_id': device_id,
-                'commands': [],
-                'count': 0
-            }), 200
+                'success': False,
+                'error': 'Failed to poll commands'
+            }), 500
         
-        pending_commands = [
-            cmd for cmd in command_queue[device_id]
-            if cmd['status'] == 'pending'
-        ][:limit]
-        
-        logger.info(f"[Command] Device {device_id} polled, {len(pending_commands)} pending commands")
+        logger.info(f"[Command] Device {device_id} polled, {len(commands)} commands returned")
         
         return jsonify({
             'success': True,
             'device_id': device_id,
-            'commands': pending_commands,
-            'count': len(pending_commands)
+            'commands': commands,
+            'count': len(commands)
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting pending commands for {device_id}: {e}")
+        logger.error(f"Error polling commands for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -143,11 +172,11 @@ def get_pending_commands(device_id):
 
 
 @command_bp.route('/commands/<device_id>/result', methods=['POST'])
-def submit_command_result(device_id):
+def submit_command_result_route(device_id):
     """
     Submit command execution result
     
-    Following Milestone 4 format:
+    STRICT Milestone 4 format:
     Request: {
       "command_result": {
         "command_id": "uuid",
@@ -164,7 +193,7 @@ def submit_command_result(device_id):
         if not data or 'command_result' not in data:
             return jsonify({
                 'success': False,
-                'error': 'Missing command_result in request body'
+                'error': 'command_result field is required'
             }), 400
         
         result = data['command_result']
@@ -173,46 +202,36 @@ def submit_command_result(device_id):
         if not command_id:
             return jsonify({
                 'success': False,
-                'error': 'Missing command_id in command_result'
+                'error': 'command_result.command_id is required'
             }), 400
         
-        # Find command
-        if command_id not in command_status:
+        # Extract M4 format fields
+        status = result.get('status', 'unknown')
+        success = (status == 'success')
+        executed_at = result.get('executed_at')
+        
+        # Use handler to submit result
+        submitted = handler_submit_result(
+            device_id=device_id,
+            command_id=command_id,
+            success=success,
+            result_data={'executed_at': executed_at} if executed_at else None,
+            error_message=result.get('error')
+        )
+        
+        if not submitted:
             return jsonify({
                 'success': False,
                 'error': f'Command {command_id} not found'
             }), 404
         
-        command = command_status[command_id]
-        
-        # Update command status
-        command['status'] = result.get('status', 'unknown')
-        command['executed_at'] = result.get('executed_at', time.time())
-        command['result'] = result
-        
-        # Move from queue to history
-        if device_id in command_queue:
-            command_queue[device_id] = [
-                cmd for cmd in command_queue[device_id]
-                if cmd['command_id'] != command_id
-            ]
-        
-        if device_id not in command_history:
-            command_history[device_id] = []
-        
-        command_history[device_id].append(command)
-        
-        # Keep only last 100 commands in history
-        if len(command_history[device_id]) > 100:
-            command_history[device_id] = command_history[device_id][-100:]
-        
-        logger.info(f"[Command] Received result for command {command_id}: {command['status']}")
+        logger.info(f"[Command] Received result for command {command_id}: {status}")
         
         return jsonify({
             'success': True,
             'device_id': device_id,
             'command_id': command_id,
-            'status': command['status']
+            'status': 'completed' if success else 'failed'
         }), 200
         
     except Exception as e:
@@ -231,21 +250,27 @@ def get_command_status_route(command_id):
     Returns current status of a command (pending, executing, success, failed)
     """
     try:
-        if command_id not in command_status:
+        # Use handler to get status
+        success, status_info = handler_get_status(command_id)
+        
+        if not success:
             return jsonify({
                 'success': False,
                 'error': f'Command {command_id} not found'
             }), 404
         
-        command = command_status[command_id]
-        
         return jsonify({
             'success': True,
             'command_id': command_id,
-            'status': command['status'],
-            'command': command
+            'status': status_info  # Nested status object as tests expect
         }), 200
         
+    except Exception as e:
+        logger.error(f"Error getting command status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
     except Exception as e:
         logger.error(f"Error getting command status: {e}")
         return jsonify({
@@ -255,7 +280,7 @@ def get_command_status_route(command_id):
 
 
 @command_bp.route('/commands/<device_id>/history', methods=['GET'])
-def get_command_history(device_id):
+def get_command_history_route(device_id):
     """
     Get command execution history for a device
     
@@ -266,15 +291,14 @@ def get_command_history(device_id):
         limit = int(request.args.get('limit', 20))
         limit = min(limit, 100)  # Cap at 100
         
-        if device_id not in command_history:
-            return jsonify({
-                'success': True,
-                'device_id': device_id,
-                'commands': [],
-                'count': 0
-            }), 200
+        # Use handler to get history
+        success, history = handler_get_history(device_id, limit)
         
-        history = command_history[device_id][-limit:]
+        if not success:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to get history'
+            }), 500
         
         logger.info(f"[Command] History requested for {device_id}, returning {len(history)} commands")
         
@@ -282,8 +306,7 @@ def get_command_history(device_id):
             'success': True,
             'device_id': device_id,
             'commands': history,
-            'count': len(history),
-            'total_executed': len(command_history[device_id])
+            'count': len(history)
         }), 200
         
     except Exception as e:
@@ -295,39 +318,21 @@ def get_command_history(device_id):
 
 
 @command_bp.route('/commands/stats', methods=['GET'])
-def get_command_statistics():
+def get_command_statistics_route():
     """
     Get overall command statistics
     
     Returns aggregate statistics across all devices
     """
     try:
-        total_pending = sum(
-            len([cmd for cmd in cmds if cmd['status'] == 'pending'])
-            for cmds in command_queue.values()
-        )
+        # Use handler to get statistics (returns dict directly)
+        stats = handler_get_stats()
         
-        total_executed = sum(len(cmds) for cmds in command_history.values())
-        
-        success_count = sum(
-            len([cmd for cmd in cmds if cmd['status'] == 'success'])
-            for cmds in command_history.values()
-        )
-        
-        failed_count = sum(
-            len([cmd for cmd in cmds if cmd['status'] in ['failed', 'error']])
-            for cmds in command_history.values()
-        )
-        
-        stats = {
-            'total_pending': total_pending,
-            'total_executed': total_executed,
-            'success_count': success_count,
-            'failed_count': failed_count,
-            'success_rate': (success_count / total_executed * 100) if total_executed > 0 else 0,
-            'devices_with_pending_commands': len([d for d, cmds in command_queue.items() if any(cmd['status'] == 'pending' for cmd in cmds)]),
-            'devices_with_history': len(command_history)
-        }
+        if 'error' in stats:
+            return jsonify({
+                'success': False,
+                'error': stats['error']
+            }), 500
         
         return jsonify({
             'success': True,
@@ -336,6 +341,30 @@ def get_command_statistics():
         
     except Exception as e:
         logger.error(f"Error getting command statistics: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@command_bp.route('/commands/stats', methods=['DELETE'])
+def reset_command_statistics_route():
+    """
+    Reset command statistics and clear history
+    """
+    try:
+        # Use handler to reset statistics
+        handler_reset_stats()
+        
+        logger.info("[Command] Command statistics and history reset")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Command statistics reset'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error resetting command statistics: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

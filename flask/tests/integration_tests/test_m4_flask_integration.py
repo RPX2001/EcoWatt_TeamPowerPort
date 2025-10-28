@@ -290,10 +290,12 @@ class TestM4FlaskIntegration:
         """Test 8: Queue set_power command"""
         logger.info("=== Test 8: Command Queue - Set Power ===")
         
+        # Use M4 format
         command_payload = {
-            'command': 'set_power',  # Changed from 'command_type' to 'command'
-            'parameters': {
-                'power_value': 5000
+            'command': {
+                'action': 'write_register',
+                'target_register': 'export_power',
+                'value': 5000
             }
         }
         
@@ -313,11 +315,11 @@ class TestM4FlaskIntegration:
         """Test 9: Poll for pending commands"""
         logger.info("=== Test 9: Command Poll - Pending ===")
         
-        # Queue a command first
+        # Queue a command first using M4 format
         command_payload = {
-            'command': 'write_register',  # Changed from 'command_type' to 'command'
-            'parameters': {
-                'address': 40001,
+            'command': {
+                'action': 'write_register',
+                'target_register': 'frequency',
                 'value': 4500
             }
         }
@@ -389,13 +391,17 @@ class TestM4FlaskIntegration:
         logger.info("=== Test 11: Remote Configuration Update ===")
         
         # Configuration updates are done via commands in the current architecture
+        # Using M4 format
         config_command = {
-            'command': 'update_config',  # Changed from 'command_type' to 'command'
-            'parameters': {
-                'sample_rate_hz': 10,
-                'upload_interval_s': 60,
-                'compression_enabled': True,
-                'power_threshold_w': 1000
+            'command': {
+                'action': 'update_config',
+                'target_register': 'config',
+                'value': {
+                    'sample_rate_hz': 10,
+                    'upload_interval_s': 60,
+                    'compression_enabled': True,
+                    'power_threshold_w': 1000
+                }
             }
         }
         
@@ -517,10 +523,13 @@ class TestM4FlaskIntegration:
         
         assert upload_response.status_code == 200
         
-        # Step 2: Queue a command
+        # Step 2: Queue a command using M4 format
         command_payload = {
-            'command': 'set_power',  # Changed from 'command_type' to 'command'
-            'parameters': {'power_value': 3000}
+            'command': {
+                'action': 'write_register',
+                'target_register': 'export_power',
+                'value': 3000
+            }
         }
         
         command_response = client.post(f'/commands/{TEST_DEVICE_ID}',
@@ -543,10 +552,13 @@ class TestM4FlaskIntegration:
         """Test 17: Config update followed by FOTA check"""
         logger.info("=== Test 17: Workflow - Config + FOTA ===")
         
-        # Step 1: Update config (via command)
+        # Step 1: Update config (via command) using M4 format
         config_command = {
-            'command': 'update_config',  # Changed from 'command_type' to 'command'
-            'parameters': {'upload_interval_s': 30}
+            'command': {
+                'action': 'update_config',
+                'target_register': 'upload_interval',
+                'value': 30
+            }
         }
         
         config_response = client.post(f'/commands/{TEST_DEVICE_ID}',

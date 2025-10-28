@@ -95,14 +95,13 @@ const CommandBuilder = ({ deviceId }) => {
         });
       }
 
-      // Command payload following Milestone 4 specification:
-      // { "command": { "action": "write_register", "target_register": "status_flag", "value": 1 } }
-      const commandPayload = {
-        action: commandType,
-        ...commandParams,
-      };
+      // Extract M4 format fields
+      const action = commandType;
+      const targetRegister = commandParams.register_address || commandParams.target_register || null;
+      const value = commandParams.register_value || commandParams.value || null;
 
-      const response = await sendCommand(deviceId, commandPayload);
+      // Send using M4 format: sendCommand(deviceId, action, targetRegister, value)
+      const response = await sendCommand(deviceId, action, targetRegister, value);
       
       setSuccess(`Command queued successfully! Will be executed at next communication window. Command ID: ${response.data.command_id || 'N/A'}`);
     } catch (err) {
