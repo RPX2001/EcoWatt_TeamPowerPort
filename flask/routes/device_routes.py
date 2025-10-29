@@ -173,10 +173,32 @@ def register_device():
         
         # Check if device already exists
         if device_id in devices_registry:
-            return jsonify({
-                'success': False,
-                'error': f'Device {device_id} already registered'
-            }), 409
+            # Device exists - update firmware_version if provided
+            firmware_version = data.get('firmware_version')
+            if firmware_version:
+                devices_registry[device_id]['firmware_version'] = firmware_version
+                
+                # Also update in database
+                from database import Database
+                db_device = Database.get_device(device_id)
+                if db_device:
+                    Database.update_device_firmware(device_id, firmware_version)
+                
+                logger.info(f"Updated firmware version for {device_id}: {firmware_version}")
+                
+                return jsonify({
+                    'success': True,
+                    'message': f'Device {device_id} firmware version updated',
+                    'device': {
+                        'device_id': device_id,
+                        **devices_registry[device_id]
+                    }
+                }), 200
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'Device {device_id} already registered'
+                }), 409
         
         # Register device
         device_info = {

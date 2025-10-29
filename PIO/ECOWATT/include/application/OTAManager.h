@@ -28,7 +28,7 @@
 
 // OTA Constants
 #define OTA_TIMEOUT_MS 30000
-#define OTA_CHUNK_SIZE 1024
+#define OTA_CHUNK_SIZE 2048  // 2KB chunks - balance between speed and memory (was 1024, tried 4096 but caused OOM)
 #define RSA_KEY_SIZE 2048
 
 // OTA State enumeration
@@ -140,7 +140,7 @@ private:
     
     // Decryption buffer
     uint8_t* decryptBuffer;
-    static const size_t DECRYPT_BUFFER_SIZE = 2048;
+    static const size_t DECRYPT_BUFFER_SIZE = 4096;  // 4KB buffer for 2KB chunks + overhead
     
     // Fault testing variables
     bool testModeEnabled;
@@ -154,6 +154,7 @@ private:
     bool downloadChunk(uint16_t chunkNumber);
     bool httpPost(const String& endpoint, const String& payload, String& response);
     bool httpGet(const String& endpoint, String& response);
+    bool reportProgress(const String& phase, int progressPercent, const String& message);
     
     // Private methods - Cryptographic operations
     bool decryptChunk(const uint8_t* encrypted, size_t encLen, uint8_t* decrypted, size_t* decLen, uint16_t chunkNumber);

@@ -148,7 +148,6 @@ bool SystemInitializer::initOTA(const char* serverURL, const char* deviceID,
 void SystemInitializer::printBootSequence() {
     Serial.println("\n\n===========================================");
     Serial.println("ESP32 BOOTING - EcoWatt System");
-    Serial.println("Firmware Version: 1.0.4");
     Serial.println("Team: PowerPort");
     Serial.println("===========================================\n");
 }

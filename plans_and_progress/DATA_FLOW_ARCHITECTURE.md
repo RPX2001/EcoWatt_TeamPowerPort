@@ -526,4 +526,123 @@ When `is_pending: true`, the endpoint returned the pending config (for ESP32), c
 - ESP32 still receives pending configs to apply
 - After ESP32 acknowledges, both current and pending align
 
+---
+
+## FOTA (Firmware Over-The-Air) Update Flow
+
+### **Complete FOTA Endpoint Mapping**
+
+| Operation | Frontend API | Flask Endpoint | ESP32 Endpoint | Status |
+|-----------|-------------|----------------|----------------|--------|
+| Check for update | `checkForUpdate(deviceId, version)` | `GET /ota/check/{device_id}?version=X` | `GET /ota/check/{device_id}?version=X` | ✅ Aligned |
+| Initiate OTA | `initiateOTA(deviceId, version)` | `POST /ota/initiate/{device_id}` | `POST /ota/initiate/{device_id}` | ✅ Aligned |
+| Get firmware chunk | `getFirmwareChunk(deviceId, version, chunk)` | `GET /ota/chunk/{device_id}?version=X&chunk=N` | `GET /ota/chunk/{device_id}?version=X&chunk=N` | ✅ Aligned |
+| Complete OTA | `completeOTA(deviceId, sessionId, success)` | `POST /ota/complete/{device_id}` | - | ⚠️ Not used by ESP32 |
+| Report OTA status | - | `POST /ota/{device_id}/complete` | `POST /ota/{device_id}/complete` | ✅ ESP32 → Flask |
+| Cancel OTA | `cancelOTA(deviceId)` | `POST /ota/cancel/{device_id}` | - | ✅ Frontend only |
+| Get OTA status | `getOTAStatus(deviceId)` | `GET /ota/status/{device_id}` | - | ✅ Frontend only |
+| Get all OTA status | `getAllOTAStatus()` | `GET /ota/status` | - | ✅ Frontend only |
+| Get OTA stats | `getOTAStats()` | `GET /ota/stats` | - | ✅ Frontend only |
+| Upload firmware | `uploadFirmware(file, version)` | `POST /ota/upload` | - | ✅ Frontend only |
+| List firmwares | `getFirmwareList()` | `GET /ota/firmwares` | - | ✅ Frontend only |
+| Get manifest | `getFirmwareManifest(version)` | `GET /ota/firmware/{version}/manifest` | - | ✅ Frontend only |
+| Delete firmware | `deleteFirmware(version)` | `DELETE /ota/firmware/{version}` | - | ✅ Frontend only |
+
+### **FOTA Flow Sequence**
+
+```
+1. FRONTEND: Upload firmware
+   POST /ota/upload
+   - File: firmware_1.0.5.bin
+   - Version: "1.0.5"
+   → Flask saves firmware + creates manifest
+
+2. FRONTEND: Initiate OTA for device
+   POST /ota/initiate/ESP32_001
+   {
+     "firmware_version": "1.0.5"
+   }
+   → Flask creates OTA session
+
+3. ESP32: Periodic check (every 60+ minutes)
+   GET /ota/check/ESP32_001?version=1.0.4
+   ← Flask returns:
+   {
+     "update_available": true,
+     "update_info": {
+       "version": "1.0.5",
+       "size": 1234567,
+       "chunks": 613
+     }
+   }
+
+4. ESP32: Initiate OTA session
+   POST /ota/initiate/ESP32_001
+   {
+     "firmware_version": "1.0.5"
+   }
+   ← Flask returns:
+   {
+     "session_id": "ota_xxx",
+     "version": "1.0.5",
+     "total_chunks": 613
+   }
+
+5. ESP32: Download firmware chunks
+   Loop for each chunk (0 to 612):
+     GET /ota/chunk/ESP32_001?version=1.0.5&chunk=N
+     ← Flask returns:
+     {
+       "chunk_data": "base64_encoded_data",
+       "chunk_index": N,
+       "chunk_size": 2048
+     }
+   ESP32 writes chunks to OTA partition
+
+6. ESP32: Complete download and install
+   - Calls esp_ota_end()
+   - Sets new partition as boot partition
+   - REBOOTS
+
+7. ESP32: After reboot, report status
+   POST /ota/ESP32_001/complete
+   {
+     "version": "1.0.5",
+     "status": "success" | "failed" | "rolled_back",
+     "timestamp": 1234567890,
+     "error_msg": "..." (if failed)
+   }
+   ← Flask updates OTA record
+
+8. FRONTEND: Monitor OTA status
+   GET /ota/status/ESP32_001
+   ← Flask returns current OTA session status
+```
+
+### **FOTA Security & Reliability**
+
+- **Chunk-based download**: 2KB chunks to handle unreliable connections
+- **Resume capability**: Can resume interrupted downloads
+- **Rollback support**: ESP32 automatically rolls back on boot failure
+- **Status reporting**: ESP32 reports success/failure after reboot
+- **Fault injection**: Test mode for simulating OTA failures
+
+---
+
+## Code References
+
+- **ESP32 Acquisition**: `PIO/ECOWATT/src/peripheral/acquisition.cpp`
+- **ESP32 Compression**: `PIO/ECOWATT/src/peripheral/compression.cpp`
+- **ESP32 Upload**: `PIO/ECOWATT/src/application/data_uploader.cpp`
+- **ESP32 Security**: `PIO/ECOWATT/src/application/security.cpp`
+- **ESP32 OTA**: `PIO/ECOWATT/src/application/OTAManager.cpp`
+- **Server Security**: `flask/handlers/security_handler.py`
+- **Server Compression**: `flask/handlers/compression_handler.py`
+- **Server Routes**: `flask/routes/aggregation_routes.py`
+- **Server OTA**: `flask/routes/ota_routes.py`, `flask/handlers/ota_handler.py`
+- **Frontend OTA API**: `front-end/src/api/ota.js`
+- **Frontend FOTA Page**: `front-end/src/pages/FOTA.jsx`
+- **Database Handler**: `flask/database.py`
+- **Data Utils**: `flask/utils/data_utils.py`
+
 

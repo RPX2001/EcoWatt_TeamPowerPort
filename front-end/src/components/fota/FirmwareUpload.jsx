@@ -252,7 +252,7 @@ const FirmwareUpload = () => {
       {/* Info Section */}
       <Box sx={{ mt: 3, p: 2, bgcolor: 'info.50', borderRadius: 1 }}>
         <Typography variant="subtitle2" gutterBottom>
-          📝 Upload Instructions:
+          Upload Instructions:
         </Typography>
         <Typography variant="body2" component="ul" sx={{ pl: 2, mb: 0 }}>
           <li>Select a firmware binary file (.bin, .hex, or .elf)</li>

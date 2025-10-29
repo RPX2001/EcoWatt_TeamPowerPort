@@ -197,6 +197,9 @@ bool OTAManager::downloadAndApplyFirmware()
     progress.percentage = 0;
     progress.state = OTA_DOWNLOADING;
     
+    // Report start of download to server
+    reportProgress("downloading", 0, "Starting firmware download...");
+    
     // Clear any stored NVS progress to ensure clean start
     if (nvs.begin("ota_progress", false)) {
         nvs.clear();
@@ -323,6 +326,11 @@ bool OTAManager::downloadAndApplyFirmware()
                          progress.percentage, progress.chunks_received, 
                          manifest.total_chunks, progress.bytes_downloaded, speed);
             
+            // Report progress to server
+            String progressMsg = "Downloading chunk " + String(progress.chunks_received) + 
+                               " of " + String(manifest.total_chunks);
+            reportProgress("downloading", progress.percentage, progressMsg);
+            
             // Progress bar visualization
             int barWidth = 30;
             int filled = (progress.percentage * barWidth) / 100;
@@ -374,6 +382,9 @@ bool OTAManager::downloadAndApplyFirmware()
     
     Serial.println("Firmware written to OTA partition successfully");
     progress.state = OTA_VERIFYING;
+    
+    // Report download completion
+    reportProgress("download_complete", 100, "Download complete, verifying security...");
     
     return true;
 }
@@ -745,10 +756,16 @@ bool OTAManager::verifyAndReboot()
 {
     Serial.println("Starting firmware verification...");
     
+    // Report verification start
+    reportProgress("verifying", 100, "Verifying firmware security...");
+    
     // Verify RSA signature
     if (!verifySignature(manifest.signature)) {
         Serial.println("ERROR: Firmware signature verification failed!");
         setOTAState(OTA_ERROR);
+        
+        // Report verification failure
+        reportProgress("verification_failed", 0, "Security verification failed - Rolling back");
         
         // Mark invalid firmware for rollback
         esp_ota_mark_app_invalid_rollback_and_reboot();
@@ -757,11 +774,17 @@ bool OTAManager::verifyAndReboot()
     
     Serial.println("✓ Firmware signature verified");
     
+    // Report verification success
+    reportProgress("verification_success", 100, "Security verification passed - Installing firmware");
+    
     // Update.end() has already finalized the OTA and set the boot partition
     // The Arduino Update library handles everything internally
     
     // Store update completion flag
     setOTAState(OTA_COMPLETED);
+    
+    // Report installation phase
+    reportProgress("installing", 100, "Installing new firmware - Device will reboot");
     
     Serial.println("=== OTA UPDATE SUCCESSFUL ===");
     Serial.printf("Version: %s → %s\n", currentVersion.c_str(), manifest.version.c_str());
@@ -970,6 +993,41 @@ bool OTAManager::httpPost(const String& endpoint, const String& payload, String&
     
     http.end();
     return false;
+}
+
+// Report OTA progress to Flask server
+bool OTAManager::reportProgress(const String& phase, int progressPercent, const String& message)
+{
+    Serial.printf("[OTA Progress] Phase: %s, Progress: %d%%, Message: %s\n", 
+                  phase.c_str(), progressPercent, message.c_str());
+    
+    // Check WiFi connectivity
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("WARNING: WiFi not connected, cannot report progress");
+        return false;
+    }
+    
+    // Prepare JSON payload
+    DynamicJsonDocument doc(512);
+    doc["phase"] = phase;
+    doc["progress"] = progressPercent;
+    doc["message"] = message;
+    doc["timestamp"] = getCurrentTimestamp();
+    
+    String payload;
+    serializeJson(doc, payload);
+    
+    // Send POST request to Flask: /ota/<device_id>/progress
+    String endpoint = "/ota/" + deviceID + "/progress";
+    String response;
+    
+    bool success = httpPost(endpoint, payload, response);
+    
+    if (!success) {
+        Serial.println("WARNING: Failed to report OTA progress (non-critical)");
+    }
+    
+    return success;
 }
 
 bool OTAManager::httpGet(const String& endpoint, String& response)

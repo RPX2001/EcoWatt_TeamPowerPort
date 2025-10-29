@@ -326,6 +326,20 @@ class Database:
         conn.commit()
     
     @staticmethod
+    def update_device_firmware(device_id: str, firmware_version: str) -> bool:
+        """Update device firmware version"""
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE devices SET firmware_version = ? WHERE device_id = ?
+        ''', (firmware_version, device_id))
+        
+        conn.commit()
+        
+        return cursor.rowcount > 0
+    
+    @staticmethod
     def delete_device(device_id: str) -> bool:
         """Delete device from database"""
         conn = Database.get_connection()
