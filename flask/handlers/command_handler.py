@@ -1,6 +1,7 @@
 """
 Command handler for EcoWatt Flask server
 Manages command queuing, polling, and result tracking
+Following Milestone 4 Command Execution Protocol
 """
 
 import logging
@@ -10,6 +11,42 @@ from typing import Dict, List, Optional, Tuple
 import uuid
 
 logger = logging.getLogger(__name__)
+
+# Milestone 4: Register name to address mapping (Inverter SIM writable registers)
+REGISTER_NAME_TO_ADDRESS = {
+    'export_power': 8,           # Export power percentage (0-100%)
+    'export_power_percent': 8,   # Alias
+    'status_flag': 0,            # Status flag (example from M4 spec)
+}
+
+# Reverse mapping for address to name
+ADDRESS_TO_REGISTER_NAME = {v: k for k, v in REGISTER_NAME_TO_ADDRESS.items()}
+
+def normalize_register(target_register):
+    """
+    Normalize target_register to both address and name.
+    Accepts either string name or numeric address.
+    Returns: (address: int, name: str) or (None, None) if invalid
+    """
+    if isinstance(target_register, str):
+        # String name provided
+        address = REGISTER_NAME_TO_ADDRESS.get(target_register)
+        if address is not None:
+            return (address, target_register)
+        # Try to parse as numeric string
+        try:
+            address = int(target_register)
+            name = ADDRESS_TO_REGISTER_NAME.get(address, f"register_{address}")
+            return (address, name)
+        except (ValueError, TypeError):
+            return (None, None)
+    elif isinstance(target_register, (int, float)):
+        # Numeric address provided
+        address = int(target_register)
+        name = ADDRESS_TO_REGISTER_NAME.get(address, f"register_{address}")
+        return (address, name)
+    else:
+        return (None, None)
 
 # Command queue storage (in-memory, can be replaced with Redis/database)
 command_queues = {}  # device_id -> list of commands
@@ -28,27 +65,41 @@ command_stats = {
 }
 
 
-def queue_command(device_id: str, command: str, parameters: Optional[Dict] = None) -> Tuple[bool, Optional[str]]:
+def queue_command(device_id: str, command_data: Dict) -> Tuple[bool, Optional[str]]:
     """
-    Queue a command for a device
+    Queue a command for a device (Milestone 4 format)
     
     Args:
         device_id: Device identifier
-        command: Command to execute
-        parameters: Optional command parameters
+        command_data: M4 command object with 'action', 'target_register', and 'value'
+                     Example: {"action": "write_register", "target_register": "export_power", "value": 50}
         
     Returns:
         tuple: (success, command_id or error_message)
     """
     try:
+        # Extract action from M4 command
+        action = command_data.get('action')
+        if not action:
+            return False, "Missing required field 'action' in command_data"
+        
+        # Normalize register if present (accept both string names and numeric addresses)
+        if 'target_register' in command_data:
+            reg_address, reg_name = normalize_register(command_data['target_register'])
+            if reg_address is None:
+                return False, f"Invalid target_register: {command_data['target_register']}"
+            # Store both for flexibility
+            command_data['register_address'] = reg_address
+            command_data['register_name'] = reg_name
+        
         # Generate command ID
         command_id = str(uuid.uuid4())
         
-        command_data = {
+        # Build internal command object (keeps M4 format in 'command' field)
+        internal_command = {
             'command_id': command_id,
             'device_id': device_id,
-            'command': command,
-            'parameters': parameters or {},
+            'command': command_data,  # Store full M4 command object
             'status': 'pending',
             'created_at': datetime.now().isoformat()
         }
@@ -59,16 +110,16 @@ def queue_command(device_id: str, command: str, parameters: Optional[Dict] = Non
                 command_queues[device_id] = []
             
             # Add to queue
-            command_queues[device_id].append(command_data)
+            command_queues[device_id].append(internal_command)
             
             # Add to history
-            command_history[command_id] = command_data
+            command_history[command_id] = internal_command
             
             # Update statistics
             command_stats['total_commands'] += 1
             command_stats['pending_commands'] += 1
         
-        logger.info(f"Command queued for {device_id}: {command} (ID: {command_id})")
+        logger.info(f"M4 Command queued for {device_id}: action={action} (ID: {command_id}, register: {command_data.get('register_name', 'N/A')})")
         return True, command_id
         
     except Exception as e:
@@ -213,11 +264,19 @@ def get_command_history(
         tuple: (success, list of commands)
     """
     try:
-        # This would require additional implementation in command_manager
-        # For now, return a placeholder
-        logger.warning("get_command_history not fully implemented in command_manager")
+        from database import Database
         
-        return True, []
+        if device_id:
+            # Get history from database for specific device
+            history = Database.get_command_history(device_id, limit)
+            logger.info(f"Retrieved {len(history)} commands from history for device {device_id}")
+        else:
+            # Get all commands (would need to implement Database.get_all_command_history)
+            # For now, just return empty if no device_id specified
+            logger.warning("get_command_history without device_id not fully implemented")
+            history = []
+        
+        return True, history
         
     except Exception as e:
         logger.error(f"Error getting command history: {e}")

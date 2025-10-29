@@ -43,14 +43,14 @@ const DeviceConfiguration = ({ config }) => {
   };
 
   // Format time intervals for display
-  const formatInterval = (ms, unit = 's') => {
-    if (!ms) return 'Default';
+  const formatInterval = (value, unit = 's') => {
+    if (value === null || value === undefined) return 'N/A';
     if (unit === 's') {
-      return `${ms} s`;
+      return `${value} seconds`;
     } else if (unit === 'ms') {
-      return `${ms} ms`;
+      return `${value} ms`;
     }
-    return ms;
+    return value;
   };
 
   return (

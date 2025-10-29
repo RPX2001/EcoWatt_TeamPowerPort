@@ -8,6 +8,7 @@ from flask import Blueprint, jsonify, request
 import logging
 import time
 from typing import Dict, List
+from database import convert_utc_to_local
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,8 @@ AVAILABLE_REGISTERS = [
     {'id': 'Vpv2', 'name': 'Vpv2 /PV2 input voltage', 'address': 4, 'gain': 10, 'unit': 'V'},
     {'id': 'Ipv1', 'name': 'Ipv1 /PV1 input current', 'address': 5, 'gain': 10, 'unit': 'A'},
     {'id': 'Ipv2', 'name': 'Ipv2 /PV2 input current', 'address': 6, 'gain': 10, 'unit': 'A'},
-    {'id': 'Temperature', 'name': 'Inverter internal temperature', 'address': 7, 'gain': 10, 'unit': '°C'},
-    {'id': 'ExportPowerPct', 'name': 'Set the export power percentage', 'address': 8, 'gain': 1, 'unit': '%', 'writable': True},
+    {'id': 'Temp', 'name': 'Inverter internal temperature', 'address': 7, 'gain': 10, 'unit': '°C'},
+    {'id': 'Pow', 'name': 'Set the export power percentage', 'address': 8, 'gain': 1, 'unit': '%', 'writable': True},
     {'id': 'Pac', 'name': 'Pac L /Inverter current output power', 'address': 9, 'gain': 1, 'unit': 'W'},
 ]
 
@@ -128,50 +129,47 @@ def validate_config(config: dict) -> tuple:
 @config_bp.route('/config/<device_id>', methods=['GET'])
 def get_config(device_id):
     """
-    Get current configuration for a device
+    Get configuration for a device
     
-    Returns pending config from database (if any), otherwise current config or default
-    ESP32 polls this endpoint to check for configuration updates
+    Returns BOTH current running config AND pending config (if any):
+    - Dashboard uses 'config' field to display current running config
+    - ESP32 uses 'pending_config' field when 'is_pending' is true
+    
+    This way both dashboard and ESP32 get what they need in one response.
     """
     try:
         from database import Database
         
-        # First check if there's a pending config in database (takes priority)
-        pending_config = Database.get_pending_config(device_id)
-        
-        if pending_config:
-            # Return pending config for ESP32 to apply
-            logger.info(f"[Config] Returning PENDING config for {device_id} (created: {pending_config['created_at']})")
-            return jsonify({
-                'success': True,
-                'device_id': device_id,
-                'config': pending_config['config'],
-                'is_default': False,
-                'is_pending': True,
-                'available_registers': AVAILABLE_REGISTERS,
-                'timestamp': time.time(),
-                'note': 'This is a pending configuration update - send acknowledgment after applying'
-            }), 200
-        
-        # No pending config - return current config or default
+        # Get current running config (what ESP32 is currently using)
         config_is_default = device_id not in device_configs
         
         if config_is_default:
-            config = get_default_config()
+            current_config = get_default_config()
         else:
-            config = device_configs[device_id]
+            current_config = device_configs[device_id]
         
-        logger.info(f"[Config] Configuration requested for device: {device_id} (is_default: {config_is_default}, no pending updates)")
+        # Check if there's a pending config in database (what ESP32 should apply next)
+        pending_config_data = Database.get_pending_config(device_id)
         
-        return jsonify({
+        response = {
             'success': True,
             'device_id': device_id,
-            'config': config,
+            'config': current_config,  # Current running config (for dashboard display)
             'is_default': config_is_default,
-            'is_pending': False,
+            'is_pending': pending_config_data is not None,
             'available_registers': AVAILABLE_REGISTERS,
             'timestamp': time.time()
-        }), 200
+        }
+        
+        # If there's a pending config, include it for ESP32 to apply
+        if pending_config_data:
+            response['pending_config'] = pending_config_data['config']
+            response['pending_created_at'] = pending_config_data['created_at']
+            logger.info(f"[Config] Returning CURRENT config for display + PENDING config for ESP32 (device: {device_id}, pending created: {pending_config_data['created_at']})")
+        else:
+            logger.info(f"[Config] Configuration requested for device: {device_id} (is_default: {config_is_default}, no pending updates)")
+        
+        return jsonify(response), 200
         
     except Exception as e:
         logger.error(f"Error getting config for {device_id}: {e}")
@@ -290,33 +288,32 @@ def update_config(device_id):
 @config_bp.route('/config/<device_id>/history', methods=['GET'])
 def get_config_history(device_id):
     """
-    Get configuration change history for a device
+    Get configuration change history for a device from database
     
     Query parameters:
-        limit: Number of history entries to return (default: 10, max: 50)
+        limit: Number of history entries to return (default: 10, max: 100)
     """
     try:
+        from database import Database
+        
         limit = int(request.args.get('limit', 10))
-        limit = min(limit, 50)  # Cap at 50
+        limit = min(limit, 100)  # Cap at 100
         
-        if device_id not in config_history:
-            return jsonify({
-                'success': True,
-                'device_id': device_id,
-                'history': [],
-                'count': 0
-            }), 200
+        # Get config history from database (persistent across server restarts)
+        history = Database.get_config_history(device_id, limit)
         
-        history = config_history[device_id][-limit:]
+        # Convert timestamps to Sri Lanka time
+        for entry in history:
+            entry['created_at'] = convert_utc_to_local(entry['created_at'])
+            entry['acknowledged_at'] = convert_utc_to_local(entry['acknowledged_at'])
         
-        logger.info(f"[Config] History requested for {device_id}, returning {len(history)} entries")
+        logger.info(f"[Config] History requested for {device_id}, returning {len(history)} entries from database")
         
         return jsonify({
             'success': True,
             'device_id': device_id,
             'history': history,
-            'count': len(history),
-            'total_changes': len(config_history[device_id])
+            'count': len(history)
         }), 200
         
     except Exception as e:

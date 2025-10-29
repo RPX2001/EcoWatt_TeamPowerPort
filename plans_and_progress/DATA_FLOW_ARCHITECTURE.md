@@ -101,6 +101,22 @@
 3. **HTTP Timeout Issues Resolved**: Added `Connection: close` headers and proper timeout handling
 4. **Frontend Dynamic Registers**: Dashboard now automatically displays only the registers being polled
 
+### ✅ **Recent Fixes (December 2025 - Session 1):**
+1. **Timezone Conversion**: All timestamps now display in Sri Lanka time (Asia/Colombo) using pytz library
+2. **Command Queue UI Removed**: Removed unused CommandQueue tab from frontend
+3. **ESP32 Logging Spam Fixed**: Commented out verbose PRINT_SECTION/PRINT_PROGRESS in command polling (reduced spam from every 1s to every 10s)
+4. **Mutex Timeout Conflicts Resolved**: Adjusted task deadlines (1s→3s) and reduced WiFi mutex timeouts (5s→2s) to prevent deadline misses
+5. **Register Naming Consistency**: Standardized register names across ESP32/Flask/Frontend - Register 7: "Temp", Register 8: "Pow"
+6. **Config History Persistence**: Fixed config history to use database instead of in-memory dict - now persists across server restarts like command history
+
+### ✅ **Recent Fixes (December 2025 - Session 2):**
+1. **N/A Display Fixed**: Fixed "N/A seconds" showing in ConfigHistory - now properly displays either "5 seconds" or just "N/A"
+2. **Invalid Date Fixed**: Fixed timestamp formatting to handle ISO strings from backend (was treating them as Unix timestamps)
+3. **Config History Pagination**: Added pagination to ConfigHistory component (5/10/25/50/100 items per page) like CommandHistory
+4. **Register Name Mismatch Fixed**: Fixed critical mismatch in data_utils.py - Register 7: "Temperature"→"Temp", Register 8: "ExportPowerPct"→"Pow"
+5. **Dashboard Shows All Registers**: Dashboard now shows ALL registers with data, not just configured ones - works offline and online
+6. **Real-time Register Updates**: Newly configured registers now appear immediately without ESP32 restart - removed config filtering
+
 ### 📊 **Actual Data Flow (As Implemented):**
 
 ```
@@ -467,3 +483,47 @@ curl http://localhost:5000/utilities/database/stats
 - **Server Routes**: `flask/routes/aggregation_routes.py`
 - **Database Handler**: `flask/database.py`
 - **Data Utils**: `flask/utils/data_utils.py`
+
+---
+
+## Recent Fixes (2025-01-XX)
+
+### Configuration Display During Pending State
+
+**Issue**: Dashboard showed "N/A" for all config values when a new config was pending on ESP32, instead of showing the current running config.
+
+**Root Cause**: Both ESP32 and Dashboard used the same `/config/<device_id>` endpoint:
+- ESP32 polls to check for pending configs to apply
+- Dashboard polls to display current running config
+
+When `is_pending: true`, the endpoint returned the pending config (for ESP32), causing Dashboard to display pending values (which may be incomplete) instead of current values.
+
+**Solution**: Modified `/config/<device_id>` endpoint to return BOTH configs:
+
+```json
+{
+  "config": { /* Current running config - for Dashboard display */ },
+  "pending_config": { /* Pending config - for ESP32 to apply */ },
+  "is_pending": true,
+  "device_id": "ESP32_001",
+  ...
+}
+```
+
+**Backend Changes** (`flask/routes/config_routes.py`):
+- `config` field: Always contains current running config (from `device_configs` dict)
+- `pending_config` field: Only present when there's a pending update (from database)
+- Dashboard uses `config` to display current values
+- ESP32 reads `pending_config` when `is_pending: true`
+
+**ESP32 Changes** (`PIO/ECOWATT/src/application/config_manager.cpp`):
+- Changed from reading `responsedoc["config"]` to `responsedoc["pending_config"]`
+- Only reads pending_config when `is_pending: true`
+
+**Result**: 
+- Dashboard continues to show current running config even when update is pending
+- "Pending on ESP32" chip indicates an update is waiting
+- ESP32 still receives pending configs to apply
+- After ESP32 acknowledges, both current and pending align
+
+

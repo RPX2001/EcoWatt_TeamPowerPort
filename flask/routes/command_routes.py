@@ -90,19 +90,17 @@ def queue_command_route(device_id):
                 'error': 'command.action is required'
             }), 400
         
-        # Extract M4 format fields
+        # Extract M4 format fields for logging
         action = command_data['action']
-        target_register = command_data.get('target_register')
+        target_register = command_data.get('target_register')  # Can be string name or numeric
         value = command_data.get('value')
         
-        # Use handler to queue command (store full command object)
+        logger.info(f"[Command] Queuing M4 command for {device_id}: action={action}, target_register={target_register}, value={value}")
+        
+        # Use handler to queue command (pass full M4 command_data dict)
         success, result = handler_queue_command(
             device_id=device_id,
-            command=action,
-            parameters={
-                'target_register': target_register,
-                'value': value
-            }
+            command_data=command_data  # Pass entire M4 command object
         )
         
         if not success:
@@ -115,15 +113,12 @@ def queue_command_route(device_id):
 
         # Persist command in database for history and reliability
         try:
-            Database.save_command(command_id=command_id, device_id=device_id, command={
-                'action': action,
-                'target_register': target_register,
-                'value': value
-            })
+            # Store full M4 command object
+            Database.save_command(command_id=command_id, device_id=device_id, command=command_data)
         except Exception as e:
             logger.warning(f"[Command] Failed to persist command {command_id} to DB: {e}")
         
-        logger.info(f"[Command] Queued command {command_id} for device {device_id}: {action}")
+        logger.info(f"[Command] Queued M4 command {command_id} for {device_id}: {command_data}")
         
         return jsonify({
             'success': True,

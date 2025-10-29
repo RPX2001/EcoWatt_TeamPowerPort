@@ -7,10 +7,11 @@ Data is kept indefinitely - manual cleanup available if needed
 import sqlite3
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import threading
 from typing import Dict, List, Optional, Any
+import pytz
 
 # Logger
 logger = logging.getLogger(__name__)
@@ -23,6 +24,26 @@ DB_PATH = Path(__file__).parent / 'ecowatt_data.db'
 # RETENTION_DAYS = None means keep data forever
 # Change this to a number (e.g., 365) if you want automatic cleanup after X days
 RETENTION_DAYS = None
+
+# Timezone for Sri Lanka
+SRI_LANKA_TZ = pytz.timezone('Asia/Colombo')
+
+def convert_utc_to_local(utc_timestamp_str):
+    """Convert UTC timestamp string from SQLite to Sri Lanka local time ISO format"""
+    if not utc_timestamp_str:
+        return None
+    try:
+        # Parse the UTC timestamp from SQLite (format: YYYY-MM-DD HH:MM:SS)
+        utc_dt = datetime.strptime(utc_timestamp_str, '%Y-%m-%d %H:%M:%S')
+        # Add UTC timezone info
+        utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+        # Convert to Sri Lanka time
+        local_dt = utc_dt.astimezone(SRI_LANKA_TZ)
+        # Return as ISO format string
+        return local_dt.isoformat()
+    except Exception as e:
+        logger.warning(f"Failed to convert timestamp {utc_timestamp_str}: {e}")
+        return utc_timestamp_str
 
 class Database:
     """Thread-safe SQLite database handler"""
@@ -415,8 +436,8 @@ class Database:
             'status': row['status'],
             'result': json.loads(row['result']) if row['result'] else None,
             'error_msg': row['error_msg'],
-            'created_at': row['created_at'],
-            'acknowledged_at': row['acknowledged_at']
+            'created_at': convert_utc_to_local(row['created_at']),
+            'acknowledged_at': convert_utc_to_local(row['acknowledged_at'])
         } for row in rows]
     
     # ============================================

@@ -3,7 +3,6 @@ import { Box, Typography, Alert, Grid, Tabs, Tab } from '@mui/material';
 import { useSearchParams } from 'react-router-dom';
 import DeviceSelector from '../components/dashboard/DeviceSelector';
 import CommandBuilder from '../components/commands/CommandBuilder';
-import CommandQueue from '../components/commands/CommandQueue';
 import CommandHistory from '../components/commands/CommandHistory';
 
 const Commands = () => {
@@ -11,11 +10,10 @@ const Commands = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab') || 'send';
   
-  // Map tab names to indices
+  // Map tab names to indices (no queue tab)
   const tabMap = {
     'send': 0,
-    'queue': 1,
-    'history': 2
+    'history': 1
   };
   
   const [activeTab, setActiveTab] = useState(tabMap[tabParam] || 0);
@@ -32,7 +30,7 @@ const Commands = () => {
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue);
     // Update URL parameter
-    const tabNames = ['send', 'queue', 'history'];
+    const tabNames = ['send', 'history'];
     setSearchParams({ tab: tabNames[newValue] });
   };
 
@@ -50,7 +48,6 @@ const Commands = () => {
       <Box sx={{ mt: 3 }}>
         <Tabs value={activeTab} onChange={handleTabChange} sx={{ mb: 2 }}>
           <Tab label="Send Command" />
-          <Tab label="Command Queue" />
           <Tab label="Command History" />
         </Tabs>
 
@@ -68,9 +65,7 @@ const Commands = () => {
           </Alert>
         )}
 
-        {activeTab === 1 && <CommandQueue deviceId={selectedDevice} />}
-
-        {activeTab === 2 && <CommandHistory deviceId={selectedDevice} />}
+        {activeTab === 1 && <CommandHistory deviceId={selectedDevice} />}
       </Box>
     </Box>
   );

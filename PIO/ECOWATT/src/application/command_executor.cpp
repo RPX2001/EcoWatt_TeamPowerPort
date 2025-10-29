@@ -60,8 +60,10 @@ void CommandExecutor::checkAndExecuteCommands() {
     yield();
     vTaskDelay(1); // Give other tasks a chance to run
 
-    PRINT_SECTION("COMMAND POLL");
-    PRINT_PROGRESS("Checking for pending commands...");
+    // Removed verbose logging to reduce serial output spam
+    // Only print when commands are actually found and executed
+    // PRINT_SECTION("COMMAND POLL");
+    // PRINT_PROGRESS("Checking for pending commands...");
 
     // Create WiFiClient with REDUCED timeout (shorter than mutex hold time)
     WiFiClient client;
@@ -92,33 +94,42 @@ void CommandExecutor::checkAndExecuteCommands() {
             // Process first command from the array
             JsonArray commands = responseDoc["commands"];
             if (commands.size() > 0) {
-                JsonObject firstCmd = commands[0]["command"];
+                JsonObject commandObj = commands[0];
+                const char* commandId = commandObj["command_id"] | "";
                 
-                const char* commandId = commands[0]["command_id"] | "";
-                const char* commandType = firstCmd["command_type"] | "";
-                
-                print("  [CMD] Received: %s (ID: %s)\n", commandType, commandId);
-                
-                // Extract parameters as JSON string
-                char parameters[256] = {0};
-                if (firstCmd.containsKey("parameters")) {
-                    serializeJson(firstCmd["parameters"], parameters, sizeof(parameters));
-                    print("  [INFO] Parameters: %s\n", parameters);
-                }
-                
-                // Execute the command
-                bool success = executeCommand(commandId, commandType, parameters);
-                
-                // Send result back to server
-                char result[128];
-                snprintf(result, sizeof(result), "Command %s: %s", commandType, 
-                         success ? "executed successfully" : "failed");
-                sendCommandResult(commandId, success, result);
-                
-                if (success) {
-                    PRINT_SUCCESS("Command executed successfully");
+                // M4 FORMAT: Extract command object with action, target_register, value
+                JsonObject m4Command = commandObj["command"];
+                if (!m4Command.isNull()) {
+                    const char* action = m4Command["action"] | "";
+                    
+                    print("  [CMD] Received M4 command: %s (ID: %s)\n", action, commandId);
+                    
+                    // Parse M4 parameters
+                    const char* targetRegister = m4Command["target_register"] | "";
+                    int value = m4Command["value"] | 0;
+                    int regAddress = m4Command["register_address"] | -1;  // Flask adds this
+                    
+                    if (strlen(targetRegister) > 0) {
+                        print("  [INFO] Target Register: %s", targetRegister);
+                        if (regAddress >= 0) {
+                            print(" (address: %d)", regAddress);
+                        }
+                        print(", Value: %d\n", value);
+                    }
+                    
+                    // Execute the command
+                    bool success = executeCommand(commandId, action, m4Command);
+                    
+                    // Send M4-compliant result back to server
+                    sendCommandResult(commandId, success);
+                    
+                    if (success) {
+                        PRINT_SUCCESS("Command executed successfully");
+                    } else {
+                        PRINT_ERROR("Command execution failed");
+                    }
                 } else {
-                    PRINT_ERROR("Command execution failed");
+                    PRINT_ERROR("Invalid M4 format - missing 'command' object");
                 }
             }
         } else if (error) {
@@ -144,31 +155,30 @@ void CommandExecutor::checkAndExecuteCommands() {
     }
 }
 
-bool CommandExecutor::executeCommand(const char* commandId, const char* commandType, 
-                                     const char* parameters) {
-    print("[CommandExecutor] Executing: %s\n", commandType);
-    print("[CommandExecutor] Parameters: %s\n", parameters);
+bool CommandExecutor::executeCommand(const char* commandId, const char* action, 
+                                     JsonObject& m4Command) {
+    print("[CommandExecutor] Executing M4 action: %s\n", action);
     
     commandsExecuted++;
     bool success = false;
     
-    // Route to appropriate handler
-    if (strcmp(commandType, "set_power") == 0) {
-        success = executePowerCommand(parameters);
-    } else if (strcmp(commandType, "set_power_percentage") == 0) {
-        success = executePowerPercentageCommand(parameters);
-    } else if (strcmp(commandType, "write_register") == 0) {
-        success = executeWriteRegisterCommand(parameters);
-    } else if (strcmp(commandType, "get_power_stats") == 0) {
+    // Route to appropriate handler based on M4 action
+    if (strcmp(action, "write_register") == 0) {
+        success = executeWriteRegisterCommand(m4Command);
+    } else if (strcmp(action, "set_power") == 0) {
+        success = executePowerCommand(m4Command);
+    } else if (strcmp(action, "set_power_percentage") == 0) {
+        success = executePowerPercentageCommand(m4Command);
+    } else if (strcmp(action, "get_power_stats") == 0) {
         success = executeGetPowerStatsCommand();
-    } else if (strcmp(commandType, "reset_power_stats") == 0) {
+    } else if (strcmp(action, "reset_power_stats") == 0) {
         success = executeResetPowerStatsCommand();
-    } else if (strcmp(commandType, "get_peripheral_stats") == 0) {
+    } else if (strcmp(action, "get_peripheral_stats") == 0) {
         success = executeGetPeripheralStatsCommand();
-    } else if (strcmp(commandType, "reset_peripheral_stats") == 0) {
+    } else if (strcmp(action, "reset_peripheral_stats") == 0) {
         success = executeResetPeripheralStatsCommand();
     } else {
-        print("[CommandExecutor] Unknown command type: %s\n", commandType);
+        print("[CommandExecutor] Unknown M4 action: %s\n", action);
         success = false;
     }
     
@@ -181,16 +191,8 @@ bool CommandExecutor::executeCommand(const char* commandId, const char* commandT
     return success;
 }
 
-bool CommandExecutor::executePowerCommand(const char* parameters) {
-    StaticJsonDocument<256> paramDoc;
-    DeserializationError error = deserializeJson(paramDoc, parameters);
-    
-    if (error) {
-        print("[CommandExecutor] Failed to parse parameters\n");
-        return false;
-    }
-    
-    int powerValue = paramDoc["power_value"] | 0;
+bool CommandExecutor::executePowerCommand(JsonObject& m4Command) {
+    int powerValue = m4Command["value"] | 0;
     
     // Register 8 accepts PERCENTAGE (0-100), not absolute watts
     const int MAX_INVERTER_CAPACITY = 10000; // Watts
@@ -213,16 +215,8 @@ bool CommandExecutor::executePowerCommand(const char* parameters) {
     return result;
 }
 
-bool CommandExecutor::executePowerPercentageCommand(const char* parameters) {
-    StaticJsonDocument<256> paramDoc;
-    DeserializationError error = deserializeJson(paramDoc, parameters);
-    
-    if (error) {
-        print("[CommandExecutor] Failed to parse parameters\n");
-        return false;
-    }
-    
-    int percentage = paramDoc["percentage"] | 0;
+bool CommandExecutor::executePowerPercentageCommand(JsonObject& m4Command) {
+    int percentage = m4Command["value"] | 0;
     
     // Clamp to valid range
     if (percentage < 0) percentage = 0;
@@ -241,23 +235,58 @@ bool CommandExecutor::executePowerPercentageCommand(const char* parameters) {
     return result;
 }
 
-bool CommandExecutor::executeWriteRegisterCommand(const char* parameters) {
-    StaticJsonDocument<256> paramDoc;
-    DeserializationError error = deserializeJson(paramDoc, parameters);
+bool CommandExecutor::executeWriteRegisterCommand(JsonObject& m4Command) {
+    // M4 FORMAT: Extract target_register and value
+    const char* targetRegister = m4Command["target_register"] | "";
+    int regAddress = m4Command["register_address"] | -1;  // Flask adds this
+    int value = m4Command["value"] | 0;
     
-    if (error) {
-        print("[CommandExecutor] Failed to parse parameters\n");
+    // If we don't have numeric address, try to extract from target_register
+    if (regAddress < 0) {
+        // Try to parse target_register as number
+        regAddress = atoi(targetRegister);
+        if (regAddress == 0 && strcmp(targetRegister, "0") != 0) {
+            print("[CommandExecutor] Invalid register address: %s\n", targetRegister);
+            return false;
+        }
+    }
+    
+    print("[CommandExecutor] Writing register %d (%s) with value %d\n", 
+          regAddress, strlen(targetRegister) > 0 ? targetRegister : "unnamed", value);
+    
+    // Build Modbus write frame using existing acquisition function
+    char writeFrame[64];
+    if (!buildWriteFrame(0x11, (uint16_t)regAddress, (uint16_t)value, writeFrame, sizeof(writeFrame))) {
+        print("[CommandExecutor] Failed to build Modbus write frame\n");
         return false;
     }
     
-    int regAddress = paramDoc["register_address"] | 0;
-    int value = paramDoc["value"] | 0;
+    print("[CommandExecutor] Modbus write frame: %s\n", writeFrame);
     
-    print("[CommandExecutor] Write register command not yet implemented\n");
-    print("[CommandExecutor] Would write register %d with value %d\n", regAddress, value);
+    // Send write command to Inverter SIM via protocol adapter
+    char responseFrame[64] = {0};
+    bool success = false;
     
-    // TODO: Implement actual register write
-    return false;
+    // Try up to 3 times with delay
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (adapter.writeRegister(writeFrame, responseFrame, sizeof(responseFrame))) {
+            print("[CommandExecutor] ✓ Register write successful (attempt %d/3)\n", attempt + 1);
+            print("[CommandExecutor] Response: %s\n", responseFrame);
+            success = true;
+            break;
+        } else {
+            print("[CommandExecutor] Write attempt %d/3 failed\n", attempt + 1);
+            if (attempt < 2) {
+                vTaskDelay(pdMS_TO_TICKS(500));  // Wait 500ms before retry
+            }
+        }
+    }
+    
+    if (!success) {
+        print("[CommandExecutor] ✗ Register write failed after 3 attempts\n");
+    }
+    
+    return success;
 }
 
 bool CommandExecutor::executeGetPowerStatsCommand() {
@@ -286,8 +315,8 @@ bool CommandExecutor::executeResetPeripheralStatsCommand() {
     return true;
 }
 
-void CommandExecutor::sendCommandResult(const char* commandId, bool success, const char* result) {
-    print("[CommandExecutor] Sending command result to server...\n");
+void CommandExecutor::sendCommandResult(const char* commandId, bool success) {
+    print("[CommandExecutor] Sending M4 command result to server...\n");
     
     if (WiFi.status() != WL_CONNECTED) {
         print("[CommandExecutor] WiFi not connected. Cannot send result.\n");
@@ -306,20 +335,29 @@ void CommandExecutor::sendCommandResult(const char* commandId, bool success, con
     http.setTimeout(5000);         // 5 seconds read timeout
     http.setReuse(false);          // Don't keep TCP connection alive
 
+    // M4 FORMAT: command_result wrapper with status and executed_at
     StaticJsonDocument<256> resultDoc;
-    resultDoc["command_id"] = commandId;
-    resultDoc["status"] = success ? "completed" : "failed";
-    resultDoc["result"] = result;
+    JsonObject commandResult = resultDoc.createNestedObject("command_result");
+    commandResult["command_id"] = commandId;
+    commandResult["status"] = success ? "success" : "failed";
+    
+    // Get current time for executed_at (ISO 8601 format)
+    time_t now = time(nullptr);
+    char timestamp[32];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
+    commandResult["executed_at"] = timestamp;
 
     char resultBody[256];
     serializeJson(resultDoc, resultBody, sizeof(resultBody));
 
+    print("[CommandExecutor] M4 result payload: %s\n", resultBody);
+
     int httpResponseCode = http.POST((uint8_t*)resultBody, strlen(resultBody));
 
     if (httpResponseCode == 200) {
-        print("[CommandExecutor] Command result sent successfully\n");
+        print("[CommandExecutor] ✓ M4 command result sent successfully\n");
     } else {
-        print("[CommandExecutor] Failed to send command result (HTTP %d)\n", httpResponseCode);
+        print("[CommandExecutor] ✗ Failed to send result (HTTP %d)\n", httpResponseCode);
     }
 
     http.end();

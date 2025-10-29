@@ -29,8 +29,8 @@ const AVAILABLE_REGISTERS = [
   { id: 'Vpv2', name: 'Vpv2 /PV2 input voltage', address: 4, unit: 'V', gain: 10 },
   { id: 'Ipv1', name: 'Ipv1 /PV1 input current', address: 5, unit: 'A', gain: 10 },
   { id: 'Ipv2', name: 'Ipv2 /PV2 input current', address: 6, unit: 'A', gain: 10 },
-  { id: 'Temperature', name: 'Inverter internal temperature', address: 7, unit: '°C', gain: 10 },
-  { id: 'ExportPowerPct', name: 'Set the export power percentage', address: 8, unit: '%', gain: 1, writable: true },
+  { id: 'Temp', name: 'Inverter internal temperature', address: 7, unit: '°C', gain: 10 },
+  { id: 'Pow', name: 'Set the export power percentage', address: 8, unit: '%', gain: 1, writable: true },
   { id: 'Pac', name: 'Pac L /Inverter current output power', address: 9, unit: 'W', gain: 1 },
 ];
 

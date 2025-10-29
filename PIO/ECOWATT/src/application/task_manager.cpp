@@ -449,7 +449,7 @@ void TaskManager::compressionTask(void* parameter) {
                 CompressedPacket packet;
                 
                 // Lock data pipeline during compression
-                if (xSemaphoreTake(dataPipelineMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                if (xSemaphoreTake(dataPipelineMutex, pdMS_TO_TICKS(DATA_PIPELINE_MUTEX_TIMEOUT_MS)) == pdTRUE) {
                     
                     // Convert samples to linear array for compression
                     size_t totalRegisterCount = batchSize * sampleBatch[0].registerCount;
@@ -704,7 +704,8 @@ void TaskManager::commandTask(void* parameter) {
             xSemaphoreGive(wifiClientMutex);
             
         } else {
-            print("[Commands] ERROR: Failed to acquire WiFi mutex\n");
+            // Silently skip - mutex contention is normal, will retry next interval
+            // print("[Commands] ERROR: Failed to acquire WiFi mutex\n");
         }
         
         uint32_t executionTime = micros() - startTime;
@@ -751,8 +752,8 @@ void TaskManager::configTask(void* parameter) {
         
         uint32_t startTime = micros();
         
-        // Acquire WiFi mutex for HTTP request
-        if (xSemaphoreTake(wifiClientMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+            // Acquire WiFi mutex for HTTP request (timeout from system_config.h)
+            if (xSemaphoreTake(wifiClientMutex, pdMS_TO_TICKS(WIFI_MUTEX_TIMEOUT_CONFIG_MS)) == pdTRUE) {
             
             // Fetch config from server using actual ConfigManager API
             ConfigManager::checkForChanges(&registers_uptodate, &pollFreq_uptodate, &uploadFreq_uptodate);
@@ -760,7 +761,8 @@ void TaskManager::configTask(void* parameter) {
             xSemaphoreGive(wifiClientMutex);
             
         } else {
-            print("[Config] ERROR: Failed to acquire WiFi mutex\n");
+            // Silently skip - mutex contention is normal, will retry next interval
+            // print("[Config] ERROR: Failed to acquire WiFi mutex\n");
         }
         
         uint32_t executionTime = micros() - startTime;

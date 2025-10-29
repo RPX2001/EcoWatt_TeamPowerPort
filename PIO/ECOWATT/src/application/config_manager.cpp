@@ -81,7 +81,8 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
             print("[ConfigManager] Response: %s\n", responseStr.c_str());
         }
 
-        StaticJsonDocument<2048> responsedoc;  // Increased from 1024
+        // Use DynamicJsonDocument to avoid stack overflow (response includes large available_registers array)
+        DynamicJsonDocument responsedoc(4096);  // Allocate on heap instead of stack
         DeserializationError error = deserializeJson(responsedoc, responseStr);
         
         if (!error) {
@@ -91,15 +92,17 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
             if (isPending) {
                 print("[ConfigManager] ⚡ PENDING CONFIG DETECTED - Applying changes...\n");
                 
-                // Extract config object - Milestone 4 format has config_update wrapper
-                JsonObject configWrapper = responsedoc["config"].as<JsonObject>();
+                // Extract PENDING config from pending_config field (not config field)
+                // The 'config' field contains current running config (for dashboard)
+                // The 'pending_config' field contains what ESP32 should apply
+                JsonObject configWrapper = responsedoc["pending_config"].as<JsonObject>();
                 
                 // Check if config_update exists (Milestone 4 format)
                 JsonObject config;
                 if (configWrapper.containsKey("config_update")) {
                     config = configWrapper["config_update"].as<JsonObject>();
                 } else {
-                    // Fallback: use config directly (old format)
+                    // Fallback: use pending_config directly (old format)
                     config = configWrapper;
                 }
                 
@@ -230,7 +233,9 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
             http.end();
         } else {
             http.end();
-            print("[ConfigManager] Settings change parse error\n");
+            print("[ConfigManager] ⚠️ JSON parse error: %s (response size: %d bytes)\n", 
+                  error.c_str(), responseStr.length());
+            print("[ConfigManager] Response preview: %s\n", responseStr.substring(0, 500).c_str());
         }
     } else {
         print("[ConfigManager] HTTP GET failed with error code: %d\n", httpResponseCode);

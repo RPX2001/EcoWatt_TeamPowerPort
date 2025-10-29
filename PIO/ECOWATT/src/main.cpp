@@ -204,6 +204,10 @@ void setup()
     // Initialize Config Manager (M4 format: /config/<device_id>)
     ConfigManager::init(FLASK_SERVER_URL "/config/" DEVICE_ID, DEVICE_ID);
     
+    // Send current config to server so frontend can display it
+    print("[Main] Reporting current configuration to server...\n");
+    ConfigManager::sendCurrentConfig();
+    
     // Enhance compression dictionary
     enhanceDictionaryForOptimalCompression();
     

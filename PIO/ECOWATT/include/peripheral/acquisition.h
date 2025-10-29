@@ -7,6 +7,9 @@
 #include "driver/protocol_adapter.h"
 #include "driver/debug.h"
 
+// Global protocol adapter instance (defined in acquisition.cpp)
+extern ProtocolAdapter adapter;
+
 // Register identifiers
 enum RegID : int8_t 
 {

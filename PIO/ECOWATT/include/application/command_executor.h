@@ -13,10 +13,11 @@
 #define COMMAND_EXECUTOR_H
 
 #include <Arduino.h>
+#include <ArduinoJson.h>  // For JsonObject type
 
 /**
  * @class CommandExecutor
- * @brief Manages remote command execution
+ * @brief Manages remote command execution following Milestone 4 format
  * 
  * This class provides a singleton-style interface for polling commands
  * from the server and executing them locally.
@@ -41,24 +42,23 @@ public:
     static void checkAndExecuteCommands();
 
     /**
-     * @brief Execute a specific command
+     * @brief Execute a specific command (M4 format)
      * 
      * @param commandId Unique identifier for this command
-     * @param commandType Type of command to execute
-     * @param parameters JSON string containing command parameters
+     * @param action M4 action (e.g., "write_register")
+     * @param m4Command JsonObject containing M4 command fields (target_register, value, etc.)
      * @return true if execution successful, false otherwise
      */
-    static bool executeCommand(const char* commandId, const char* commandType, 
-                               const char* parameters);
+    static bool executeCommand(const char* commandId, const char* action, 
+                               JsonObject& m4Command);
 
     /**
-     * @brief Send command execution result back to server
+     * @brief Send command execution result back to server (M4 format)
      * 
      * @param commandId Command identifier
      * @param success Whether command succeeded
-     * @param result Result message
      */
-    static void sendCommandResult(const char* commandId, bool success, const char* result);
+    static void sendCommandResult(const char* commandId, bool success);
 
     /**
      * @brief Get command execution statistics
@@ -90,10 +90,10 @@ private:
     static unsigned long commandsSuccessful;
     static unsigned long commandsFailed;
 
-    // Command execution handlers
-    static bool executePowerCommand(const char* parameters);
-    static bool executePowerPercentageCommand(const char* parameters);
-    static bool executeWriteRegisterCommand(const char* parameters);
+    // Command execution handlers (M4 format)
+    static bool executePowerCommand(JsonObject& m4Command);
+    static bool executePowerPercentageCommand(JsonObject& m4Command);
+    static bool executeWriteRegisterCommand(JsonObject& m4Command);
     static bool executeGetPowerStatsCommand();
     static bool executeResetPowerStatsCommand();
     static bool executeGetPeripheralStatsCommand();

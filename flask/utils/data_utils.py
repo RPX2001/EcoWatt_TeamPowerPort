@@ -324,8 +324,8 @@ REGISTER_NAMES = [
     'Vpv2',              # Address 4: PV2 Input Voltage (gain: 10, unit: V)
     'Ipv1',              # Address 5: PV1 Input Current (gain: 10, unit: A)
     'Ipv2',              # Address 6: PV2 Input Current (gain: 10, unit: A)
-    'Temperature',       # Address 7: Inverter Internal Temperature (gain: 10, unit: °C)
-    'ExportPowerPct',    # Address 8: Export Power Percentage (gain: 1, unit: %, R/W)
+    'Temp',              # Address 7: Inverter Internal Temperature (gain: 10, unit: °C)
+    'Pow',               # Address 8: Export Power Percentage (gain: 1, unit: %, R/W)
     'Pac'                # Address 9: Inverter Output Power (gain: 1, unit: W)
 ]
 
@@ -338,8 +338,8 @@ REGISTER_METADATA = {
     'Vpv2': {'name': 'PV2 Voltage', 'unit': 'V', 'gain': 10, 'decimals': 1},
     'Ipv1': {'name': 'PV1 Current', 'unit': 'A', 'gain': 10, 'decimals': 2},
     'Ipv2': {'name': 'PV2 Current', 'unit': 'A', 'gain': 10, 'decimals': 2},
-    'Temperature': {'name': 'Inverter Temperature', 'unit': '°C', 'gain': 10, 'decimals': 1},
-    'ExportPowerPct': {'name': 'Export Power %', 'unit': '%', 'gain': 1, 'decimals': 0},
+    'Temp': {'name': 'Inverter Temperature', 'unit': '°C', 'gain': 10, 'decimals': 1},
+    'Pow': {'name': 'Export Power %', 'unit': '%', 'gain': 1, 'decimals': 0},
     'Pac': {'name': 'Output Power', 'unit': 'W', 'gain': 1, 'decimals': 0}
 }
 

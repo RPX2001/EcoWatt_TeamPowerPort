@@ -20,6 +20,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TablePagination,
   Chip,
   FormControl,
   InputLabel,
@@ -44,6 +45,8 @@ import { getConfigHistory } from '../../api/config';
 
 const ConfigHistory = ({ deviceId }) => {
   const [expandedRows, setExpandedRows] = useState(new Set());
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   // Fetch config history
   const {
@@ -53,12 +56,27 @@ const ConfigHistory = ({ deviceId }) => {
     error
   } = useQuery({
     queryKey: ['configHistory', deviceId],
-    queryFn: () => getConfigHistory(deviceId),
+    queryFn: () => getConfigHistory(deviceId, { limit: 100 }), // Fetch more items
     enabled: !!deviceId,
     staleTime: 10000
   });
 
   const history = historyData?.data?.history || [];
+
+  // Pagination
+  const paginatedHistory = history.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage
+  );
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
 
   const toggleRowExpand = (index) => {
     setExpandedRows(prev => {
@@ -73,7 +91,20 @@ const ConfigHistory = ({ deviceId }) => {
   };
 
   const formatTimestamp = (timestamp) => {
-    return new Date(timestamp * 1000).toLocaleString();
+    if (!timestamp) return 'N/A';
+    
+    try {
+      // Try parsing as ISO string first (from backend with timezone conversion)
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) {
+        // If invalid, try as Unix timestamp (legacy format)
+        const unixDate = new Date(timestamp * 1000);
+        return isNaN(unixDate.getTime()) ? 'Invalid Date' : unixDate.toLocaleString();
+      }
+      return date.toLocaleString();
+    } catch (e) {
+      return 'Invalid Date';
+    }
   };
 
   const getChangedFields = (current, previous) => {
@@ -180,35 +211,35 @@ const ConfigHistory = ({ deviceId }) => {
           Sampling Interval:
         </Typography>
         <Typography variant="body2">
-          {config.sampling_interval || 'N/A'} seconds
+          {config.sampling_interval ? `${config.sampling_interval} seconds` : 'N/A'}
         </Typography>
 
         <Typography variant="body2" color="text.secondary" fontWeight="bold">
           Upload Interval:
         </Typography>
         <Typography variant="body2">
-          {config.upload_interval || 'N/A'} seconds
+          {config.upload_interval ? `${config.upload_interval} seconds` : 'N/A'}
         </Typography>
 
         <Typography variant="body2" color="text.secondary" fontWeight="bold">
           Firmware Check Interval:
         </Typography>
         <Typography variant="body2">
-          {config.firmware_check_interval || 'N/A'} seconds
+          {config.firmware_check_interval ? `${config.firmware_check_interval} seconds` : 'N/A'}
         </Typography>
 
         <Typography variant="body2" color="text.secondary" fontWeight="bold">
           Command Poll Interval:
         </Typography>
         <Typography variant="body2">
-          {config.command_poll_interval || 'N/A'} seconds
+          {config.command_poll_interval ? `${config.command_poll_interval} seconds` : 'N/A'}
         </Typography>
 
         <Typography variant="body2" color="text.secondary" fontWeight="bold">
           Config Poll Interval:
         </Typography>
         <Typography variant="body2">
-          {config.config_poll_interval || 'N/A'} seconds
+          {config.config_poll_interval ? `${config.config_poll_interval} seconds` : 'N/A'}
         </Typography>
 
         {/* Modbus Registers */}
@@ -276,9 +307,10 @@ const ConfigHistory = ({ deviceId }) => {
 
         {/* History Table */}
         {deviceId && !isLoading && !isError && history.length > 0 && (
-          <TableContainer>
-            <Table>
-              <TableHead>
+          <>
+            <TableContainer>
+              <Table>
+                <TableHead>
                 <TableRow>
                   <TableCell width={50}></TableCell>
                   <TableCell>Timestamp</TableCell>
@@ -288,16 +320,18 @@ const ConfigHistory = ({ deviceId }) => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {history.map((entry, index) => {
-                  // Backend stores 'config_update', not 'config'
-                  const currentConfig = entry.config || entry.config_update;
+                {paginatedHistory.map((entry, index) => {
+                  // Backend stores config data in different formats:
+                  // New format: entry.config.config_update
+                  // Old format: entry.config or entry.config_update
+                  const currentConfig = entry.config?.config_update || entry.config || entry.config_update;
                   
                   if (!entry || !currentConfig) {
                     return null; // Skip invalid entries
                   }
 
-                  const previousEntry = index < history.length - 1 ? history[index + 1] : null;
-                  const previousConfig = previousEntry?.config || previousEntry?.config_update;
+                  const previousEntry = index < paginatedHistory.length - 1 ? paginatedHistory[index + 1] : null;
+                  const previousConfig = previousEntry?.config?.config_update || previousEntry?.config || previousEntry?.config_update;
                   
                   const changedFields = getChangedFields(
                     currentConfig,
@@ -320,7 +354,7 @@ const ConfigHistory = ({ deviceId }) => {
                           </IconButton>
                         </TableCell>
                         <TableCell>
-                          {formatTimestamp(entry.timestamp)}
+                          {formatTimestamp(entry.created_at)}
                         </TableCell>
                         <TableCell>
                           {previousEntry ? (
@@ -348,7 +382,7 @@ const ConfigHistory = ({ deviceId }) => {
                         <TableCell>
                           {entry.acknowledged_at ? (
                             <Chip
-                              label={`✓ ${new Date(entry.acknowledged_at * 1000).toLocaleString()}`}
+                              label={`✓ ${formatTimestamp(entry.acknowledged_at)}`}
                               color="success"
                               size="small"
                               variant="outlined"
@@ -396,12 +430,24 @@ const ConfigHistory = ({ deviceId }) => {
               </TableBody>
             </Table>
           </TableContainer>
+          
+          {/* Pagination */}
+          <TablePagination
+            component="div"
+            count={history.length}
+            page={page}
+            onPageChange={handleChangePage}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            rowsPerPageOptions={[5, 10, 25, 50, 100]}
+          />
+          </>
         )}
 
         {/* Footer */}
         <Box sx={{ mt: 2 }}>
           <Typography variant="body2" color="text.secondary">
-            Showing {history.length} configuration change{history.length !== 1 ? 's' : ''}
+            Showing {paginatedHistory.length} of {history.length} configuration change{history.length !== 1 ? 's' : ''}
           </Typography>
         </Box>
       </Paper>

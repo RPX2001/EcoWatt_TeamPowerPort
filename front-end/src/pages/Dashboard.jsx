@@ -25,6 +25,23 @@ const Dashboard = () => {
   const [error, setError] = useState(null);
   const [viewMode, setViewMode] = useState(0); // 0 = Charts, 1 = Table
 
+  // All available registers (complete list of 10 registers)
+  const ALL_REGISTERS = [
+    'Vac1', 'Iac1', 'Fac1', 'Vpv1', 'Vpv2', 
+    'Ipv1', 'Ipv2', 'Temp', 'Pow', 'Pac'
+  ];
+
+  // Helper function to format timestamps safely
+  const formatTimestamp = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    try {
+      const date = new Date(timestamp);
+      return isNaN(date.getTime()) ? 'Invalid Date' : date.toLocaleString();
+    } catch (e) {
+      return 'Invalid Date';
+    }
+  };
+
   // Categorize registers for grouping in charts (MOVED BEFORE USAGE)
   const getCategoryForRegister = (registerName) => {
     const name = registerName.toLowerCase();
@@ -41,52 +58,44 @@ const Dashboard = () => {
   };
 
   // Dynamically determine available registers from latest data OR historical data
-  // ONLY show registers that are configured to be polled by ESP32
+  // Show ALL registers that have data, regardless of configuration
   const availableRegisters = useMemo(() => {
     // First try to get from latest data (preferred when device is online)
-    if (latestData?.registers && deviceConfig?.config?.registers) {
-      const configuredRegisterIds = deviceConfig.config.registers || [];
-      
-      // Get all register names that have values AND are configured (exact match, case-sensitive)
+    if (latestData?.registers) {
+      // Get all register names that have values
       return Object.keys(latestData.registers).filter(regName => {
         const hasValue = latestData.registers[regName] !== null && 
                          latestData.registers[regName] !== undefined;
-        const isConfigured = configuredRegisterIds.includes(regName);
-        return hasValue && isConfigured;
+        return hasValue;
       });
     }
     
-    // Fallback: If device is offline, infer from historical data
+    // Fallback: If device is offline, show ALL 10 possible registers
+    // Even if some don't have data in historical records
     if (historicalData.length > 0) {
-      // Get all unique register keys from historical data (excluding 'timestamp')
-      const allKeys = new Set();
+      // Get unique register keys from historical data
+      const historicalKeys = new Set();
       historicalData.forEach(record => {
         Object.keys(record).forEach(key => {
           if (key !== 'timestamp') {
-            allKeys.add(key);
+            // Convert lowercase keys back to proper capitalization
+            const capitalizedKey = ALL_REGISTERS.find(
+              reg => reg.toLowerCase() === key.toLowerCase()
+            );
+            if (capitalizedKey) {
+              historicalKeys.add(capitalizedKey);
+            }
           }
         });
       });
       
-      // Convert to properly capitalized register names
-      const historicalRegisters = Array.from(allKeys).map(key => {
-        // Convert from lowercase chart key back to register name (capitalize first letter)
-        return key.charAt(0).toUpperCase() + key.slice(1);
-      });
-      
-      // If we have device config, filter by configured registers
-      if (deviceConfig?.config?.registers) {
-        return historicalRegisters.filter(regName => 
-          deviceConfig.config.registers.includes(regName)
-        );
-      }
-      
-      // Otherwise return all registers found in historical data
-      return historicalRegisters;
+      // Return ALL registers, not just ones with historical data
+      // This ensures all 10 registers are shown even when offline
+      return ALL_REGISTERS;
     }
     
     return [];
-  }, [latestData, deviceConfig, historicalData]);
+  }, [latestData, historicalData]);
 
   // Create dynamic register mapping with metadata
   const registerConfig = useMemo(() => {
@@ -464,7 +473,7 @@ const Dashboard = () => {
                             historicalData.map((row, index) => (
                               <TableRow key={index} hover>
                                 <TableCell>
-                                  {new Date(row.timestamp).toLocaleString()}
+                                  {formatTimestamp(row.timestamp)}
                                 </TableCell>
                                 {registerConfig.map(reg => {
                                   const value = row[reg.chartKey];

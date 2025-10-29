@@ -144,14 +144,32 @@ const CommandHistory = ({ deviceId }) => {
   };
 
   const formatTimestamp = (timestamp) => {
-    return new Date(timestamp * 1000).toLocaleString();
+    if (!timestamp) return 'N/A';
+    // Backend sends ISO format timestamp already in Sri Lanka timezone
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return 'Invalid Date';
+    // Display in local format (24-hour format)
+    return date.toLocaleString('en-GB', { 
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
   };
 
-  const getCommandDescription = (command) => {
-    if (command.command_type === 'write_register') {
-      return `Write Register ${command.register_address || '?'}: ${command.value || '?'}`;
+  const getCommandDescription = (cmd) => {
+    // Handle nested command object structure from database
+    const command = cmd.command || cmd;
+    
+    if (command.action === 'write_register') {
+      const register = command.target_register || command.register_address || '?';
+      const value = command.value !== undefined ? command.value : '?';
+      return `Write Register ${register}: ${value}`;
     }
-    return command.command_type || 'Unknown';
+    return command.action || command.command_type || 'Unknown';
   };
 
   return (
@@ -242,7 +260,7 @@ const CommandHistory = ({ deviceId }) => {
                           </IconButton>
                         </TableCell>
                         <TableCell>
-                          {formatTimestamp(command.timestamp)}
+                          {formatTimestamp(command.created_at)}
                         </TableCell>
                         <TableCell>
                           <Typography variant="body2">
@@ -267,13 +285,17 @@ const CommandHistory = ({ deviceId }) => {
                               whiteSpace: 'nowrap'
                             }}
                           >
-                            {command.result || '-'}
+                            {command.result 
+                              ? (typeof command.result === 'object' 
+                                  ? JSON.stringify(command.result) 
+                                  : command.result)
+                              : '-'}
                           </Typography>
                         </TableCell>
                         <TableCell>
                           {command.acknowledged_at ? (
                             <Chip
-                              label={`✓ ${new Date(command.acknowledged_at * 1000).toLocaleString()}`}
+                              label={`✓ ${formatTimestamp(command.acknowledged_at)}`}
                               color="success"
                               size="small"
                               variant="outlined"
@@ -306,39 +328,50 @@ const CommandHistory = ({ deviceId }) => {
                                 </Typography>
                                 
                                 <Typography variant="body2" color="text.secondary">
-                                  Command Type:
+                                  Action:
                                 </Typography>
                                 <Typography variant="body2">
-                                  {command.command_type}
+                                  {command.command?.action || 'N/A'}
                                 </Typography>
                                 
-                                {command.register_address !== undefined && (
+                                {command.command?.target_register && (
+                                  <>
+                                    <Typography variant="body2" color="text.secondary">
+                                      Target Register:
+                                    </Typography>
+                                    <Typography variant="body2">
+                                      {command.command.target_register}
+                                    </Typography>
+                                  </>
+                                )}
+                                
+                                {command.command?.register_address !== undefined && (
                                   <>
                                     <Typography variant="body2" color="text.secondary">
                                       Register Address:
                                     </Typography>
                                     <Typography variant="body2">
-                                      {command.register_address}
+                                      {command.command.register_address}
                                     </Typography>
                                   </>
                                 )}
                                 
-                                {command.value !== undefined && (
+                                {command.command?.value !== undefined && (
                                   <>
                                     <Typography variant="body2" color="text.secondary">
                                       Value:
                                     </Typography>
                                     <Typography variant="body2">
-                                      {command.value}
+                                      {command.command.value}
                                     </Typography>
                                   </>
                                 )}
                                 
                                 <Typography variant="body2" color="text.secondary">
-                                  Priority:
+                                  Created At:
                                 </Typography>
                                 <Typography variant="body2">
-                                  {command.priority || 'normal'}
+                                  {formatTimestamp(command.created_at)}
                                 </Typography>
                                 
                                 {command.result && (
@@ -347,18 +380,20 @@ const CommandHistory = ({ deviceId }) => {
                                       Result:
                                     </Typography>
                                     <Typography variant="body2">
-                                      {command.result}
+                                      {typeof command.result === 'object' 
+                                        ? JSON.stringify(command.result, null, 2)
+                                        : command.result}
                                     </Typography>
                                   </>
                                 )}
                                 
-                                {command.error && (
+                                {command.error_msg && (
                                   <>
                                     <Typography variant="body2" color="text.secondary">
                                       Error:
                                     </Typography>
                                     <Typography variant="body2" color="error.main">
-                                      {command.error}
+                                      {command.error_msg}
                                     </Typography>
                                   </>
                                 )}

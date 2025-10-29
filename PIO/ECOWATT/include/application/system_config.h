@@ -68,8 +68,8 @@
 #define SENSOR_POLL_DEADLINE_US         2000000         // 2 seconds (Modbus ~1.8s)
 #define COMPRESSION_DEADLINE_US         2000000         // 2 seconds
 #define UPLOAD_DEADLINE_US              5000000         // 5 seconds
-#define COMMAND_DEADLINE_US             1000000         // 1 second
-#define CONFIG_DEADLINE_US              1000000         // 1 second
+#define COMMAND_DEADLINE_US             3000000         // 3 seconds (increased to accommodate mutex wait)
+#define CONFIG_DEADLINE_US              3000000         // 3 seconds (increased to accommodate mutex wait)
 #define OTA_DEADLINE_US                 10000000        // 10 seconds
 
 // ============================================
@@ -94,9 +94,10 @@
 #define DATA_PIPELINE_MUTEX_TIMEOUT_MS  100             // 100ms (fast operations)
 
 // WiFi Client Mutex - Protects HTTP client (shared resource)
-#define WIFI_MUTEX_TIMEOUT_UPLOAD_MS    15000           // 15s for upload (slow network)
-#define WIFI_MUTEX_TIMEOUT_COMMAND_MS   5000            // 5s for commands
-#define WIFI_MUTEX_TIMEOUT_CONFIG_MS    5000            // 5s for config
+// Timeouts MUST be less than task deadlines to avoid deadline misses
+#define WIFI_MUTEX_TIMEOUT_UPLOAD_MS    4000            // 4s for upload (< 5s deadline)
+#define WIFI_MUTEX_TIMEOUT_COMMAND_MS   2000            // 2s for commands (< 3s deadline)
+#define WIFI_MUTEX_TIMEOUT_CONFIG_MS    2000            // 2s for config (< 3s deadline)
 #define WIFI_MUTEX_TIMEOUT_OTA_MS       5000            // 5s for OTA check
 
 // NVS Access Mutex - Protects flash writes

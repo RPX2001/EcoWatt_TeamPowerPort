@@ -45,10 +45,10 @@
 |---------------|----------|----------|-------------|--------|
 | `commands.js` | Send command | `/commands/{device_id}` | ✅ `command_routes.py:53` | ✅ Working |
 | `commands.js` | Get command status | `/commands/status/{command_id}` | ✅ `command_routes.py:245` | ✅ Working |
-| `commands.js` | Get command history | `/commands/{device_id}/history` | ✅ `command_routes.py:282` | ⚠️ **IN-MEMORY ONLY** |
+| `commands.js` | Get command history | `/commands/{device_id}/history` | ✅ `command_routes.py:282` | ✅ **FIXED 2025-10-29** |
 | `commands.js` | Get command stats | `/commands/stats` | ✅ `command_routes.py:320` | ✅ Working |
 
-**ISSUE:** Command history stored in RAM. **NEEDS PERSISTENT STORAGE**.
+**FIXED 2025-10-29:** Command history now properly queries database instead of returning empty list. Frontend component updated to handle database schema (nested `command` object, `created_at`, `acknowledged_at`, `error_msg`, result as object).
 
 ### **Configuration**
 | Frontend File | Function | Endpoint | Flask Route | Status |
