@@ -40,24 +40,95 @@ const Dashboard = () => {
     return 'other';
   };
 
-  // Dynamically determine available registers from latest data
+  // Dynamically determine available registers from latest data OR historical data
+  // ONLY show registers that are configured to be polled by ESP32
   const availableRegisters = useMemo(() => {
-    if (!latestData?.registers) return [];
+    // First try to get from latest data (preferred when device is online)
+    if (latestData?.registers && deviceConfig?.config?.registers) {
+      const configuredRegisterIds = deviceConfig.config.registers || [];
+      
+      // Get all register names that have values AND are configured (exact match, case-sensitive)
+      return Object.keys(latestData.registers).filter(regName => {
+        const hasValue = latestData.registers[regName] !== null && 
+                         latestData.registers[regName] !== undefined;
+        const isConfigured = configuredRegisterIds.includes(regName);
+        return hasValue && isConfigured;
+      });
+    }
     
-    // Get all register names that have values
-    return Object.keys(latestData.registers).filter(regName => 
-      latestData.registers[regName] !== null && 
-      latestData.registers[regName] !== undefined
-    );
-  }, [latestData]);
+    // Fallback: If device is offline, infer from historical data
+    if (historicalData.length > 0) {
+      // Get all unique register keys from historical data (excluding 'timestamp')
+      const allKeys = new Set();
+      historicalData.forEach(record => {
+        Object.keys(record).forEach(key => {
+          if (key !== 'timestamp') {
+            allKeys.add(key);
+          }
+        });
+      });
+      
+      // Convert to properly capitalized register names
+      const historicalRegisters = Array.from(allKeys).map(key => {
+        // Convert from lowercase chart key back to register name (capitalize first letter)
+        return key.charAt(0).toUpperCase() + key.slice(1);
+      });
+      
+      // If we have device config, filter by configured registers
+      if (deviceConfig?.config?.registers) {
+        return historicalRegisters.filter(regName => 
+          deviceConfig.config.registers.includes(regName)
+        );
+      }
+      
+      // Otherwise return all registers found in historical data
+      return historicalRegisters;
+    }
+    
+    return [];
+  }, [latestData, deviceConfig, historicalData]);
 
   // Create dynamic register mapping with metadata
   const registerConfig = useMemo(() => {
-    if (!latestData?.metadata || !availableRegisters.length) return [];
+    if (!availableRegisters.length) return [];
     
     return availableRegisters.map(regName => {
-      const metadata = latestData.metadata[regName];
-      if (!metadata) return null;
+      // Try to get metadata from latest data first
+      let metadata = latestData?.metadata?.[regName];
+      
+      // If no metadata (device offline), infer from register name
+      if (!metadata) {
+        metadata = { 
+          name: regName, 
+          unit: '', 
+          gain: 1, 
+          decimals: 2 
+        };
+        
+        // Infer common metadata patterns
+        const nameLower = regName.toLowerCase();
+        if (nameLower.includes('vac') || nameLower.includes('vpv')) {
+          metadata.unit = 'V';
+          metadata.gain = 10;
+          metadata.decimals = 1;
+        } else if (nameLower.includes('iac') || nameLower.includes('ipv')) {
+          metadata.unit = 'A';
+          metadata.gain = 10;
+          metadata.decimals = 1;
+        } else if (nameLower.includes('pac') || nameLower.includes('power')) {
+          metadata.unit = 'W';
+          metadata.gain = 1;
+          metadata.decimals = 0;
+        } else if (nameLower.includes('fac') || nameLower.includes('freq')) {
+          metadata.unit = 'Hz';
+          metadata.gain = 100;
+          metadata.decimals = 2;
+        } else if (nameLower.includes('temp')) {
+          metadata.unit = '°C';
+          metadata.gain = 10;
+          metadata.decimals = 1;
+        }
+      }
       
       return {
         key: regName,
@@ -141,17 +212,17 @@ const Dashboard = () => {
         console.warn('Failed to fetch device config:', configErr);
       }
 
-      // Fetch historical data (last 1 hour) - works even if device is offline
-      const endTime = new Date();
-      const startTime = new Date(endTime.getTime() - 60 * 60 * 1000); // 1 hour ago
+      // Fetch ALL historical data stored in database (no time limit)
+      // This allows viewing data even when device is offline
+      console.log('Fetching all available historical data for device:', selectedDevice);
       
       const historicalResponse = await getHistoricalData(selectedDevice, {
-        start_time: startTime.toISOString(),
-        end_time: endTime.toISOString(),
+        limit: 1000, // Get up to 1000 most recent records (increase if needed)
       });
       
       // Transform historical data to chart format dynamically
       const rawHistoricalData = historicalResponse.data.data || [];
+      
       const transformedData = rawHistoricalData.map(record => {
         const registers = record.registers || {};
         const transformed = { timestamp: record.timestamp };
@@ -175,9 +246,9 @@ const Dashboard = () => {
           }
           
           if (registers[regName] !== null) {
-            const rawValue = registers[regName];
-            const scaledValue = rawValue / metadata.gain;
-            transformed[regName.toLowerCase()] = scaledValue;
+            // Backend already applies gain correction, use value directly
+            const value = registers[regName];
+            transformed[regName.toLowerCase()] = value;
           }
         });
         
@@ -229,7 +300,7 @@ const Dashboard = () => {
             <>
               {/* Register Values - Full width */}
               <Box sx={{ mb: 3 }}>
-                <RegisterValues data={latestData} />
+                <RegisterValues data={latestData} deviceConfig={deviceConfig} />
               </Box>
 
               {/* Device Configuration - Full width */}
@@ -238,44 +309,33 @@ const Dashboard = () => {
                   <DeviceConfiguration config={deviceConfig} />
                 </Box>
               )}
-
-              {/* Metrics Cards - Dynamic based on available registers */}
-              {registerConfig.length > 0 && (
-                <Grid container spacing={3} sx={{ mb: 3 }}>
-                  {registerConfig.map((reg, index) => {
-                    const rawValue = latestData?.registers?.[reg.key];
-                    
-                    if (rawValue === undefined || rawValue === null) {
-                      return null;
-                    }
-
-                    const actualValue = rawValue / reg.gain;
-                    const displayValue = actualValue.toFixed(reg.decimals);
-
-                    return (
-                      <Grid item xs={12} sm={6} md={4} lg={3} key={reg.key}>
-                        <MetricsCard
-                          title={reg.name}
-                          value={displayValue}
-                          unit={reg.unit}
-                          icon={getIconForRegister(reg.key)}
-                          color={getColorForRegister(index)}
-                        />
-                      </Grid>
-                    );
-                  })}
-                </Grid>
-              )}
             </>
           )}
 
-          {/* Show offline message if no latest data */}
-          {!latestData && !loading && (
+          {/* Show offline message if no latest data but we have historical data */}
+          {!latestData && !loading && historicalData.length > 0 && (
             <Alert severity="info" sx={{ mb: 3 }}>
-              Device is currently offline. Showing historical data from database.
+              Device is currently offline. Showing {historicalData.length} historical data points from database (last 24 hours).
             </Alert>
           )}
-          {/* Historical Data Section with Tabs */}
+          
+          {/* Show message if device is offline and no data available */}
+          {!latestData && !loading && historicalData.length === 0 && (
+            <Alert severity="warning" sx={{ mb: 3 }}>
+              Device is currently offline and no historical data is available in the database.
+              Please check if the device has ever uploaded data to the server.
+            </Alert>
+          )}
+          
+          {/* Show info about historical data availability */}
+          {historicalData.length > 0 && !latestData && (
+            <Alert severity="info" sx={{ mb: 3 }}>
+              Device is currently offline. Showing {historicalData.length} historical records from the database.
+            </Alert>
+          )}
+          
+          {/* Historical Data Section with Tabs - Only show if we have data */}
+          {historicalData.length > 0 && (
           <Box sx={{ mt: 3 }}>
             <Paper sx={{ p: 2 }}>
               <Tabs value={viewMode} onChange={(e, newValue) => setViewMode(newValue)} sx={{ mb: 2 }}>
@@ -373,52 +433,61 @@ const Dashboard = () => {
 
               {/* Table View - Dynamic columns based on available registers */}
               {viewMode === 1 && (
-                <TableContainer sx={{ maxHeight: 600 }}>
-                  <Table stickyHeader>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Timestamp</TableCell>
-                        {registerConfig.map(reg => (
-                          <TableCell key={reg.key} align="right">
-                            {reg.name} ({reg.unit})
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {historicalData.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={registerConfig.length + 1} align="center">
-                            <Typography color="text.secondary" sx={{ py: 4 }}>
-                              No historical data available
-                            </Typography>
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        historicalData.map((row, index) => (
-                          <TableRow key={index} hover>
-                            <TableCell>
-                              {new Date(row.timestamp).toLocaleString()}
-                            </TableCell>
-                            {registerConfig.map(reg => {
-                              const value = row[reg.chartKey];
-                              return (
-                                <TableCell key={reg.key} align="right">
-                                  {value !== undefined && value !== null 
-                                    ? value.toFixed(reg.decimals)
-                                    : '-'}
-                                </TableCell>
-                              );
-                            })}
+                <>
+                  {registerConfig.length === 0 ? (
+                    <Alert severity="info" sx={{ mt: 2 }}>
+                      No registers configured. Please configure registers in the Configuration tab to view data.
+                    </Alert>
+                  ) : (
+                    <TableContainer sx={{ maxHeight: 600 }}>
+                      <Table stickyHeader>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Timestamp</TableCell>
+                            {registerConfig.map(reg => (
+                              <TableCell key={reg.key} align="right">
+                                {reg.name} ({reg.unit})
+                              </TableCell>
+                            ))}
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                        </TableHead>
+                        <TableBody>
+                          {historicalData.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={registerConfig.length + 1} align="center">
+                                <Typography color="text.secondary" sx={{ py: 4 }}>
+                                  No historical data available
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            historicalData.map((row, index) => (
+                              <TableRow key={index} hover>
+                                <TableCell>
+                                  {new Date(row.timestamp).toLocaleString()}
+                                </TableCell>
+                                {registerConfig.map(reg => {
+                                  const value = row[reg.chartKey];
+                                  return (
+                                    <TableCell key={reg.key} align="right">
+                                      {value !== undefined && value !== null 
+                                        ? value.toFixed(reg.decimals)
+                                        : '-'}
+                                    </TableCell>
+                                  );
+                                })}
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </>
               )}
             </Paper>
           </Box>
+          )}
         </>
       )}
 

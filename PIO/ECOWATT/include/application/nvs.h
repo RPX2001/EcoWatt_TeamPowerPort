@@ -18,10 +18,16 @@ class nvs{
         static const RegID* getReadRegs();
         static uint64_t getPollFreq();
         static uint64_t getUploadFreq();
+        static uint64_t getConfigFreq();
+        static uint64_t getCommandFreq();
+        static uint64_t getOtaFreq();
 
         static bool saveReadRegs(uint16_t regMask, size_t count);
         static bool changePollFreq(uint64_t poll_time);
         static bool changeUploadFreq(uint64_t upload_time);
+        static bool changeConfigFreq(uint64_t config_time);
+        static bool changeCommandFreq(uint64_t command_time);
+        static bool changeOtaFreq(uint64_t ota_time);
 };
 
 #endif

@@ -1,7 +1,24 @@
 # Configuration Hierarchy - EcoWatt ESP32
 
 **Date**: 2025-10-29  
-**Status**: Centralized and consolidated  
+**Status**: Centralized and consolidated - All 5 task frequencies now configurable  
+
+---
+
+## Configuration System Updates (Oct 29, 2025)
+
+### ✅ All Task Frequencies Now Configurable via NVS + Flask API
+
+**5 Configurable Intervals:**
+1. **`sampling_interval`** - Sensor polling frequency (default: 5s)
+2. **`upload_interval`** - Data upload frequency (default: 15s)
+3. **`config_poll_interval`** - Configuration check frequency (default: 5s) **[NEW]**
+4. **`command_poll_interval`** - Command polling frequency (default: 10s) **[NEW]**
+5. **`firmware_check_interval`** - OTA check frequency (default: 60s) **[NEW]**
+
+**Storage**: All frequencies stored in NVS (`freq` namespace)  
+**Runtime Updates**: TaskManager static members updated when config changes applied  
+**Acknowledgment**: ESP32 sends acknowledgment to Flask after applying config changes  
 
 ---
 

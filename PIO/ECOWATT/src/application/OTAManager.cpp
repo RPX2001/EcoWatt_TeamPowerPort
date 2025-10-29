@@ -1,4 +1,15 @@
 #include "application/OTAManager.h"
+#include <time.h>
+
+// Helper function to get current Unix timestamp in seconds
+static unsigned long getCurrentTimestamp() {
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        time_t now = mktime(&timeinfo);
+        return (unsigned long)now;
+    }
+    return millis() / 1000;  // Fallback to seconds since boot
+}
 
 // Constructor
 OTAManager::OTAManager(const String& serverURL, const String& deviceID, const String& currentVersion)
@@ -903,7 +914,7 @@ bool OTAManager::reportOTACompletionStatus()
     DynamicJsonDocument doc(512);
     doc["version"] = currentVersion;
     doc["status"] = status;
-    doc["timestamp"] = millis() / 1000; // Unix timestamp (seconds since boot)
+    doc["timestamp"] = getCurrentTimestamp(); // Unix timestamp in seconds
     
     if (error_msg.length() > 0) {
         doc["error_msg"] = error_msg;

@@ -1,5 +1,6 @@
 #include "application/nvs.h"
 #include "config/test_config.h"
+#include "application/system_config.h"
 
 // Global NVS instance definition
 Preferences esp_prefs_nvs;
@@ -196,6 +197,150 @@ bool nvs::changeUploadFreq(uint64_t upload_time)
     }
 
     esp_prefs_nvs.putULong64("upload_freq", upload_time);
+    esp_prefs_nvs.end();
+
+    return true;
+}
+
+
+uint64_t nvs::getConfigFreq()
+{
+    uint64_t defaultConfigFreq = DEFAULT_CONFIG_FREQUENCY_US;   // From system_config.h
+    // Open in read-only mode
+    if (!esp_prefs_nvs.begin("freq", true)) {
+        return defaultConfigFreq;
+    }
+
+    if (!esp_prefs_nvs.isKey("config_freq")) {
+        esp_prefs_nvs.end();
+        if (!esp_prefs_nvs.begin("freq", false)) {
+            return defaultConfigFreq;
+        }
+        esp_prefs_nvs.putULong64("config_freq", defaultConfigFreq);
+        esp_prefs_nvs.end();
+        return defaultConfigFreq;
+    }
+
+    uint64_t stored_freq = esp_prefs_nvs.getULong64("config_freq", defaultConfigFreq);
+    esp_prefs_nvs.end();
+
+    if (stored_freq >= MIN_CONFIG_FREQUENCY_US) // Minimum validation
+    {
+        return stored_freq;
+    }
+    return defaultConfigFreq;
+}
+
+
+bool nvs::changeConfigFreq(uint64_t config_time)
+{
+    if (config_time == 0) 
+    {
+        return false; // Invalid input
+    }
+
+    if (!esp_prefs_nvs.begin("freq", false)) // Open NVS in read-write mode
+    {
+        return false; // Failed to open NVS
+    }
+
+    esp_prefs_nvs.putULong64("config_freq", config_time);
+    esp_prefs_nvs.end();
+
+    return true;
+}
+
+
+uint64_t nvs::getCommandFreq()
+{
+    uint64_t defaultCommandFreq = DEFAULT_COMMAND_FREQUENCY_US;   // From system_config.h
+    // Open in read-only mode
+    if (!esp_prefs_nvs.begin("freq", true)) {
+        return defaultCommandFreq;
+    }
+
+    if (!esp_prefs_nvs.isKey("command_freq")) {
+        esp_prefs_nvs.end();
+        if (!esp_prefs_nvs.begin("freq", false)) {
+            return defaultCommandFreq;
+        }
+        esp_prefs_nvs.putULong64("command_freq", defaultCommandFreq);
+        esp_prefs_nvs.end();
+        return defaultCommandFreq;
+    }
+
+    uint64_t stored_freq = esp_prefs_nvs.getULong64("command_freq", defaultCommandFreq);
+    esp_prefs_nvs.end();
+
+    if (stored_freq >= MIN_COMMAND_FREQUENCY_US) // Minimum validation
+    {
+        return stored_freq;
+    }
+    return defaultCommandFreq;
+}
+
+
+bool nvs::changeCommandFreq(uint64_t command_time)
+{
+    if (command_time == 0) 
+    {
+        return false; // Invalid input
+    }
+
+    if (!esp_prefs_nvs.begin("freq", false)) // Open NVS in read-write mode
+    {
+        return false; // Failed to open NVS
+    }
+
+    esp_prefs_nvs.putULong64("command_freq", command_time);
+    esp_prefs_nvs.end();
+
+    return true;
+}
+
+
+uint64_t nvs::getOtaFreq()
+{
+    uint64_t defaultOtaFreq = DEFAULT_OTA_FREQUENCY_US;   // From system_config.h
+    // Open in read-only mode
+    if (!esp_prefs_nvs.begin("freq", true)) {
+        return defaultOtaFreq;
+    }
+
+    if (!esp_prefs_nvs.isKey("ota_freq")) {
+        esp_prefs_nvs.end();
+        if (!esp_prefs_nvs.begin("freq", false)) {
+            return defaultOtaFreq;
+        }
+        esp_prefs_nvs.putULong64("ota_freq", defaultOtaFreq);
+        esp_prefs_nvs.end();
+        return defaultOtaFreq;
+    }
+
+    uint64_t stored_freq = esp_prefs_nvs.getULong64("ota_freq", defaultOtaFreq);
+    esp_prefs_nvs.end();
+
+    if (stored_freq >= MIN_OTA_FREQUENCY_US) // Minimum validation
+    {
+        return stored_freq;
+    }
+    return defaultOtaFreq;
+}
+
+
+bool nvs::changeOtaFreq(uint64_t ota_time)
+{
+    if (ota_time == 0) 
+    {
+        return false; // Invalid input
+    }
+
+    if (!esp_prefs_nvs.begin("freq", false)) // Open NVS in read-write mode
+    {
+        return false; // Failed to open NVS
+    }
+
+    esp_prefs_nvs.putULong64("ota_freq", ota_time);
     esp_prefs_nvs.end();
 
     return true;

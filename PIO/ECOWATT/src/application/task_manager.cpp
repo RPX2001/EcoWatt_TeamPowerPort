@@ -19,6 +19,19 @@
 #include "application/OTAManager.h"
 #include "application/nvs.h"
 #include <esp_task_wdt.h>
+#include <time.h>
+
+// Helper function to get current Unix timestamp in milliseconds
+static unsigned long getCurrentTimestampMs() {
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        // Convert tm struct to Unix timestamp in seconds, then to milliseconds
+        time_t now = mktime(&timeinfo);
+        return (unsigned long)now * 1000;
+    }
+    // Fallback to millis if NTP not synced
+    return millis();
+}
 
 // ============================================
 // Static Member Initialization
@@ -49,6 +62,7 @@ SemaphoreHandle_t TaskManager::batchReadySemaphore = NULL;
 uint32_t TaskManager::pollFrequency = DEFAULT_POLL_FREQUENCY_US / 1000;        // Convert to ms
 uint32_t TaskManager::uploadFrequency = DEFAULT_UPLOAD_FREQUENCY_US / 1000;    // Convert to ms
 uint32_t TaskManager::configFrequency = DEFAULT_CONFIG_FREQUENCY_US / 1000;    // Convert to ms
+uint32_t TaskManager::commandFrequency = DEFAULT_COMMAND_FREQUENCY_US / 1000;  // Convert to ms
 uint32_t TaskManager::otaFrequency = DEFAULT_OTA_FREQUENCY_US / 1000;          // Convert to ms
 
 // Statistics
@@ -71,13 +85,14 @@ uint32_t TaskManager::systemStartTime = 0;
 // ============================================
 
 bool TaskManager::init(uint32_t pollFreqMs, uint32_t uploadFreqMs, 
-                       uint32_t configFreqMs, uint32_t otaFreqMs) {
+                       uint32_t configFreqMs, uint32_t commandFreqMs, uint32_t otaFreqMs) {
     print("[TaskManager] Initializing FreeRTOS dual-core system...\n");
     
     // Store configuration
     pollFrequency = pollFreqMs;
     uploadFrequency = uploadFreqMs;
     configFrequency = configFreqMs;
+    commandFrequency = commandFreqMs;
     otaFrequency = otaFreqMs;
     
     // Create queues
@@ -316,7 +331,7 @@ void TaskManager::sensorPollTask(void* parameter) {
         if (result.count == registerCount) {
             // Success - copy values
             memcpy(sample.values, result.values, registerCount * sizeof(uint16_t));
-            sample.timestamp = millis();
+            sample.timestamp = getCurrentTimestampMs();  // Unix timestamp in milliseconds
             
             // Send to compression queue (non-blocking to avoid deadline miss)
             if (xQueueSend(sensorDataQueue, &sample, 0) != pdTRUE) {
@@ -662,15 +677,18 @@ void TaskManager::commandTask(void* parameter) {
     esp_task_wdt_add(NULL);
     
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(10000);  // Check every 10s
-    const uint32_t deadlineUs = 1000000;  // 1s deadline
+    TickType_t xFrequency = pdMS_TO_TICKS(commandFrequency);  // Use configurable frequency
+    const uint32_t deadlineUs = COMMAND_DEADLINE_US;
     
-    print("[Commands] Check frequency: 10s\n");
+    print("[Commands] Check frequency: %lu ms\n", commandFrequency);
     print("[Commands] Deadline: %lu us\n", deadlineUs);
     
     while (1) {
         // Wait for command check interval
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        
+        // Update frequency if changed (NVS update)
+        xFrequency = pdMS_TO_TICKS(commandFrequency);
         
         uint32_t startTime = micros();
         
@@ -713,7 +731,7 @@ void TaskManager::configTask(void* parameter) {
     esp_task_wdt_add(NULL);
     
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(configFrequency);
+    TickType_t xFrequency = pdMS_TO_TICKS(configFrequency);  // NOT const - can update
     const uint32_t deadlineUs = 2000000;  // 2s deadline
     
     // State flags for configuration changes
@@ -728,6 +746,9 @@ void TaskManager::configTask(void* parameter) {
         // Wait for config check interval
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
+        // Update frequency if changed (allows runtime reconfiguration)
+        xFrequency = pdMS_TO_TICKS(configFrequency);
+        
         uint32_t startTime = micros();
         
         // Acquire WiFi mutex for HTTP request
@@ -737,15 +758,6 @@ void TaskManager::configTask(void* parameter) {
             ConfigManager::checkForChanges(&registers_uptodate, &pollFreq_uptodate, &uploadFreq_uptodate);
             
             xSemaphoreGive(wifiClientMutex);
-            
-            // Apply configuration changes if needed
-            if (!registers_uptodate || !pollFreq_uptodate || !uploadFreq_uptodate) {
-                print("[Config] Configuration changed! Flags need update.\n");
-                
-                // Note: Actual application of config changes happens in main system
-                // These flags are used by the main coordinator
-                // In FreeRTOS version, we could trigger events or update task parameters
-            }
             
         } else {
             print("[Config] ERROR: Failed to acquire WiFi mutex\n");
@@ -775,7 +787,7 @@ void TaskManager::otaTask(void* parameter) {
     // which exceeds the 30s watchdog timeout. OTA is low priority and infrequent.
     
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(otaFrequency);
+    TickType_t xFrequency = pdMS_TO_TICKS(otaFrequency);  // NOT const - can update
     const uint32_t deadlineUs = 120000000;  // 120s deadline (when active)
     
     // Store OTA manager instance (passed via parameter)
@@ -787,6 +799,9 @@ void TaskManager::otaTask(void* parameter) {
     while (1) {
         // Wait for OTA check interval
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        
+        // Update frequency if changed (allows runtime reconfiguration)
+        xFrequency = pdMS_TO_TICKS(otaFrequency);
         
         uint32_t startTime = micros();
         
@@ -904,4 +919,33 @@ void TaskManager::watchdogTask(void* parameter) {
         // Feed hardware watchdog
         esp_task_wdt_reset();
     }
+}
+
+// ============================================
+// Frequency Update Functions
+// ============================================
+
+void TaskManager::updatePollFrequency(uint32_t newFreqMs) {
+    pollFrequency = newFreqMs;
+    print("[TaskManager] Poll frequency updated to %lu ms\n", newFreqMs);
+}
+
+void TaskManager::updateUploadFrequency(uint32_t newFreqMs) {
+    uploadFrequency = newFreqMs;
+    print("[TaskManager] Upload frequency updated to %lu ms\n", newFreqMs);
+}
+
+void TaskManager::updateConfigFrequency(uint32_t newFreqMs) {
+    configFrequency = newFreqMs;
+    print("[TaskManager] Config check frequency updated to %lu ms\n", newFreqMs);
+}
+
+void TaskManager::updateCommandFrequency(uint32_t newFreqMs) {
+    commandFrequency = newFreqMs;
+    print("[TaskManager] Command poll frequency updated to %lu ms\n", newFreqMs);
+}
+
+void TaskManager::updateOtaFrequency(uint32_t newFreqMs) {
+    otaFrequency = newFreqMs;
+    print("[TaskManager] OTA check frequency updated to %lu ms\n", newFreqMs);
 }

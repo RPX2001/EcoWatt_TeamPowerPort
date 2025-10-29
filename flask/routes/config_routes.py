@@ -20,17 +20,18 @@ config_history: Dict[str, list] = {}
 
 # Available registers from Inverter SIM API Documentation
 # Based on Section 4: Modbus Data Registers
+# Using actual register names as stored in database (from REGISTER_NAMES in data_utils.py)
 AVAILABLE_REGISTERS = [
-    {'id': 'voltage', 'name': 'Vac1 /L1 Phase voltage', 'address': 0, 'gain': 10, 'unit': 'V'},
-    {'id': 'current', 'name': 'Iac1 /L1 Phase current', 'address': 1, 'gain': 10, 'unit': 'A'},
-    {'id': 'frequency', 'name': 'Fac1 /L1 Phase frequency', 'address': 2, 'gain': 100, 'unit': 'Hz'},
-    {'id': 'vpv1', 'name': 'Vpv1 /PV1 input voltage', 'address': 3, 'gain': 10, 'unit': 'V'},
-    {'id': 'vpv2', 'name': 'Vpv2 /PV2 input voltage', 'address': 4, 'gain': 10, 'unit': 'V'},
-    {'id': 'ipv1', 'name': 'Ipv1 /PV1 input current', 'address': 5, 'gain': 10, 'unit': 'A'},
-    {'id': 'ipv2', 'name': 'Ipv2 /PV2 input current', 'address': 6, 'gain': 10, 'unit': 'A'},
-    {'id': 'temperature', 'name': 'Inverter internal temperature', 'address': 7, 'gain': 10, 'unit': '°C'},
-    {'id': 'export_power_pct', 'name': 'Set the export power percentage', 'address': 8, 'gain': 1, 'unit': '%', 'writable': True},
-    {'id': 'power', 'name': 'Pac L /Inverter current output power', 'address': 9, 'gain': 1, 'unit': 'W'},
+    {'id': 'Vac1', 'name': 'Vac1 /L1 Phase voltage', 'address': 0, 'gain': 10, 'unit': 'V'},
+    {'id': 'Iac1', 'name': 'Iac1 /L1 Phase current', 'address': 1, 'gain': 10, 'unit': 'A'},
+    {'id': 'Fac1', 'name': 'Fac1 /L1 Phase frequency', 'address': 2, 'gain': 100, 'unit': 'Hz'},
+    {'id': 'Vpv1', 'name': 'Vpv1 /PV1 input voltage', 'address': 3, 'gain': 10, 'unit': 'V'},
+    {'id': 'Vpv2', 'name': 'Vpv2 /PV2 input voltage', 'address': 4, 'gain': 10, 'unit': 'V'},
+    {'id': 'Ipv1', 'name': 'Ipv1 /PV1 input current', 'address': 5, 'gain': 10, 'unit': 'A'},
+    {'id': 'Ipv2', 'name': 'Ipv2 /PV2 input current', 'address': 6, 'gain': 10, 'unit': 'A'},
+    {'id': 'Temperature', 'name': 'Inverter internal temperature', 'address': 7, 'gain': 10, 'unit': '°C'},
+    {'id': 'ExportPowerPct', 'name': 'Set the export power percentage', 'address': 8, 'gain': 1, 'unit': '%', 'writable': True},
+    {'id': 'Pac', 'name': 'Pac L /Inverter current output power', 'address': 9, 'gain': 1, 'unit': 'W'},
 ]
 
 # Get list of register IDs for validation
@@ -46,7 +47,7 @@ def get_default_config():
         'command_poll_interval': 10,      # Check for pending commands every 10s
         'config_poll_interval': 5,        # Check for config updates every 5s
         'compression_enabled': True,
-        'registers': ['voltage', 'current', 'power']  # Default registers to monitor
+        'registers': ['Vac1', 'Iac1', 'Pac']  # Default registers using actual names
     }
 
 
@@ -240,9 +241,9 @@ def update_config(device_id):
         # Store updated config in memory
         device_configs[device_id] = current_config
         
-        # CRITICAL: Save to database (REPLACES any pending config)
-        # This implements the "override not queue" behavior
-        Database.save_config(device_id=device_id, config=current_config)
+        # Save to database with config_update wrapper (Milestone 4 format)
+        config_to_save = {'config_update': config_update}
+        Database.save_config(device_id=device_id, config=config_to_save)
         
         # Log configuration change in memory history
         if device_id not in config_history:
@@ -326,6 +327,78 @@ def get_config_history(device_id):
         }), 500
 
 
+@config_bp.route('/config/<device_id>/current', methods=['POST'])
+def receive_current_config(device_id):
+    """
+    Receive current running configuration from ESP32
+    This allows us to know what ESP32 is actually running
+    
+    Expected JSON body:
+    {
+        "sampling_interval": 2,
+        "upload_interval": 15,
+        "registers": ["Vac1", "Iac1", "Pac"],
+        "compression_enabled": true,
+        "timestamp": 1234567890
+    }
+    """
+    try:
+        from database import Database
+        
+        if not request.is_json:
+            return jsonify({
+                'success': False,
+                'error': 'Content-Type must be application/json'
+            }), 400
+        
+        data = request.get_json()
+        
+        logger.info(f"[Config] Received current config from {device_id}: {data}")
+        
+        # Store this as the current running configuration
+        # Update in-memory storage with ALL reported values
+        device_configs[device_id] = {
+            'sampling_interval': data.get('sampling_interval', 2),
+            'upload_interval': data.get('upload_interval', 15),
+            'firmware_check_interval': data.get('firmware_check_interval', 60),
+            'command_poll_interval': data.get('command_poll_interval', 10),
+            'config_poll_interval': data.get('config_poll_interval', 5),
+            'compression_enabled': data.get('compression_enabled', True),
+            'registers': data.get('registers', [])
+        }
+        
+        # If there was a pending config and ESP32 is reporting this config,
+        # it means ESP32 has applied it - mark as acknowledged
+        pending = Database.get_pending_config(device_id)
+        if pending:
+            # Check if the reported config matches the pending config
+            pending_regs = set(pending['config'].get('registers', []))
+            current_regs = set(data.get('registers', []))
+            
+            if pending_regs == current_regs:
+                # Registers match - mark as applied
+                Database.update_config_status(
+                    device_id=device_id,
+                    status='applied',
+                    error_msg=None
+                )
+                logger.info(f"[Config] ESP32 {device_id} confirmed config application")
+        
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'message': 'Current config received',
+            'timestamp': time.time()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error receiving current config for {device_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @config_bp.route('/config/<device_id>/acknowledge', methods=['POST'])
 def acknowledge_config(device_id):
     """
@@ -367,6 +440,14 @@ def acknowledge_config(device_id):
         )
         
         if success:
+            # Also update in-memory history with acknowledgment timestamp
+            if device_id in config_history and len(config_history[device_id]) > 0:
+                # Update the most recent entry (the one that was acknowledged)
+                config_history[device_id][-1]['status'] = status
+                config_history[device_id][-1]['acknowledged_at'] = int(time.time())
+                if error_msg:
+                    config_history[device_id][-1]['error_msg'] = error_msg
+            
             logger.info(f"[Config] ESP32 acknowledged config for {device_id}: {status}")
             return jsonify({
                 'success': True,

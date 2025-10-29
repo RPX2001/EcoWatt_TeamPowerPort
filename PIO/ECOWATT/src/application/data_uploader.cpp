@@ -14,6 +14,19 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <time.h>
+
+// Helper function to get current Unix timestamp in seconds
+static unsigned long getCurrentTimestamp() {
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        // Convert tm struct to Unix timestamp in SECONDS
+        time_t now = mktime(&timeinfo);
+        return (unsigned long)now;
+    }
+    // Fallback to millis/1000 if NTP not synced (better than raw millis)
+    return millis() / 1000;
+}
 
 // Initialize static members
 RingBuffer<SmartCompressedData, 20> DataUploader::ringBuffer;
@@ -152,7 +165,7 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     }
     
     (*doc)["device_id"] = deviceID;
-    (*doc)["timestamp"] = millis();
+    (*doc)["timestamp"] = getCurrentTimestamp();
     (*doc)["data_type"] = "compressed_sensor_batch";
     (*doc)["total_samples"] = allData.size();
     

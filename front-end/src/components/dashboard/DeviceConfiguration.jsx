@@ -7,6 +7,40 @@ const DeviceConfiguration = ({ config }) => {
   }
 
   const params = config.config;
+  const isPending = config.is_pending || false;
+  const isDefault = config.is_default || false;
+  
+  // Determine status chip
+  const getStatusChip = () => {
+    if (isPending) {
+      return (
+        <Chip 
+          label="Pending on ESP32" 
+          size="small" 
+          color="warning" 
+          variant="filled"
+        />
+      );
+    } else if (isDefault) {
+      return (
+        <Chip 
+          label="Default Config" 
+          size="small" 
+          color="info" 
+          variant="outlined"
+        />
+      );
+    } else {
+      return (
+        <Chip 
+          label="Running on ESP32" 
+          size="small" 
+          color="success" 
+          variant="filled"
+        />
+      );
+    }
+  };
 
   // Format time intervals for display
   const formatInterval = (ms, unit = 's') => {
@@ -27,10 +61,11 @@ const DeviceConfiguration = ({ config }) => {
           <Typography variant="h6">
             Device Configuration
           </Typography>
+          {getStatusChip()}
           <Chip 
-            label={config.device_id || 'Active'} 
+            label={config.device_id || 'ESP32_001'} 
             size="small" 
-            color="success" 
+            color="primary" 
             variant="outlined"
           />
         </Box>
@@ -126,26 +161,26 @@ const DeviceConfiguration = ({ config }) => {
             </Box>
           </Grid>
 
-          {/* Active Registers */}
+          {/* Monitored Registers */}
           <Grid item xs={12}>
             <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
               <Typography variant="caption" color="text.secondary" gutterBottom>
                 Monitored Registers
               </Typography>
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1 }}>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
                 {params.registers && params.registers.length > 0 ? (
-                  params.registers.map((reg) => (
-                    <Chip 
-                      key={reg} 
-                      label={reg} 
-                      size="small" 
-                      color="primary" 
+                  params.registers.map((reg, index) => (
+                    <Chip
+                      key={index}
+                      label={reg}
+                      size="small"
+                      color="primary"
                       variant="outlined"
                     />
                   ))
                 ) : (
                   <Typography variant="body2" color="text.secondary">
-                    All registers
+                    No registers configured
                   </Typography>
                 )}
               </Box>

@@ -64,7 +64,7 @@
  */
 struct SensorSample {
     uint16_t values[10];        // Register values
-    uint32_t timestamp;         // Milliseconds since boot
+    uint32_t timestamp;         // Unix timestamp in milliseconds
     uint8_t registerCount;      // Number of valid registers
     RegID registers[10];        // Register IDs
 };
@@ -119,11 +119,12 @@ public:
      * @param pollFreqMs Sensor polling frequency in milliseconds
      * @param uploadFreqMs Data upload frequency in milliseconds
      * @param configFreqMs Config check frequency in milliseconds
+     * @param commandFreqMs Command poll frequency in milliseconds
      * @param otaFreqMs OTA check frequency in milliseconds
      * @return true if initialization successful
      */
     static bool init(uint32_t pollFreqMs, uint32_t uploadFreqMs, 
-                     uint32_t configFreqMs, uint32_t otaFreqMs);
+                     uint32_t configFreqMs, uint32_t commandFreqMs, uint32_t otaFreqMs);
     
     /**
      * @brief Start all FreeRTOS tasks
@@ -150,6 +151,28 @@ public:
      * @brief Update upload frequency
      */
     static void updateUploadFrequency(uint32_t newFreqMs);
+    
+    /**
+     * @brief Update config check frequency
+     */
+    static void updateConfigFrequency(uint32_t newFreqMs);
+    
+    /**
+     * @brief Update command poll frequency
+     */
+    static void updateCommandFrequency(uint32_t newFreqMs);
+    
+    /**
+     * @brief Update OTA check frequency
+     */
+    static void updateOtaFrequency(uint32_t newFreqMs);
+    
+    /**
+     * @brief Get current configuration frequencies (in milliseconds)
+     */
+    static uint32_t getConfigFrequency() { return configFrequency; }
+    static uint32_t getCommandFrequency() { return commandFrequency; }
+    static uint32_t getOtaFrequency() { return otaFrequency; }
     
     /**
      * @brief Get task statistics for monitoring
@@ -207,6 +230,7 @@ private:
     static uint32_t pollFrequency;
     static uint32_t uploadFrequency;
     static uint32_t configFrequency;
+    static uint32_t commandFrequency;
     static uint32_t otaFrequency;
     
     // Statistics

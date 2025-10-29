@@ -1,6 +1,6 @@
 #include <unity.h>
 #include "application/compression.h"
-#include "application/data_pipeline.h"
+// data_pipeline.h does not exist - SampleBatch is defined in compression.h
 
 // Test helper variables
 SampleBatch testBatch;

@@ -112,6 +112,14 @@ public:
      */
     static void sendConfigAcknowledgment(const char* status, const char* message = nullptr);
 
+    /**
+     * @brief Send current running configuration to Flask server
+     * 
+     * Sends the ESP32's current configuration to Flask so frontend can display it
+     * Should be called on boot after configuration is loaded
+     */
+    static void sendCurrentConfig();
+
 private:
     static char changesURL[256];
     static char deviceID[64];

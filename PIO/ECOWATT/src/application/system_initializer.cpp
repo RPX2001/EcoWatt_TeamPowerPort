@@ -7,12 +7,16 @@
  */
 
 #include "application/system_initializer.h"
-#include "peripheral/print.h"
 #include "peripheral/arduino_wifi.h"
 #include "application/power_management.h"
 #include "application/peripheral_power.h"
 #include "application/security.h"
 #include "application/OTAManager.h"
+#include <time.h>
+
+// Include peripheral/print.h AFTER OTAManager.h
+// Both define print() macro, but they both rely on debug.log() so it's fine
+#include "peripheral/print.h"
 
 // Initialize static members
 bool SystemInitializer::initialized = false;
@@ -67,12 +71,47 @@ bool SystemInitializer::initWiFi() {
     
     // Check if WiFi is actually connected
     if (WiFi.status() == WL_CONNECTED) {
-        print("WiFi: CONNECTED ✓\n");
-        print("  IP: %s\n", WiFi.localIP().toString().c_str());
+        Serial.println("WiFi: CONNECTED ✓");
+        Serial.printf("  IP: %s\n", WiFi.localIP().toString().c_str());
+        
+        // Initialize NTP time synchronization
+        Serial.println("Initializing NTP time sync...");
+        configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+        setenv("TZ", "UTC", 1);  // Set timezone to UTC
+        tzset();
+        
+        // Wait for time to be set (up to 10 seconds)
+        int retry = 0;
+        const int retry_count = 10;
+        struct tm timeinfo;
+        
+        // Temporarily undefine print macro to use Serial.print()
+        #ifdef print
+        #undef print
+        #endif
+        
+        while (!getLocalTime(&timeinfo) && retry < retry_count) {
+            Serial.print(".");
+            delay(1000);
+            retry++;
+        }
+        
+        if (retry < retry_count) {
+            Serial.println("NTP Time Sync: OK ✓");
+            Serial.printf("  Current time: %04d-%02d-%02d %02d:%02d:%02d UTC\n",
+                  timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
+                  timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+        } else {
+            Serial.println("NTP Time Sync: TIMEOUT (will use millis fallback)");
+        }
+        
+        // Redefine print macro
+        #define print(...) debug.log(__VA_ARGS__)
+        
         return true;
     } else {
-        print("WiFi: FAILED ✗\n");
-        print("  System will continue but network features disabled\n");
+        Serial.println("WiFi: FAILED ✗");
+        Serial.println("  System will continue but network features disabled");
         return false;  // Return false to indicate WiFi failure
     }
 }

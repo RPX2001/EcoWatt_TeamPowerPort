@@ -45,6 +45,13 @@
 #define MIN_CONFIG_FREQUENCY_US         1000000ULL      // 1 second
 #define MAX_CONFIG_FREQUENCY_US         300000000ULL    // 5 minutes
 
+// Command Poll Frequency
+// How often to check server for pending commands
+// Range: 5 seconds to 5 minutes
+#define DEFAULT_COMMAND_FREQUENCY_US    10000000ULL     // 10 seconds
+#define MIN_COMMAND_FREQUENCY_US        5000000ULL      // 5 seconds
+#define MAX_COMMAND_FREQUENCY_US        300000000ULL    // 5 minutes
+
 // OTA Check Frequency
 // How often to check for firmware updates
 // Range: 30 seconds to 24 hours
@@ -199,6 +206,7 @@
 #define IS_VALID_POLL_FREQ(f)    ((f) >= MIN_POLL_FREQUENCY_US && (f) <= MAX_POLL_FREQUENCY_US)
 #define IS_VALID_UPLOAD_FREQ(f)  ((f) >= MIN_UPLOAD_FREQUENCY_US && (f) <= MAX_UPLOAD_FREQUENCY_US)
 #define IS_VALID_CONFIG_FREQ(f)  ((f) >= MIN_CONFIG_FREQUENCY_US && (f) <= MAX_CONFIG_FREQUENCY_US)
+#define IS_VALID_COMMAND_FREQ(f) ((f) >= MIN_COMMAND_FREQUENCY_US && (f) <= MAX_COMMAND_FREQUENCY_US)
 #define IS_VALID_OTA_FREQ(f)     ((f) >= MIN_OTA_FREQUENCY_US && (f) <= MAX_OTA_FREQUENCY_US)
 
 // Validate register count

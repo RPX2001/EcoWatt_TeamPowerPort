@@ -407,13 +407,18 @@ def store_device_latest_data(device_id: str, values: List[float], timestamp: flo
         sample_timestamp_ms = timestamp + (sample_idx * time_interval_ms)
         sample_timestamp_sec = sample_timestamp_ms / 1000.0  # Convert to seconds for Unix timestamp
         
-        # Map values to ONLY the selected register names
+        # Map values to ONLY the selected register names and apply gains
         registers = {}
         for i, value in enumerate(sample_values):
             if i < len(register_layout):
                 reg_id = register_layout[i]
                 if reg_id < len(REGISTER_NAMES):
-                    registers[REGISTER_NAMES[reg_id]] = value
+                    reg_name = REGISTER_NAMES[reg_id]
+                    # Apply gain correction to get actual value
+                    gain = REGISTER_METADATA.get(reg_name, {}).get('gain', 1)
+                    actual_value = value / gain
+                    registers[reg_name] = actual_value
+                    logger.debug(f"Register {reg_name}: raw={value}, gain={gain}, actual={actual_value}")
         
         # Update in-memory cache (keep only latest)
         _device_latest_data[device_id] = {

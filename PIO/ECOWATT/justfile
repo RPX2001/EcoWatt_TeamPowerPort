@@ -56,6 +56,11 @@ test-acquisition:
     {{pio}} test --filter test_acquisition
     @echo "✅ Acquisition tests complete"
 
+# Run buffer component tests
+test-buffer:
+    {{pio}} test --filter test_buffer
+    @echo "✅ Buffer tests complete"
+
 # Run security component tests (HMAC, nonce, anti-replay)
 test-security:
     {{pio}} test --filter "test_security*|test_mac_hmac|test_*antireplay"

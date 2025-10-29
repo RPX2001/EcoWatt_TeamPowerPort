@@ -19,18 +19,19 @@ import { updateConfig } from '../../api/config';
 /**
  * Available Modbus Registers from Inverter SIM API
  * Based on API Documentation Section 4: Modbus Data Registers
+ * Using actual register names as stored in database
  */
 const AVAILABLE_REGISTERS = [
-  { id: 'voltage', name: 'Vac1 /L1 Phase voltage', address: 0, unit: 'V', gain: 10 },
-  { id: 'current', name: 'Iac1 /L1 Phase current', address: 1, unit: 'A', gain: 10 },
-  { id: 'frequency', name: 'Fac1 /L1 Phase frequency', address: 2, unit: 'Hz', gain: 100 },
-  { id: 'vpv1', name: 'Vpv1 /PV1 input voltage', address: 3, unit: 'V', gain: 10 },
-  { id: 'vpv2', name: 'Vpv2 /PV2 input voltage', address: 4, unit: 'V', gain: 10 },
-  { id: 'ipv1', name: 'Ipv1 /PV1 input current', address: 5, unit: 'A', gain: 10 },
-  { id: 'ipv2', name: 'Ipv2 /PV2 input current', address: 6, unit: 'A', gain: 10 },
-  { id: 'temperature', name: 'Inverter internal temperature', address: 7, unit: '°C', gain: 10 },
-  { id: 'export_power_pct', name: 'Set the export power percentage', address: 8, unit: '%', gain: 1, writable: true },
-  { id: 'power', name: 'Pac L /Inverter current output power', address: 9, unit: 'W', gain: 1 },
+  { id: 'Vac1', name: 'Vac1 /L1 Phase voltage', address: 0, unit: 'V', gain: 10 },
+  { id: 'Iac1', name: 'Iac1 /L1 Phase current', address: 1, unit: 'A', gain: 10 },
+  { id: 'Fac1', name: 'Fac1 /L1 Phase frequency', address: 2, unit: 'Hz', gain: 100 },
+  { id: 'Vpv1', name: 'Vpv1 /PV1 input voltage', address: 3, unit: 'V', gain: 10 },
+  { id: 'Vpv2', name: 'Vpv2 /PV2 input voltage', address: 4, unit: 'V', gain: 10 },
+  { id: 'Ipv1', name: 'Ipv1 /PV1 input current', address: 5, unit: 'A', gain: 10 },
+  { id: 'Ipv2', name: 'Ipv2 /PV2 input current', address: 6, unit: 'A', gain: 10 },
+  { id: 'Temperature', name: 'Inverter internal temperature', address: 7, unit: '°C', gain: 10 },
+  { id: 'ExportPowerPct', name: 'Set the export power percentage', address: 8, unit: '%', gain: 1, writable: true },
+  { id: 'Pac', name: 'Pac L /Inverter current output power', address: 9, unit: 'W', gain: 1 },
 ];
 
 const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
@@ -41,7 +42,7 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
     command_poll_interval: 10,
     config_poll_interval: 5,
     compression_enabled: true,
-    registers: ['voltage', 'current', 'power'],
+    registers: ['Vac1', 'Iac1', 'Pac'],
   });
 
   const [loading, setLoading] = useState(false);

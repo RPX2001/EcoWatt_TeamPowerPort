@@ -5,8 +5,19 @@
 
 #include "application/diagnostics.h"
 #include <ArduinoJson.h>
+#include <time.h>
 // Include print.h after ArduinoJson to avoid macro conflicts
 #include "peripheral/print.h"
+
+// Helper function to get current Unix timestamp in seconds
+static unsigned long getCurrentTimestamp() {
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        time_t now = mktime(&timeinfo);
+        return (unsigned long)now;
+    }
+    return millis() / 1000;  // Fallback to seconds since boot
+}
 
 // Initialize static members
 DiagnosticRingBuffer<50> Diagnostics::eventLog;
@@ -39,7 +50,7 @@ void Diagnostics::init() {
 
 void Diagnostics::logEvent(EventType type, const char* message, uint16_t errorCode) {
     DiagnosticEvent event;
-    event.timestamp = millis();
+    event.timestamp = getCurrentTimestamp();
     event.type = type;
     event.errorCode = errorCode;
     strncpy(event.message, message, sizeof(event.message) - 1);
@@ -126,7 +137,7 @@ String Diagnostics::generateDiagnosticsJSON() {
     StaticJsonDocument<2048> doc;
     
     doc["device_id"] = "ESP32_EcoWatt_Smart";
-    doc["timestamp"] = millis();
+    doc["timestamp"] = getCurrentTimestamp();
     doc["uptime_seconds"] = getUptime();
     
     // Error counters

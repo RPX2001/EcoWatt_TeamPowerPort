@@ -7,6 +7,7 @@ from flask import Blueprint, request, jsonify
 import logging
 import json
 import time
+from datetime import datetime
 
 from handlers import (
     handle_compressed_data,
@@ -175,8 +176,15 @@ def receive_aggregated_data(device_id: str):
                     # Get most common compression method
                     compression_method = all_stats[0].get('method', 'unknown') if all_stats else None
                     
-                    # Extract first packet's timestamp for proper timestamp calculation
-                    first_packet_timestamp = compressed_data[0].get('decompression_metadata', {}).get('timestamp', current_timestamp * 1000) if isinstance(compressed_data, list) and len(compressed_data) > 0 and isinstance(compressed_data[0], dict) else current_timestamp * 1000
+                    # Extract timestamp - ALWAYS use main timestamp field (upload time in SECONDS)
+                    # The ESP32 sends Unix timestamp in the main 'timestamp' field
+                    # Convert SECONDS to MILLISECONDS for consistency with existing code
+                    main_timestamp_s = data.get('timestamp', current_timestamp)
+                    first_packet_timestamp = main_timestamp_s * 1000
+                    
+                    logger.info(f"[Timestamp Debug] Main timestamp: {main_timestamp_s} seconds")
+                    logger.info(f"[Timestamp Debug] Using timestamp: {first_packet_timestamp} milliseconds")
+                    logger.info(f"[Timestamp Debug] Datetime: {datetime.fromtimestamp(first_packet_timestamp/1000)}")
                     
                     store_device_latest_data(
                         device_id=device_id, 

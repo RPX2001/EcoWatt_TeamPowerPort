@@ -173,20 +173,23 @@ void setup()
     // Get configuration from NVS (centralized configuration source)
     uint64_t pollFreq = nvs::getPollFreq();
     uint64_t uploadFreq = nvs::getUploadFreq();
-    uint64_t configCheckFreq = DEFAULT_CONFIG_FREQUENCY_US;  // From system_config.h
-    uint64_t otaCheckFreq = DEFAULT_OTA_FREQUENCY_US;        // From system_config.h
+    uint64_t configCheckFreq = nvs::getConfigFreq();     // From NVS with DEFAULT_CONFIG_FREQUENCY_US fallback
+    uint64_t commandPollFreq = nvs::getCommandFreq();    // From NVS with DEFAULT_COMMAND_FREQUENCY_US fallback
+    uint64_t otaCheckFreq = nvs::getOtaFreq();           // From NVS with DEFAULT_OTA_FREQUENCY_US fallback
     
     // Convert to milliseconds for TaskManager
     uint32_t pollFreqMs = pollFreq / 1000;
     uint32_t uploadFreqMs = uploadFreq / 1000;
     uint32_t configFreqMs = configCheckFreq / 1000;
+    uint32_t commandFreqMs = commandPollFreq / 1000;
     uint32_t otaFreqMs = otaCheckFreq / 1000;
     
     print("[Main] Task frequencies configured from NVS:\n");
-    print("  - Sensor Poll:  %lu ms (configurable)\n", pollFreqMs);
-    print("  - Upload:       %lu ms (configurable)\n", uploadFreqMs);
-    print("  - Config Check: %lu ms (static)\n", configFreqMs);
-    print("  - OTA Check:    %lu ms (static)\n", otaFreqMs);
+    print("  - Sensor Poll:  %lu ms (configurable via NVS)\n", pollFreqMs);
+    print("  - Upload:       %lu ms (configurable via NVS)\n", uploadFreqMs);
+    print("  - Config Check: %lu ms (configurable via NVS)\n", configFreqMs);
+    print("  - Command Poll: %lu ms (configurable via NVS)\n", commandFreqMs);
+    print("  - OTA Check:    %lu ms (configurable via NVS)\n", otaFreqMs);
     
     // Initialize Data Uploader (M4 format: /aggregated/<device_id>)
     DataUploader::init(FLASK_SERVER_URL "/aggregated/" DEVICE_ID, DEVICE_ID);
@@ -208,7 +211,7 @@ void setup()
     // Initialize FreeRTOS Task Manager
     // ========================================
     print("\n[Main] Initializing FreeRTOS Task Manager...\n");
-    if (!TaskManager::init(pollFreqMs, uploadFreqMs, configFreqMs, otaFreqMs)) {
+    if (!TaskManager::init(pollFreqMs, uploadFreqMs, configFreqMs, commandFreqMs, otaFreqMs)) {
         print("[Main] ERROR: Failed to initialize TaskManager!\n");
         print("[Main] System halted.\n");
         while(1) {
