@@ -18,6 +18,7 @@
 #define print(...) debug.log(__VA_ARGS__)
 
 #include "application/system_initializer.h"
+#include "application/system_config.h"  // Centralized configuration constants
 #include "application/task_manager.h"
 #include "application/data_uploader.h"
 #include "application/command_executor.h"
@@ -116,11 +117,11 @@ void setup()
     delay(1000);
     print_init();
     
-    // CRITICAL: Reconfigure task watchdog with longer timeout (600 seconds = 10 minutes)
-    // OTA task runs every 60s, giving plenty of headroom for all operations
-    esp_task_wdt_deinit();                    // Clean slate
-    esp_task_wdt_init(600, true);             // 600s timeout, panic enabled
-    print("[Main] Task watchdog configured: 600s timeout (10 minutes)\n");
+    // CRITICAL: Reconfigure task watchdog with longer timeout
+    // Uses centralized HARDWARE_WATCHDOG_TIMEOUT_S from system_config.h
+    esp_task_wdt_deinit();                              // Clean slate
+    esp_task_wdt_init(HARDWARE_WATCHDOG_TIMEOUT_S, true); // Configurable timeout, panic enabled
+    print("[Main] Task watchdog configured: %d seconds timeout\n", HARDWARE_WATCHDOG_TIMEOUT_S);
     
     print("\n");
     print("╔══════════════════════════════════════════════════════════╗\n");
@@ -169,15 +170,11 @@ void setup()
         print("[Main] ✗ Diagnostics failed - system may be unstable\n");
     }
     
-    // Get configuration from NVS
+    // Get configuration from NVS (centralized configuration source)
     uint64_t pollFreq = nvs::getPollFreq();
     uint64_t uploadFreq = nvs::getUploadFreq();
-    uint64_t configCheckFreq = 5000000ULL;  // 5 seconds
-    uint64_t otaCheckFreq = 60000000ULL;    // 1 minute
-    
-    // Override upload frequency for M2-M4 testing (15 seconds)
-    print("[Main] Using 15-second upload cycle for M2-M4 testing\n");
-    uploadFreq = 15000000ULL;  // 15 seconds in microseconds
+    uint64_t configCheckFreq = DEFAULT_CONFIG_FREQUENCY_US;  // From system_config.h
+    uint64_t otaCheckFreq = DEFAULT_OTA_FREQUENCY_US;        // From system_config.h
     
     // Convert to milliseconds for TaskManager
     uint32_t pollFreqMs = pollFreq / 1000;
@@ -185,11 +182,11 @@ void setup()
     uint32_t configFreqMs = configCheckFreq / 1000;
     uint32_t otaFreqMs = otaCheckFreq / 1000;
     
-    print("[Main] Task frequencies configured:\n");
-    print("  - Sensor Poll:  %lu ms\n", pollFreqMs);
-    print("  - Upload:       %lu ms\n", uploadFreqMs);
-    print("  - Config Check: %lu ms\n", configFreqMs);
-    print("  - OTA Check:    %lu ms\n", otaFreqMs);
+    print("[Main] Task frequencies configured from NVS:\n");
+    print("  - Sensor Poll:  %lu ms (configurable)\n", pollFreqMs);
+    print("  - Upload:       %lu ms (configurable)\n", uploadFreqMs);
+    print("  - Config Check: %lu ms (static)\n", configFreqMs);
+    print("  - OTA Check:    %lu ms (static)\n", otaFreqMs);
     
     // Initialize Data Uploader (M4 format: /aggregated/<device_id>)
     DataUploader::init(FLASK_SERVER_URL "/aggregated/" DEVICE_ID, DEVICE_ID);

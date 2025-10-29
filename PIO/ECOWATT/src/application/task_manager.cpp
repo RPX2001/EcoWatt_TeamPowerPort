@@ -7,6 +7,7 @@
  */
 
 #include "application/task_manager.h"
+#include "application/system_config.h"  // Centralized configuration constants
 #include "peripheral/print.h"
 #include "peripheral/acquisition.h"
 #include "application/compression.h"
@@ -42,12 +43,13 @@ QueueHandle_t TaskManager::commandQueue = NULL;
 SemaphoreHandle_t TaskManager::nvsAccessMutex = NULL;
 SemaphoreHandle_t TaskManager::wifiClientMutex = NULL;
 SemaphoreHandle_t TaskManager::dataPipelineMutex = NULL;
+SemaphoreHandle_t TaskManager::batchReadySemaphore = NULL;
 
 // Configuration
-uint32_t TaskManager::pollFrequency = 5000;
-uint32_t TaskManager::uploadFrequency = 15000;
-uint32_t TaskManager::configFrequency = 5000;
-uint32_t TaskManager::otaFrequency = 60000;
+uint32_t TaskManager::pollFrequency = DEFAULT_POLL_FREQUENCY_US / 1000;        // Convert to ms
+uint32_t TaskManager::uploadFrequency = DEFAULT_UPLOAD_FREQUENCY_US / 1000;    // Convert to ms
+uint32_t TaskManager::configFrequency = DEFAULT_CONFIG_FREQUENCY_US / 1000;    // Convert to ms
+uint32_t TaskManager::otaFrequency = DEFAULT_OTA_FREQUENCY_US / 1000;          // Convert to ms
 
 // Statistics
 TaskStats TaskManager::stats_sensorPoll = {0};
@@ -118,7 +120,14 @@ bool TaskManager::init(uint32_t pollFreqMs, uint32_t uploadFreqMs,
         return false;
     }
     
-    print("[TaskManager] Mutexes created successfully\n");
+    // Create binary semaphore for batch-ready signaling (starts empty)
+    batchReadySemaphore = xSemaphoreCreateBinary();
+    if (!batchReadySemaphore) {
+        print("[TaskManager] ERROR: Failed to create batch ready semaphore\n");
+        return false;
+    }
+    
+    print("[TaskManager] Mutexes and semaphores created successfully\n");
     
     systemInitialized = true;
     systemStartTime = millis();
@@ -396,9 +405,16 @@ void TaskManager::compressionTask(void* parameter) {
     esp_task_wdt_add(NULL);
     
     const uint32_t deadlineUs = 2000000;  // 2s deadline
-    const size_t batchSize = 1;           // Compress 1 sample at a time (FIXED: was 3, causing timing issues)
     
-    SensorSample sampleBatch[batchSize];
+    // Calculate batch size dynamically based on upload/poll timing
+    // batchSize = uploadFrequency / pollFrequency
+    // Example: 15000ms / 5000ms = 3 samples per upload cycle
+    const size_t batchSize = (uploadFrequency / pollFrequency);
+    
+    print("[Compression] Dynamic batch size: %zu samples (upload: %lu ms / poll: %lu ms)\n", 
+          batchSize, uploadFrequency, pollFrequency);
+    
+    SensorSample sampleBatch[batchSize > 0 ? batchSize : 1];  // Ensure at least 1
     size_t batchCount = 0;
     
     print("[Compression] Batch size: %zu samples\n", batchSize);
@@ -484,6 +500,9 @@ void TaskManager::compressionTask(void* parameter) {
                     } else {
                         print("[Compression] ✓ Packet enqueued to upload queue (size: %zu bytes, queue depth: %d)\n",
                               packet.dataSize, uxQueueMessagesWaiting(compressedDataQueue));
+                        
+                        // Signal upload task that batch is ready
+                        xSemaphoreGive(batchReadySemaphore);
                     }
                     
                     print("[Compression] Batch compressed: %zu samples -> %zu bytes (ratio: %.2f%%)\n",
@@ -535,11 +554,32 @@ void TaskManager::uploadTask(void* parameter) {
         
         uint32_t startTime = micros();
         
+        // Wait for compression to signal batch ready (with timeout = upload frequency)
+        // This ensures we don't race with compression finishing
+        TickType_t semaphoreTimeout = pdMS_TO_TICKS(uploadFrequency + 1000);  // +1s buffer
+        
+        print("[Upload] Waiting for compression batch signal (timeout: %lu ms)...\n", uploadFrequency + 1000);
+        
+        // Try to take semaphore (clears it if available, waits if not)
+        // We take ALL available semaphores to drain the queue
+        bool batchSignalReceived = false;
+        while (xSemaphoreTake(batchReadySemaphore, 0) == pdTRUE) {
+            batchSignalReceived = true;
+        }
+        
+        if (!batchSignalReceived) {
+            // No signal yet, wait for one
+            if (xSemaphoreTake(batchReadySemaphore, semaphoreTimeout) == pdTRUE) {
+                batchSignalReceived = true;
+            }
+        }
+        
         // First, add all pending compressed packets to DataUploader queue
         CompressedPacket packet;
         size_t queuedCount = 0;
         
-        print("[Upload] Checking compressed data queue...\n");
+        print("[Upload] Checking compressed data queue (batch signal: %s)...\n", 
+              batchSignalReceived ? "YES" : "TIMEOUT");
         
         while (xQueueReceive(compressedDataQueue, &packet, 0) == pdTRUE) {
             // Feed watchdog during queue processing
@@ -572,11 +612,12 @@ void TaskManager::uploadTask(void* parameter) {
         bool uploadSuccess = false;
         
         if (queuedCount > 0) {
-            print("[Upload] Attempting to acquire WiFi mutex (timeout: 15s)...\n");
+            print("[Upload] Attempting to acquire WiFi mutex (timeout: %d ms)...\n", 
+                  WIFI_MUTEX_TIMEOUT_UPLOAD_MS);
             
             // Acquire WiFi client mutex (shared with other network tasks)
-            // Increased timeout to 15 seconds for upload stability
-            if (xSemaphoreTake(wifiClientMutex, pdMS_TO_TICKS(15000)) == pdTRUE) {
+            // Uses centralized timeout from system_config.h
+            if (xSemaphoreTake(wifiClientMutex, pdMS_TO_TICKS(WIFI_MUTEX_TIMEOUT_UPLOAD_MS)) == pdTRUE) {
                 
                 print("[Upload] WiFi mutex acquired. Starting upload...\n");
                 
@@ -636,8 +677,8 @@ void TaskManager::commandTask(void* parameter) {
         // Feed watchdog before network operation
         yield();
         
-        // Acquire WiFi mutex for network commands (5s timeout to allow for HTTP timeout)
-        if (xSemaphoreTake(wifiClientMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
+        // Acquire WiFi mutex for network commands (uses centralized timeout from system_config.h)
+        if (xSemaphoreTake(wifiClientMutex, pdMS_TO_TICKS(WIFI_MUTEX_TIMEOUT_COMMAND_MS)) == pdTRUE) {
             
             // Execute command using actual CommandExecutor API
             CommandExecutor::checkAndExecuteCommands();
@@ -749,8 +790,8 @@ void TaskManager::otaTask(void* parameter) {
         
         uint32_t startTime = micros();
         
-        // Acquire WiFi mutex for network access
-        if (xSemaphoreTake(wifiClientMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
+        // Acquire WiFi mutex for network access (uses centralized timeout from system_config.h)
+        if (xSemaphoreTake(wifiClientMutex, pdMS_TO_TICKS(WIFI_MUTEX_TIMEOUT_CONFIG_MS)) == pdTRUE) {
             
             // Check for firmware updates using actual OTAManager API
             if (otaManager && otaManager->checkForUpdate()) {
@@ -808,10 +849,10 @@ void TaskManager::watchdogTask(void* parameter) {
     // Register this task with hardware watchdog
     esp_task_wdt_add(NULL);
     
-    const TickType_t xCheckInterval = pdMS_TO_TICKS(30000);  // 30s interval
-    const uint32_t maxTaskIdleTime = 60000;  // 60s max idle
+    const TickType_t xCheckInterval = pdMS_TO_TICKS(WATCHDOG_CHECK_INTERVAL_MS);
+    const uint32_t maxTaskIdleTime = MAX_TASK_IDLE_TIME_MS;
     
-    print("[Watchdog] Check interval: 30s\n");
+    print("[Watchdog] Check interval: %lu ms\n", WATCHDOG_CHECK_INTERVAL_MS);
     print("[Watchdog] Max task idle time: %lu ms\n", maxTaskIdleTime);
     
     while (1) {
@@ -841,17 +882,17 @@ void TaskManager::watchdogTask(void* parameter) {
                   currentTime - stats_compression.lastRunTime);
         }
         
-        // Check for excessive deadline misses
-        if (stats_sensorPoll.deadlineMisses > 10) {
-            print("[Watchdog] CRITICAL: Excessive sensor deadline misses (%lu)! Resetting...\n",
-                  stats_sensorPoll.deadlineMisses);
+        // Check for excessive deadline misses (using centralized threshold)
+        if (stats_sensorPoll.deadlineMisses > MAX_DEADLINE_MISSES) {
+            print("[Watchdog] CRITICAL: Excessive sensor deadline misses (%lu > %d)! Resetting...\n",
+                  stats_sensorPoll.deadlineMisses, MAX_DEADLINE_MISSES);
             vTaskDelay(pdMS_TO_TICKS(1000));
             ESP.restart();
         }
         
-        // Print health report periodically (every 5 minutes)
+        // Print health report periodically (using centralized interval)
         static uint32_t lastHealthReport = 0;
-        if (currentTime - lastHealthReport > 300000) {
+        if (currentTime - lastHealthReport > HEALTH_REPORT_INTERVAL_MS) {
             printSystemHealth();
             lastHealthReport = currentTime;
         }
