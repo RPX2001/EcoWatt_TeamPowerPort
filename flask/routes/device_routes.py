@@ -1,66 +1,95 @@
 """
 Device Management Routes
 Handles device registration, listing, and management
+Uses persistent database storage for device registry
 """
 
 from flask import Blueprint, jsonify, request
 import logging
 import time
 from typing import Dict, List
+from datetime import datetime
+from database import Database
 
 logger = logging.getLogger(__name__)
 
 # Create blueprint
 device_bp = Blueprint('device', __name__)
 
-# In-memory device registry (in production, use database)
+# Keep in-memory cache for backward compatibility (auto-syncs with database)
+# This is populated from database on startup and kept in sync
 devices_registry: Dict[str, dict] = {}
 
 
-def initialize_mock_devices():
-    """Initialize a single mock device for testing"""
-    import time
+def load_devices_from_database():
+    """Load all devices from database into memory cache"""
+    global devices_registry
+    devices_registry.clear()
     
-    mock_devices = [
-        {
-            'device_id': 'ESP32_001',
-            'device_name': 'EcoWatt Device',
-            'location': 'Building A - Floor 1',
-            'description': 'Primary energy monitor and inverter interface',
-            'status': 'active',
-            'firmware_version': '1.0.4',
-            'registered_at': time.time() - 86400,  # 1 day ago
-            'last_seen': time.time() - 30  # 30 seconds ago
-        }
-    ]
-    
-    for device in mock_devices:
+    devices = Database.get_all_devices()
+    for device in devices:
         device_id = device.pop('device_id')
+        # Convert datetime to timestamp for JSON compatibility
+        if isinstance(device.get('registered_at'), datetime):
+            device['registered_at'] = device['registered_at'].timestamp()
+        if isinstance(device.get('last_seen'), datetime):
+            device['last_seen'] = device['last_seen'].timestamp()
         devices_registry[device_id] = device
     
-    logger.info(f"Initialized {len(mock_devices)} mock device(s)")
+    logger.info(f"Loaded {len(devices_registry)} device(s) from database")
+    return len(devices_registry)
 
 
-# Initialize mock devices on module load (DISABLED - using real devices only)
-# initialize_mock_devices()
+def initialize_mock_devices():
+    """Initialize a single mock device for testing (DEPRECATED - using database)"""
+    import time
+    from database import Database
+    
+    # Check if any devices exist in database
+    existing_devices = Database.get_all_devices()
+    if len(existing_devices) > 0:
+        logger.info(f"Found {len(existing_devices)} existing device(s) in database")
+        load_devices_from_database()
+        return
+    
+    # No devices exist - create a mock device for testing
+    mock_device = {
+        'device_id': 'ESP32_001',
+        'device_name': 'EcoWatt Device',
+        'location': 'Building A - Floor 1',
+        'description': 'Primary energy monitor and inverter interface',
+        'status': 'active',
+        'firmware_version': '1.0.4',
+        'last_seen': datetime.now()
+    }
+    
+    Database.save_device(**mock_device)
+    logger.info("Initialized 1 mock device in database")
+    load_devices_from_database()
+
+
+# Load devices from database on module import
+load_devices_from_database()
 
 
 @device_bp.route('/devices', methods=['GET'])
 def get_devices():
     """
-    Get list of all registered devices
+    Get list of all registered devices from database
     
     Returns:
         JSON with list of devices
     """
     try:
-        devices_list = [
-            {
-                'device_id': device_id,
-                **device_info
-            }
-            for device_id, device_info in devices_registry.items()
-        ]
+        # Always fetch fresh data from database
+        devices_list = Database.get_all_devices()
+        
+        # Convert datetime objects to timestamps for JSON
+        for device in devices_list:
+            if isinstance(device.get('registered_at'), datetime):
+                device['registered_at'] = device['registered_at'].timestamp()
+            if isinstance(device.get('last_seen'), datetime):
+                device['last_seen'] = device['last_seen'].timestamp()
         
         return jsonify({
             'success': True,

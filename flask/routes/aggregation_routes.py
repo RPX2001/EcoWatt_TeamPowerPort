@@ -73,22 +73,31 @@ def receive_aggregated_data(device_id: str):
                     'error': 'Failed to parse decrypted payload'
                 }), 400
         
-        # Auto-register device if not already registered
-        from routes.device_routes import devices_registry
-        if device_id not in devices_registry:
-            devices_registry[device_id] = {
-                'device_name': f'EcoWatt {device_id}',
-                'location': 'Auto-registered',
-                'description': 'Automatically registered on first data upload',
-                'status': 'active',
-                'firmware_version': 'unknown',
-                'registered_at': time.time(),
-                'last_seen': time.time()
-            }
+        # Auto-register device if not already registered (save to database)
+        from routes.device_routes import devices_registry, load_devices_from_database
+        from database import Database
+        
+        # Check database first
+        db_device = Database.get_device(device_id)
+        if not db_device:
+            # New device - save to database
+            Database.save_device(
+                device_id=device_id,
+                device_name=f'EcoWatt {device_id}',
+                location='Auto-registered',
+                description='Automatically registered on first data upload',
+                status='active',
+                firmware_version='unknown'
+            )
             logger.info(f"Auto-registered new device: {device_id}")
+            # Reload devices into memory cache
+            load_devices_from_database()
         else:
-            # Update last_seen timestamp
-            devices_registry[device_id]['last_seen'] = time.time()
+            # Update last_seen timestamp in database
+            Database.update_device_last_seen(device_id)
+            # Also update memory cache
+            if device_id in devices_registry:
+                devices_registry[device_id]['last_seen'] = time.time()
         
         # Check if data contains compressed payload
         if 'compressed_data' in data:

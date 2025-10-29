@@ -79,12 +79,12 @@ def create_secured_payload(device_id: str, nonce: int, data: dict) -> dict:
     }
 
 
-@pytest.fixture
-def client():
-    """Flask test client fixture"""
-    app.config['TESTING'] = True
-    
-    # Clear security state before each test
+# Client fixture now comes from conftest.py
+
+
+@pytest.fixture(autouse=True)
+def reset_security():
+    """Clear security state before each test"""
     reset_security_stats()
     clear_nonces()  # Clear all nonce state
     
@@ -94,10 +94,7 @@ def client():
     
     # Force clear the last_valid_nonce dict in security_handler
     clear_all_nonces()
-    
-    with app.app_context():
-        with app.test_client() as client:
-            yield client
+    yield
 
 
 @pytest.fixture

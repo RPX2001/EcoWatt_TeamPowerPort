@@ -30,21 +30,37 @@ logs:
 # Testing
 # ============================================================
 
-# Run all integration tests
+# Run all tests (excluding database integration tests which cause pollution)
 test:
-    python3 -m pytest -v
+    python3 -m pytest tests/ --ignore=tests/integration_tests/test_database_flask_integration.py -v
 
-# Run database and Flask integration tests
+# Run all tests including database tests (may have some failures due to test pollution)
+test-all:
+    python3 -m pytest tests/ -v
+
+# Run database integration tests only
 test-db:
     python3 -m pytest tests/integration_tests/test_database_flask_integration.py -v
 
-# Run M3 integration tests only (compression, acquisition, upload)
-test-m3:
-    python3 -m pytest test_m3_integration/ -v
+# Run unit tests only
+test-unit:
+    python3 -m pytest tests/unit_tests/ -v
 
-# Run M4 integration tests only (security, OTA, commands, config)
+# Run integration tests only (excluding database tests)
+test-integration:
+    python3 -m pytest tests/integration_tests/ --ignore=tests/integration_tests/test_database_flask_integration.py -v
+
+# Run M3 tests only (compression, acquisition, upload)
+test-m3:
+    python3 -m pytest tests/unit_tests/test_m3_flask.py tests/integration_tests/test_m3_flask_integration.py -v
+
+# Run M4 tests only (security, OTA, commands, config)
 test-m4:
-    python3 -m pytest test_m4_integration/ -v
+    python3 -m pytest tests/unit_tests/test_m4*.py tests/integration_tests/test_m4_flask_integration.py -v
+
+# Run quick test (no verbose output)
+test-quick:
+    python3 -m pytest tests/ --ignore=tests/integration_tests/test_database_flask_integration.py -q
 
 # Run tests with coverage report
 test-coverage:

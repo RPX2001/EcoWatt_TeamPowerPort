@@ -48,7 +48,7 @@
 // OTA Check Frequency
 // How often to check for firmware updates
 // Range: 30 seconds to 24 hours
-#define DEFAULT_OTA_FREQUENCY_US        60000000ULL     // 1 minute
+#define DEFAULT_OTA_FREQUENCY_US        6000000000ULL     // 1 minute
 #define MIN_OTA_FREQUENCY_US            30000000ULL     // 30 seconds
 #define MAX_OTA_FREQUENCY_US            86400000000ULL  // 24 hours
 

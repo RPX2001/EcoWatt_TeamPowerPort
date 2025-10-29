@@ -18,7 +18,7 @@ Date: 2025-01-22
 import pytest
 import json
 import time
-from flask import Flask
+from flask import Flask, request, jsonify
 from flask.testing import FlaskClient
 import os
 import sys
@@ -136,18 +136,16 @@ def app():
     return create_test_app()
 
 
-@pytest.fixture
-def client(app):
-    """Flask test client"""
-    # Import here to avoid circular imports
-    global request, jsonify
-    from flask import request, jsonify
-    
+# Client fixture now comes from conftest.py - it uses the app fixture from conftest
+
+
+@pytest.fixture(autouse=True)
+def reset_config():
+    """Clear config stores before each test"""
     # Clear stores before each test
     config_store.clear()
     config_history.clear()
-    
-    return app.test_client()
+    yield
 
 
 class TestRemoteConfiguration:

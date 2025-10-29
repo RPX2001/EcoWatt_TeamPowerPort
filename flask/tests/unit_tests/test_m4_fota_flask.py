@@ -54,22 +54,19 @@ TEST_DEVICE_ID = "TEST_FOTA_DEVICE"
 TEST_FIRMWARE_VERSION = "1.0.4"
 
 
-@pytest.fixture
-def client():
-    """Flask test client fixture"""
-    app.config['TESTING'] = True
-    
-    # Clear OTA sessions and stats before each test
+# Client fixture now comes from conftest.py
+
+
+@pytest.fixture(autouse=True)
+def reset_ota():
+    """Clear OTA sessions and stats before each test"""
     ota_sessions.clear()
     ota_stats['total_updates_initiated'] = 0
     ota_stats['successful_updates'] = 0
     ota_stats['failed_updates'] = 0
     ota_stats['active_sessions'] = 0
     ota_stats['total_bytes_transferred'] = 0
-    
-    with app.app_context():
-        with app.test_client() as client:
-            yield client
+    yield
 
 
 @pytest.fixture

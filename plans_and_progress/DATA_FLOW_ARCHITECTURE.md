@@ -402,6 +402,60 @@ pio device monitor
 
 ---
 
+## Database Storage & Retention Policy
+
+### **Storage Location**
+- **Database File**: `flask/ecowatt_data.db` (SQLite)
+- **Location**: Local folder in Flask application directory
+- **Backup**: Recommended to backup this file periodically
+
+### **Data Retention Policy** (Updated)
+- **Previous**: 7-day automatic cleanup
+- **Current**: **UNLIMITED RETENTION** - Data kept forever
+- **Rationale**: Auto-registered devices should maintain historical data indefinitely for analysis
+
+### **Configuration**
+```python
+# In flask/database.py
+RETENTION_DAYS = None  # None = unlimited, set to number for auto-cleanup
+```
+
+### **Manual Cleanup**
+If storage becomes an issue, use the manual cleanup API:
+
+```bash
+# Cleanup data older than 365 days (1 year)
+curl -X POST http://localhost:5000/utilities/database/cleanup \
+  -H "Content-Type: application/json" \
+  -d '{"retention_days": 365}'
+
+# Get database statistics and size
+curl http://localhost:5000/utilities/database/stats
+```
+
+### **Database Tables**
+1. **sensor_data** - Sensor readings with timestamps
+   - `device_id`, `timestamp`, `register_data` (JSON), `compression_method`, `compression_ratio`
+   - Indexed by device_id and timestamp for fast queries
+
+2. **commands** - Device command queue
+3. **configurations** - Configuration updates
+4. **ota_updates** - Firmware update history
+
+### **Frontend Historical Data**
+- **Endpoint**: `/aggregation/historical/{device_id}?start_time=X&end_time=Y`
+- **Default Range**: Last 1 hour
+- **Behavior**: Works even when device is offline (queries database)
+- **Auto-refresh**: Every 5 seconds
+
+### **Storage Considerations**
+- ~1KB per sensor reading (10 registers)
+- At 5-second intervals: ~17,280 readings/day = ~17MB/day
+- 1 year ≈ 6.2GB per device
+- Compression ratio 3:1 reduces to ~2GB/year
+
+---
+
 ## Code References
 
 - **ESP32 Acquisition**: `PIO/ECOWATT/src/peripheral/acquisition.cpp`
@@ -411,3 +465,5 @@ pio device monitor
 - **Server Security**: `flask/handlers/security_handler.py`
 - **Server Compression**: `flask/handlers/compression_handler.py`
 - **Server Routes**: `flask/routes/aggregation_routes.py`
+- **Database Handler**: `flask/database.py`
+- **Data Utils**: `flask/utils/data_utils.py`

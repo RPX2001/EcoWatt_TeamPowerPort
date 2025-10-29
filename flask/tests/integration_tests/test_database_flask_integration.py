@@ -67,13 +67,7 @@ def test_database():
         database.DB_PATH = original_db_path
 
 
-@pytest.fixture
-def client():
-    """Flask test client fixture"""
-    app.config['TESTING'] = True
-    with app.app_context():
-        with app.test_client() as client:
-            yield client
+# Client fixture now comes from conftest.py
 
 
 # ============================================================================

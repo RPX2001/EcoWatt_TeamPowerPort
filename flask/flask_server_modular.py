@@ -21,6 +21,9 @@ import logging
 import time
 import threading
 
+# Import database
+from database import Database
+
 # Import MQTT utilities
 from utils.mqtt_utils import init_mqtt, mqtt_client, get_settings_state
 from utils.logger_utils import init_logging
@@ -161,6 +164,9 @@ def print_startup_banner():
     print("               GET/DELETE /fault/stats")
     print("=" * 70)
 
+
+# Initialize database schema (must be before blueprints for imports)
+Database.init_database()
 
 # Register blueprints (must be outside __main__ for Flask reloader)
 register_blueprints()

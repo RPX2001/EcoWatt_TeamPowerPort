@@ -1,7 +1,7 @@
 """
 Database handler for EcoWatt Flask Server
 Provides persistent storage for sensor data, commands, configs, and OTA updates
-Uses SQLite with 7-day auto-cleanup
+Data is kept indefinitely - manual cleanup available if needed
 """
 
 import sqlite3
@@ -20,7 +20,9 @@ _thread_local = threading.local()
 
 # Database configuration
 DB_PATH = Path(__file__).parent / 'ecowatt_data.db'
-RETENTION_DAYS = 7
+# RETENTION_DAYS = None means keep data forever
+# Change this to a number (e.g., 365) if you want automatic cleanup after X days
+RETENTION_DAYS = None
 
 class Database:
     """Thread-safe SQLite database handler"""
@@ -53,6 +55,22 @@ class Database:
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_timestamp ON sensor_data(device_id, timestamp)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON sensor_data(created_at)')
+        
+        # Devices table - persistent device registry
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS devices (
+                device_id TEXT PRIMARY KEY,
+                device_name TEXT NOT NULL,
+                location TEXT,
+                description TEXT,
+                status TEXT DEFAULT 'active',
+                firmware_version TEXT,
+                registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_seen DATETIME
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_status ON devices(status)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_last_seen ON devices(last_seen)')
         
         # Commands table
         cursor.execute('''
@@ -110,8 +128,12 @@ class Database:
         conn.commit()
         logger.info("[Database] Schema initialized successfully")
         
-        # Run initial cleanup
-        Database.cleanup_old_data()
+        # Run initial cleanup (only if retention period is set)
+        if RETENTION_DAYS is not None:
+            Database.cleanup_old_data()
+            logger.info(f"[Database] Auto-cleanup enabled with {RETENTION_DAYS}-day retention")
+        else:
+            logger.info("[Database] Data retention: UNLIMITED - data will be kept forever")
     
     # ============================================
     # SENSOR DATA OPERATIONS
@@ -199,6 +221,101 @@ class Database:
         } for row in rows]
     
     # ============================================
+    # DEVICE OPERATIONS
+    # ============================================
+    
+    @staticmethod
+    def save_device(device_id: str, device_name: str, location: str = None, 
+                   description: str = None, status: str = 'active', 
+                   firmware_version: str = None, last_seen: datetime = None) -> None:
+        """Save or update device in database"""
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        if last_seen is None:
+            last_seen = datetime.now()
+        
+        cursor.execute('''
+            INSERT INTO devices (device_id, device_name, location, description, status, firmware_version, last_seen)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(device_id) DO UPDATE SET
+                device_name = excluded.device_name,
+                location = excluded.location,
+                description = excluded.description,
+                status = excluded.status,
+                firmware_version = excluded.firmware_version,
+                last_seen = excluded.last_seen
+        ''', (device_id, device_name, location, description, status, firmware_version, last_seen))
+        
+        conn.commit()
+        logger.debug(f"[Database] Saved device: {device_id}")
+    
+    @staticmethod
+    def get_all_devices() -> List[Dict]:
+        """Get all devices from database"""
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM devices ORDER BY last_seen DESC')
+        rows = cursor.fetchall()
+        
+        return [{
+            'device_id': row['device_id'],
+            'device_name': row['device_name'],
+            'location': row['location'],
+            'description': row['description'],
+            'status': row['status'],
+            'firmware_version': row['firmware_version'],
+            'registered_at': row['registered_at'],
+            'last_seen': row['last_seen']
+        } for row in rows]
+    
+    @staticmethod
+    def get_device(device_id: str) -> Optional[Dict]:
+        """Get single device from database"""
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM devices WHERE device_id = ?', (device_id,))
+        row = cursor.fetchone()
+        
+        if row:
+            return {
+                'device_id': row['device_id'],
+                'device_name': row['device_name'],
+                'location': row['location'],
+                'description': row['description'],
+                'status': row['status'],
+                'firmware_version': row['firmware_version'],
+                'registered_at': row['registered_at'],
+                'last_seen': row['last_seen']
+            }
+        return None
+    
+    @staticmethod
+    def update_device_last_seen(device_id: str) -> None:
+        """Update device last_seen timestamp"""
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE devices SET last_seen = ? WHERE device_id = ?
+        ''', (datetime.now(), device_id))
+        
+        conn.commit()
+    
+    @staticmethod
+    def delete_device(device_id: str) -> bool:
+        """Delete device from database"""
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM devices WHERE device_id = ?', (device_id,))
+        conn.commit()
+        
+        return cursor.rowcount > 0
+    
+    # ============================================
     # COMMAND OPERATIONS
     # ============================================
     
@@ -237,6 +354,29 @@ class Database:
             'status': row['status'],
             'created_at': row['created_at']
         } for row in rows]
+    
+    @staticmethod
+    def get_command_by_id(command_id: str) -> Optional[Dict]:
+        """Get single command by ID"""
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM commands WHERE command_id = ?', (command_id,))
+        row = cursor.fetchone()
+        
+        if row:
+            return {
+                'id': row['id'],
+                'command_id': row['command_id'],
+                'device_id': row['device_id'],
+                'command': json.loads(row['command']),
+                'status': row['status'],
+                'result': json.loads(row['result']) if row['result'] else None,
+                'error_msg': row['error_msg'],
+                'created_at': row['created_at'],
+                'acknowledged_at': row['acknowledged_at']
+            }
+        return None
     
     @staticmethod
     def update_command_status(command_id: str, status: str, result: Dict = None, error_msg: str = None) -> bool:
@@ -507,7 +647,21 @@ class Database:
     
     @staticmethod
     def cleanup_old_data():
-        """Delete data older than RETENTION_DAYS (7 days)"""
+        """
+        Delete data older than RETENTION_DAYS
+        If RETENTION_DAYS is None, this function does nothing (unlimited retention)
+        Can be called manually via API endpoint if needed
+        """
+        if RETENTION_DAYS is None:
+            logger.info("[Database] Cleanup skipped - unlimited retention is enabled")
+            return {
+                'sensor_data': 0,
+                'commands': 0,
+                'configurations': 0,
+                'ota_updates': 0,
+                'message': 'Cleanup skipped - unlimited retention enabled'
+            }
+        
         conn = Database.get_connection()
         cursor = conn.cursor()
         

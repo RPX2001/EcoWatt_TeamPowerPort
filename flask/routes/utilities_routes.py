@@ -276,6 +276,97 @@ def utilities_info():
                 'method': 'POST',
                 'description': 'Run compression algorithm benchmark',
                 'parameters': ['data_size', 'iterations']
+            },
+            'database_cleanup': {
+                'endpoint': '/utilities/database/cleanup',
+                'method': 'POST',
+                'description': 'Manually cleanup old database records',
+                'parameters': ['retention_days (optional)']
+            },
+            'database_stats': {
+                'endpoint': '/utilities/database/stats',
+                'method': 'GET',
+                'description': 'Get database statistics and storage info',
+                'parameters': []
             }
         }
     }), 200
+
+
+@utilities_bp.route('/utilities/database/cleanup', methods=['POST'])
+def database_cleanup():
+    """
+    Manually cleanup old database records
+    Useful when unlimited retention is enabled but periodic cleanup is needed
+    """
+    from database import Database, RETENTION_DAYS
+    
+    try:
+        data = request.get_json() if request.is_json else {}
+        
+        # Allow override of retention days for manual cleanup
+        custom_retention = data.get('retention_days')
+        
+        if custom_retention:
+            # Temporarily override RETENTION_DAYS
+            import database
+            original_retention = database.RETENTION_DAYS
+            database.RETENTION_DAYS = int(custom_retention)
+            
+            logger.info(f"Manual cleanup with custom retention: {custom_retention} days")
+            result = Database.cleanup_old_data()
+            
+            # Restore original setting
+            database.RETENTION_DAYS = original_retention
+        else:
+            # Use configured RETENTION_DAYS (may be None)
+            result = Database.cleanup_old_data()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Database cleanup completed',
+            'retention_days': custom_retention or RETENTION_DAYS,
+            'records_deleted': result
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Database cleanup failed: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@utilities_bp.route('/utilities/database/stats', methods=['GET'])
+def database_stats():
+    """Get database statistics and configuration"""
+    from database import Database, RETENTION_DAYS, DB_PATH
+    import os
+    
+    try:
+        # Get database stats
+        stats = Database.get_database_stats()
+        
+        # Get file size
+        db_size_bytes = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+        db_size_mb = db_size_bytes / (1024 * 1024)
+        
+        return jsonify({
+            'success': True,
+            'database_path': str(DB_PATH),
+            'database_size_bytes': db_size_bytes,
+            'database_size_mb': round(db_size_mb, 2),
+            'retention_policy': {
+                'enabled': RETENTION_DAYS is not None,
+                'retention_days': RETENTION_DAYS,
+                'description': f'Data kept for {RETENTION_DAYS} days' if RETENTION_DAYS else 'Unlimited - data kept forever'
+            },
+            'record_counts': stats
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Failed to get database stats: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

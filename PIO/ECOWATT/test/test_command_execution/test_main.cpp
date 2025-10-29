@@ -357,7 +357,7 @@ void setup() {
     Serial.println("  M4 COMMAND EXECUTION TESTS");
     Serial.println("========================================");
     Serial.println("WiFi SSID: " + String(WIFI_SSID));
-    Serial.println("Flask Server: " + String(FLASK_BASE_URL));
+    Serial.println("Flask Server: " + String(FLASK_SERVER_URL));
     Serial.println("Inverter API: " + String(INVERTER_API_BASE_URL));
     Serial.println("Device ID: " + String(TEST_DEVICE_ID_M4_CMD));
     Serial.println("========================================\n");

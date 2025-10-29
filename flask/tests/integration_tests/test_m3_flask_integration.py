@@ -36,14 +36,7 @@ TEST_ESP32_IP = "192.168.242.xxx"  # Will be determined during test
 COMPRESSION_TOLERANCE = 0.1  # 10% tolerance for compression ratios
 
 
-@pytest.fixture
-def client():
-    """Flask test client fixture"""
-    app.config['TESTING'] = True
-    # Ensure blueprints are registered
-    with app.app_context():
-        with app.test_client() as client:
-            yield client
+# Client fixture now comes from conftest.py
 
 
 @pytest.fixture

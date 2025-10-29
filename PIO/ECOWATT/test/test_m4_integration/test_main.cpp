@@ -35,12 +35,12 @@
 // Use centralized configuration
 #include "config/test_config.h"
 
-// Server Configuration (use values from test_config.h)
+// Server Configuration - Use values from test_config.h
 const char* SERVER_HOST = FLASK_SERVER_IP;
 const int SERVER_PORT = FLASK_SERVER_PORT;
 
-// Device Configuration
-const char* DEVICE_ID = "ESP32_EcoWatt_Smart";
+// Device Configuration - Use from test_config.h
+const char* TEST_DEVICE_ID_M4 = TEST_DEVICE_ID_M4_INTEGRATION;
 const char* FIRMWARE_VERSION = "1.0.4";
 
 // Security Configuration - MUST match Flask server keys exactly!
@@ -209,7 +209,7 @@ String createSecuredPayload(const String& payload) {
     doc["payload"] = b64_payload;  // Flask uses "payload" field for base64 payload
     doc["nonce"] = nonce;          // Integer nonce
     doc["mac"] = hmacHex;
-    doc["device_id"] = DEVICE_ID;
+    doc["device_id"] = TEST_DEVICE_ID_M4;
     
     String secured;
     serializeJson(doc, secured);
@@ -284,7 +284,7 @@ void printTestBanner() {
     Serial.println("\n======================================================================");
     Serial.println("               M4 INTEGRATION TEST - ESP32 SIDE");
     Serial.println("======================================================================");
-    Serial.printf("Device ID: %s\n", DEVICE_ID);
+    Serial.printf("Device ID: %s\n", TEST_DEVICE_ID_M4);
     Serial.printf("Firmware: v%s\n", FIRMWARE_VERSION);
     Serial.printf("WiFi: %s\n", WIFI_SSID);
     Serial.printf("Server: http://%s:%d\n", SERVER_HOST, SERVER_PORT);
@@ -385,7 +385,7 @@ void test_02_secured_upload_valid() {
     
     HTTPClient http;
     // Use correct Flask endpoint: /aggregated/<device_id>
-    String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/aggregated/" + DEVICE_ID;
+    String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/aggregated/" + TEST_DEVICE_ID_M4;
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
     int httpCode = http.POST(securedPayload);
@@ -416,14 +416,14 @@ void test_03_secured_upload_invalid_hmac() {
     doc["payload"] = "{\"current\":2.5}";
     doc["nonce"] = 200002;  // Use high fixed nonce to avoid conflicts
     doc["mac"] = "invalid_hmac_value_1234567890abcdef";
-    doc["device_id"] = DEVICE_ID;
+    doc["device_id"] = TEST_DEVICE_ID_M4;
     
     String payload;
     serializeJson(doc, payload);
     
     HTTPClient http;
     // Use correct Flask endpoint: /aggregated/<device_id>
-    String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/aggregated/" + DEVICE_ID;
+    String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/aggregated/" + TEST_DEVICE_ID_M4;
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
     int httpCode = http.POST(payload);
@@ -470,7 +470,7 @@ void test_04_anti_replay_duplicate_nonce() {
     
     // Send first request
     HTTPClient http;
-    String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/aggregated/" + DEVICE_ID;
+    String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/aggregated/" + TEST_DEVICE_ID_M4;
     
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
@@ -516,10 +516,10 @@ void test_05_command_set_power() {
     Serial.println("[CMD] Step 1: Queuing set_power command on server...");
     HTTPClient http;
     // Use correct Flask endpoint: /commands/<device_id> for queuing
-    String queueUrl = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/commands/" + DEVICE_ID;
+    String queueUrl = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/commands/" + TEST_DEVICE_ID_M4;
     
     StaticJsonDocument<512> cmdDoc;
-    cmdDoc["device_id"] = DEVICE_ID;
+    cmdDoc["device_id"] = TEST_DEVICE_ID_M4;
     cmdDoc["command"] = "set_power";  // Flask expects "command" not "command_type"
     JsonObject params = cmdDoc.createNestedObject("parameters");
     params["percentage"] = 75;
@@ -553,7 +553,7 @@ void test_05_command_set_power() {
     Serial.println("[CMD] Step 2: Polling for pending commands...");
     // Use correct Flask endpoint: /commands/<device_id>/poll
     String pollUrl = String("http://") + SERVER_HOST + ":" + SERVER_PORT + 
-                     "/commands/" + DEVICE_ID + "/poll";
+                     "/commands/" + TEST_DEVICE_ID_M4 + "/poll";
     http.begin(pollUrl);
     int pollCode = http.GET();
     
@@ -598,11 +598,11 @@ void test_05_command_set_power() {
     // Step 4: Report result back to server
     Serial.println("[CMD] Step 4: Reporting execution result...");
     // Use correct Flask endpoint: /commands/<device_id>/result
-    String resultUrl = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/commands/" + DEVICE_ID + "/result";
+    String resultUrl = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/commands/" + TEST_DEVICE_ID_M4 + "/result";
     
     StaticJsonDocument<512> resultDoc;
     resultDoc["command_id"] = command_id;
-    resultDoc["device_id"] = DEVICE_ID;
+    resultDoc["device_id"] = TEST_DEVICE_ID_M4;
     resultDoc["status"] = executionSuccess ? "completed" : "failed";
     resultDoc["result"] = executionSuccess ? 
         String("Power set to ") + String(powerPercentage) + "%" : 
@@ -642,10 +642,10 @@ void test_06_command_write_register() {
     Serial.println("[REG] Step 1: Queuing write_register command...");
     HTTPClient http;
     // Use correct Flask endpoint: /commands/<device_id>
-    String queueUrl = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/commands/" + DEVICE_ID;
+    String queueUrl = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/commands/" + TEST_DEVICE_ID_M4;
     
     StaticJsonDocument<512> cmdDoc;
-    cmdDoc["device_id"] = DEVICE_ID;
+    cmdDoc["device_id"] = TEST_DEVICE_ID_M4;
     cmdDoc["command"] = "write_register";  // Flask expects "command" not "command_type"
     JsonObject params = cmdDoc.createNestedObject("parameters");
     params["register"] = 40001;  // Holding register
@@ -682,7 +682,7 @@ void test_06_command_write_register() {
     Serial.println("[REG] Step 2: Polling for write_register command...");
     // Use correct Flask endpoint: /commands/<device_id>/poll
     String pollUrl = String("http://") + SERVER_HOST + ":" + SERVER_PORT + 
-                     "/commands/" + DEVICE_ID + "/poll";
+                     "/commands/" + TEST_DEVICE_ID_M4 + "/poll";
     http.begin(pollUrl);
     int pollCode = http.GET();
     
@@ -729,11 +729,11 @@ void test_06_command_write_register() {
     // Step 4: Report result
     Serial.println("[REG] Step 4: Reporting write result...");
     // Use correct Flask endpoint: /commands/<device_id>/result
-    String resultUrl = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/commands/" + DEVICE_ID + "/result";
+    String resultUrl = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/commands/" + TEST_DEVICE_ID_M4 + "/result";
     
     StaticJsonDocument<512> resultDoc;
     resultDoc["command_id"] = command_id;
-    resultDoc["device_id"] = DEVICE_ID;
+    resultDoc["device_id"] = TEST_DEVICE_ID_M4;
     resultDoc["status"] = writeSuccess ? "completed" : "failed";
     resultDoc["result"] = writeSuccess ? 
         String("Register ") + String(regAddress) + " written with value " + String(regValue) : 
@@ -773,7 +773,7 @@ void test_07_config_update() {
     Serial.println("[CFG] Step 1: Retrieving configuration from server...");
     HTTPClient http;
     String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + 
-                 "/config?device_id=" + DEVICE_ID;
+                 "/config?device_id=" + TEST_DEVICE_ID_M4;
     http.begin(url);
     int httpCode = http.GET();
     
@@ -883,7 +883,7 @@ void test_08_fota_check_update() {
     HTTPClient http;
     // Use correct Flask endpoint: /ota/check/<device_id> with query params
     String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + 
-                 "/ota/check/" + DEVICE_ID + "?version=" + FIRMWARE_VERSION;
+                 "/ota/check/" + TEST_DEVICE_ID_M4 + "?version=" + FIRMWARE_VERSION;
     http.begin(url);
     int httpCode = http.GET();
     
@@ -923,7 +923,7 @@ void test_09_fota_download_firmware() {
     
     // Create OTA Manager
     String serverURL = String("http://") + SERVER_HOST + ":" + SERVER_PORT;
-    OTAManager otaManager(serverURL, DEVICE_ID, FIRMWARE_VERSION);
+    OTAManager otaManager(serverURL, TEST_DEVICE_ID_M4, FIRMWARE_VERSION);
     
     Serial.println("[FOTA] Checking for firmware updates...");
     
@@ -984,7 +984,7 @@ void test_10_continuous_monitoring() {
     String securedPayload = createSecuredPayload(dataPayload);
     
     HTTPClient http;
-    String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/aggregated/" + DEVICE_ID;
+    String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/aggregated/" + TEST_DEVICE_ID_M4;
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
     int httpCode = http.POST(securedPayload);

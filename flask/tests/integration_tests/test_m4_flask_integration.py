@@ -53,16 +53,16 @@ TEST_FIRMWARE_VERSION = "1.0.4"
 PSK_KEY = "EcoWattSecureKey2024"
 
 
-@pytest.fixture
-def client():
-    """Flask test client fixture"""
-    app.config['TESTING'] = True
-    with app.app_context():
-        # Reset security state before each test
-        reset_security_stats()
-        clear_nonces()
-        with app.test_client() as client:
-            yield client
+# Client fixture now comes from conftest.py
+
+
+@pytest.fixture(autouse=True)
+def reset_security():
+    """Reset security state before each test"""
+    from handlers.security_handler import reset_security_stats, clear_nonces
+    reset_security_stats()
+    clear_nonces()
+    yield
 
 
 @pytest.fixture

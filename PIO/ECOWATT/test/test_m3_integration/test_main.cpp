@@ -279,7 +279,7 @@ static bool uploadCompressedDataToFlask(uint8_t* voltageData, size_t vSize,
     }
     
     HTTPClient http;
-    String url = String(FLASK_BASE_URL) + AGGREGATED_DATA_ENDPOINT;
+    String url = String(FLASK_SERVER_URL) + AGGREGATED_DATA_ENDPOINT;
     
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
@@ -479,7 +479,7 @@ void test_m3_upload_retry_logic(void) {
     
     // Test with invalid endpoint first (should fail)
     HTTPClient http;
-    String invalidUrl = String(FLASK_BASE_URL) + "/api/invalid_endpoint";
+    String invalidUrl = String(FLASK_SERVER_URL) + "/api/invalid_endpoint";
     http.begin(invalidUrl);
     http.addHeader("Content-Type", "application/json");
     
@@ -573,7 +573,7 @@ void test_m3_flask_server_health(void) {
     TEST_ASSERT_TRUE_MESSAGE(wifiConnected, "WiFi must be connected");
     
     HTTPClient http;
-    String url = String(FLASK_BASE_URL) + "/health";
+    String url = String(FLASK_SERVER_URL) + "/health";
     
     http.begin(url);
     http.setTimeout(5000);
@@ -705,7 +705,7 @@ void setup() {
     Serial.println("  M3 REAL-WORLD INTEGRATION TEST SUITE");
     Serial.println("========================================");
     Serial.println("WiFi SSID: " + String(WIFI_SSID));
-    Serial.println("Flask Server: " + String(FLASK_BASE_URL));
+    Serial.println("Flask Server: " + String(FLASK_SERVER_URL));
     Serial.println("Device ID: " + String(M3_TEST_DEVICE_ID));
     Serial.println("Test Samples: " + String(M3_TEST_SAMPLES));
     Serial.println("========================================\n");

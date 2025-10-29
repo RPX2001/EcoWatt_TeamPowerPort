@@ -19,20 +19,7 @@ from handlers.compression_handler import (
 )
 
 
-@pytest.fixture
-def client():
-    """Create Flask test client"""
-    # Import and initialize app properly
-    from flask_server_modular import app, register_blueprints
-    
-    app.config['TESTING'] = True
-    
-    # Register blueprints if not already done
-    with app.app_context():
-        register_blueprints()
-    
-    with app.test_client() as client:
-        yield client
+# Client fixture now comes from conftest.py
 
 
 @pytest.fixture
