@@ -5,8 +5,10 @@
  * Features:
  * - List of firmware versions with metadata
  * - Delete firmware option
- * - Initiate OTA for selected device
  * - View manifest
+ * 
+ * Note: ESP32 devices automatically poll for updates every 60 minutes.
+ * Manual OTA initiation is not required.
  */
 
 import React, { useState } from 'react';
@@ -29,27 +31,18 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Tooltip,
   Stack
 } from '@mui/material';
 import {
   Delete as DeleteIcon,
-  SystemUpdate as UpdateIcon,
   Visibility as ViewIcon,
   Refresh as RefreshIcon
 } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getFirmwareList, deleteFirmware, getFirmwareManifest, initiateOTA } from '../../api/ota';
-import { getDevices } from '../../api/devices';
+import { getFirmwareList, deleteFirmware, getFirmwareManifest } from '../../api/ota';
 
 const FirmwareList = () => {
-  const [selectedFirmware, setSelectedFirmware] = useState(null);
-  const [selectedDevice, setSelectedDevice] = useState('');
-  const [otaDialogOpen, setOtaDialogOpen] = useState(false);
   const [manifestDialogOpen, setManifestDialogOpen] = useState(false);
   const [manifestData, setManifestData] = useState(null);
   
@@ -68,15 +61,7 @@ const FirmwareList = () => {
     staleTime: 10000
   });
 
-  // Fetch devices
-  const { data: devicesData } = useQuery({
-    queryKey: ['devices'],
-    queryFn: getDevices,
-    staleTime: 30000
-  });
-
   const firmwareList = firmwareData?.data?.firmwares || [];  // Fixed: was 'firmware', should be 'firmwares'
-  const devices = devicesData?.data?.devices || [];
 
   // Delete firmware mutation
   const deleteMutation = useMutation({
@@ -86,33 +71,9 @@ const FirmwareList = () => {
     }
   });
 
-  // Initiate OTA mutation
-  const otaMutation = useMutation({
-    mutationFn: ({ deviceId, version }) => initiateOTA(deviceId, version),
-    onSuccess: () => {
-      setOtaDialogOpen(false);
-      setSelectedFirmware(null);
-      setSelectedDevice('');
-    }
-  });
-
   const handleDelete = (version) => {
     if (window.confirm(`Are you sure you want to delete firmware version ${version}?`)) {
       deleteMutation.mutate(version);
-    }
-  };
-
-  const handleInitiateOTA = (firmware) => {
-    setSelectedFirmware(firmware);
-    setOtaDialogOpen(true);
-  };
-
-  const handleOTAConfirm = () => {
-    if (selectedDevice && selectedFirmware) {
-      otaMutation.mutate({
-        deviceId: selectedDevice,
-        version: selectedFirmware.version
-      });
     }
   };
 
@@ -219,16 +180,6 @@ const FirmwareList = () => {
                         </IconButton>
                       </Tooltip>
                       
-                      <Tooltip title="Initiate OTA">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleInitiateOTA(firmware)}
-                          color="primary"
-                        >
-                          <UpdateIcon />
-                        </IconButton>
-                      </Tooltip>
-                      
                       <Tooltip title="Delete">
                         <IconButton
                           size="small"
@@ -247,48 +198,6 @@ const FirmwareList = () => {
           </Table>
         </TableContainer>
       )}
-
-      {/* OTA Dialog */}
-      <Dialog open={otaDialogOpen} onClose={() => setOtaDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Initiate OTA Update</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" gutterBottom sx={{ mb: 2 }}>
-            Select a device to update with firmware version <strong>{selectedFirmware?.version}</strong>
-          </Typography>
-          
-          <FormControl fullWidth>
-            <InputLabel>Device</InputLabel>
-            <Select
-              value={selectedDevice}
-              label="Device"
-              onChange={(e) => setSelectedDevice(e.target.value)}
-            >
-              {devices.map((device) => (
-                <MenuItem key={device.device_id} value={device.device_id}>
-                  {device.device_name || device.device_id} (v{device.firmware_version || 'unknown'})
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          {otaMutation.isError && (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              {otaMutation.error?.response?.data?.error || 'Failed to initiate OTA'}
-            </Alert>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOtaDialogOpen(false)}>Cancel</Button>
-          <Button 
-            onClick={handleOTAConfirm} 
-            variant="contained"
-            disabled={!selectedDevice || otaMutation.isPending}
-            startIcon={<UpdateIcon />}
-          >
-            {otaMutation.isPending ? 'Initiating...' : 'Start Update'}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Manifest Dialog */}
       <Dialog open={manifestDialogOpen} onClose={() => setManifestDialogOpen(false)} maxWidth="md" fullWidth>

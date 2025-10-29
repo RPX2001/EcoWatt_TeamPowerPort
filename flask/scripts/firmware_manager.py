@@ -149,7 +149,7 @@ class FirmwareManager:
         print(f"Encrypted size: {encrypted_size:,} bytes")
         
         # Step 4: Calculate chunking parameters
-        chunk_size = 1024  # 1KB chunks as per guideline
+        chunk_size = 2048  # 2KB chunks - balance between speed and ESP32 memory (4KB caused OOM)
         total_chunks = (encrypted_size + chunk_size - 1) // chunk_size  # Ceiling division
         print(f"Chunking: {total_chunks} chunks of {chunk_size} bytes")
         

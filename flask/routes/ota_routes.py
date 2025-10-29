@@ -200,7 +200,29 @@ def cancel_update(device_id: str):
 def get_update_status(device_id: str):
     """Get OTA session status for device"""
     try:
+        from database import Database
+        from routes.device_routes import devices_registry
+        from routes.config_routes import device_configs, get_default_config
+        
         status = get_ota_status(device_id)
+        
+        # Get current firmware version from device registry or database
+        device = Database.get_device(device_id)
+        if device:
+            status['current_firmware_version'] = device.get('firmware_version', 'unknown')
+        elif device_id in devices_registry:
+            status['current_firmware_version'] = devices_registry[device_id].get('firmware_version', 'unknown')
+        else:
+            status['current_firmware_version'] = 'unknown'
+        
+        # Get device-specific firmware_check_interval from config
+        if device_id in device_configs:
+            device_config = device_configs[device_id]
+        else:
+            device_config = get_default_config()
+        
+        firmware_check_interval_seconds = device_config.get('firmware_check_interval', 60)
+        status['ota_check_interval_minutes'] = firmware_check_interval_seconds / 60
         
         return jsonify({
             'success': True,
@@ -239,7 +261,16 @@ def get_all_ota_status():
 def get_ota_statistics():
     """Get OTA statistics"""
     try:
+        from database import Database
+        
         stats = get_ota_stats()
+        
+        # Get firmware_check_interval from default config (in seconds)
+        # Convert to minutes for display
+        from routes.config_routes import get_default_config
+        default_config = get_default_config()
+        firmware_check_interval_seconds = default_config.get('firmware_check_interval', 60)
+        stats['ota_check_interval_minutes'] = firmware_check_interval_seconds / 60
         
         return jsonify({
             'success': True,
@@ -375,58 +406,88 @@ def upload_firmware():
         
         description = request.form.get('description', '')
         
-        # Save firmware file
+        # Save firmware file temporarily
         import os
+        import tempfile
         firmware_dir = 'firmware'
         os.makedirs(firmware_dir, exist_ok=True)
         
-        filename = f"firmware_{version}.bin"
-        filepath = os.path.join(firmware_dir, filename)
-        
         # Check if version already exists
-        if os.path.exists(filepath):
+        encrypted_filename = f"firmware_{version}_encrypted.bin"
+        encrypted_path = os.path.join(firmware_dir, encrypted_filename)
+        if os.path.exists(encrypted_path):
             return jsonify({
                 'success': False,
                 'error': f'Firmware version {version} already exists'
             }), 409
         
-        file.save(filepath)
+        # Save original binary temporarily
+        temp_firmware_path = os.path.join(firmware_dir, f"firmware_{version}_temp.bin")
+        file.save(temp_firmware_path)
         
-        # Get file size
-        file_size = os.path.getsize(filepath)
-        
-        # Create manifest
-        import json
-        import time
-        import hashlib
-        
-        # Calculate SHA256 hash
-        with open(filepath, 'rb') as f:
-            firmware_hash = hashlib.sha256(f.read()).hexdigest()
-        
-        manifest = {
-            'version': version,
-            'filename': filename,
-            'size': file_size,
-            'hash': firmware_hash,
-            'description': description,
-            'uploaded_at': time.time()
-        }
-        
-        manifest_path = os.path.join(firmware_dir, f"firmware_{version}_manifest.json")
-        with open(manifest_path, 'w') as f:
-            json.dump(manifest, f, indent=2)
-        
-        logger.info(f"Firmware uploaded: {version} ({file_size} bytes)")
-        
-        return jsonify({
-            'success': True,
-            'message': f'Firmware {version} uploaded successfully',
-            'firmware': manifest
-        }), 201
+        try:
+            # Use FirmwareManager to prepare firmware (encrypt, sign, chunk)
+            import sys
+            from pathlib import Path
+            
+            # Add scripts directory to path
+            scripts_dir = Path(__file__).parent.parent / 'scripts'
+            if str(scripts_dir) not in sys.path:
+                sys.path.insert(0, str(scripts_dir))
+            
+            from firmware_manager import FirmwareManager
+            
+            fm = FirmwareManager(firmware_dir=firmware_dir, keys_dir='keys')
+            
+            logger.info(f"Preparing firmware {version} for OTA...")
+            manifest = fm.prepare_firmware(temp_firmware_path, version)
+            
+            # Add backward-compatible fields for frontend
+            import time
+            manifest['size'] = manifest['encrypted_size']  # Frontend expects 'size'
+            manifest['uploaded_at'] = time.time()  # Numeric timestamp for sorting
+            manifest['status'] = 'ready'  # Add status field
+            
+            # Add description to manifest
+            if description:
+                manifest['description'] = description
+            
+            # Save updated manifest with all fields
+            manifest_path = os.path.join(firmware_dir, f"firmware_{version}_manifest.json")
+            import json
+            with open(manifest_path, 'w') as f:
+                json.dump(manifest, f, indent=2)
+            
+            # Clean up temporary file
+            os.remove(temp_firmware_path)
+            
+            logger.info(f"Firmware uploaded and prepared: {version} ({manifest['encrypted_size']} bytes encrypted)")
+            
+            return jsonify({
+                'success': True,
+                'message': f'Firmware {version} uploaded and prepared successfully',
+                'firmware': {
+                    'version': manifest['version'],
+                    'original_size': manifest['original_size'],
+                    'encrypted_size': manifest['encrypted_size'],
+                    'total_chunks': manifest['total_chunks'],
+                    'chunk_size': manifest['chunk_size'],
+                    'sha256_hash': manifest['sha256_hash'],
+                    'uploaded_at': manifest['timestamp'],
+                    'description': description
+                }
+            }), 201
+            
+        except Exception as e:
+            # Clean up temporary file on error
+            if os.path.exists(temp_firmware_path):
+                os.remove(temp_firmware_path)
+            raise e
         
     except Exception as e:
         logger.error(f"Error uploading firmware: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'error': str(e)
@@ -458,6 +519,17 @@ def list_firmwares():
                 manifest_path = os.path.join(firmware_dir, filename)
                 with open(manifest_path, 'r') as f:
                     manifest = json.load(f)
+                    
+                    # Ensure uploaded_at is numeric for sorting
+                    if 'uploaded_at' not in manifest or not isinstance(manifest.get('uploaded_at'), (int, float)):
+                        # Try to use timestamp if uploaded_at is missing or non-numeric
+                        import time
+                        manifest['uploaded_at'] = time.time()
+                    
+                    # Ensure size field exists (backward compatibility)
+                    if 'size' not in manifest and 'encrypted_size' in manifest:
+                        manifest['size'] = manifest['encrypted_size']
+                    
                     firmwares.append(manifest)
         
         # Sort by upload time, newest first
@@ -471,6 +543,146 @@ def list_firmwares():
         
     except Exception as e:
         logger.error(f"Error listing firmwares: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@ota_bp.route('/ota/firmware/<version>/manifest', methods=['GET'])
+def get_firmware_manifest_endpoint(version):
+    """
+    Get firmware manifest for specific version
+    
+    Returns:
+        JSON with firmware manifest
+    """
+    try:
+        import os
+        import json
+        
+        firmware_dir = 'firmware'
+        manifest_path = os.path.join(firmware_dir, f"firmware_{version}_manifest.json")
+        
+        if not os.path.exists(manifest_path):
+            return jsonify({
+                'success': False,
+                'error': f'Firmware version {version} not found'
+            }), 404
+        
+        with open(manifest_path, 'r') as f:
+            manifest = json.load(f)
+        
+        return jsonify({
+            'success': True,
+            'manifest': manifest
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting firmware manifest for {version}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@ota_bp.route('/ota/firmware/<version>', methods=['DELETE'])
+def delete_firmware_endpoint(version):
+    """
+    Delete firmware version
+    
+    Returns:
+        JSON with deletion status
+    """
+    try:
+        import os
+        
+        firmware_dir = 'firmware'
+        firmware_path = os.path.join(firmware_dir, f"firmware_{version}.bin")
+        manifest_path = os.path.join(firmware_dir, f"firmware_{version}_manifest.json")
+        
+        if not os.path.exists(firmware_path) and not os.path.exists(manifest_path):
+            return jsonify({
+                'success': False,
+                'error': f'Firmware version {version} not found'
+            }), 404
+        
+        # Delete firmware binary
+        if os.path.exists(firmware_path):
+            os.remove(firmware_path)
+            logger.info(f"Deleted firmware binary: {firmware_path}")
+        
+        # Delete manifest
+        if os.path.exists(manifest_path):
+            os.remove(manifest_path)
+            logger.info(f"Deleted firmware manifest: {manifest_path}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Firmware version {version} deleted successfully'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error deleting firmware {version}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@ota_bp.route('/ota/<device_id>/progress', methods=['POST'])
+def ota_progress_report(device_id):
+    """
+    Receive OTA progress updates from ESP32 during download/verification
+    
+    Expected JSON body:
+    {
+        "phase": "downloading" | "download_complete" | "verifying" | "verification_success" | "verification_failed" | "installing" | "rollback",
+        "progress": 0-100,  # Download progress percentage
+        "message": "Human-readable status message",
+        "timestamp": 1234567890  # Unix timestamp
+    }
+    """
+    try:
+        from handlers.ota_handler import ota_sessions, ota_lock
+        
+        if not request.is_json:
+            return jsonify({
+                'success': False,
+                'error': 'Content-Type must be application/json'
+            }), 400
+        
+        data = request.get_json()
+        
+        # Validate required fields
+        if 'phase' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Missing required field: phase'
+            }), 400
+        
+        phase = data['phase']
+        progress = data.get('progress', 0)
+        message = data.get('message', '')
+        
+        # Update OTA session with progress info
+        with ota_lock:
+            if device_id in ota_sessions:
+                ota_sessions[device_id]['phase'] = phase
+                ota_sessions[device_id]['progress'] = progress
+                ota_sessions[device_id]['message'] = message
+                ota_sessions[device_id]['last_activity'] = time.time()
+        
+        logger.info(f"[OTA Progress] {device_id}: {phase} - {progress}% - {message}")
+        
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'message': 'Progress updated'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error recording OTA progress for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -513,36 +725,36 @@ def ota_complete(device_id):
         status = data['status']
         error_msg = data.get('error_msg')
         
-        # Update database with installation status
-        success = Database.update_ota_install_status(
+        # Always clean up OTA session first (even if no DB record exists)
+        from handlers.ota_handler import complete_ota_session
+        is_success = (status == 'success')
+        complete_ota_session(device_id, is_success)
+        
+        logger.info(f"[OTA] ESP32 reported OTA completion for {device_id}: v{version} - {status}")
+        
+        # Try to update database with installation status (optional - may not exist)
+        db_success = Database.update_ota_install_status(
             device_id=device_id,
             to_version=version,
             status=status,
             error_msg=error_msg
         )
         
-        if success:
-            logger.info(f"[OTA] ESP32 reported OTA completion for {device_id}: v{version} - {status}")
-            
-            # Also update OTA session status in memory (for compatibility)
-            from handlers.ota_handler import ota_sessions
-            if device_id in ota_sessions:
-                ota_sessions[device_id]['status'] = status
-                ota_sessions[device_id]['completed_at'] = time.time()
-            
-            return jsonify({
-                'success': True,
-                'device_id': device_id,
-                'message': 'OTA completion status received',
-                'version': version,
-                'status': status
-            }), 200
-        else:
-            logger.warning(f"[OTA] No OTA record found for {device_id} version {version}")
-            return jsonify({
-                'success': False,
-                'error': 'No matching OTA record found'
-            }), 404
+        if not db_success:
+            logger.warning(f"[OTA] No OTA record found in database for {device_id} version {version} (session still cleaned up)")
+        
+        # Also update device firmware version in database if successful
+        if is_success:
+            Database.update_device_firmware(device_id, version)
+            logger.info(f"[OTA] Updated device {device_id} firmware version to {version}")
+        
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'message': 'OTA completion status received',
+            'version': version,
+            'status': status
+        }), 200
         
     except Exception as e:
         logger.error(f"Error recording OTA completion for {device_id}: {e}")

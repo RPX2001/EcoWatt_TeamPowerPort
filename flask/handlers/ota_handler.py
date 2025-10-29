@@ -162,6 +162,8 @@ def initiate_ota_session(device_id: str, firmware_version: str) -> Tuple[bool, O
         tuple: (success, session_id or error_message)
     """
     try:
+        from database import Database
+        
         with ota_lock:
             # Check if session already exists
             if device_id in ota_sessions:
@@ -174,6 +176,10 @@ def initiate_ota_session(device_id: str, firmware_version: str) -> Tuple[bool, O
             manifest = _get_firmware_manifest(firmware_version)
             if not manifest:
                 return False, f"Firmware version {firmware_version} not found"
+            
+            # Get current firmware version from database
+            device = Database.get_device(device_id)
+            from_version = device.get('firmware_version', 'unknown') if device else 'unknown'
             
             # Create session
             session_id = f"{device_id}_{firmware_version}_{int(datetime.now().timestamp())}"
@@ -190,7 +196,17 @@ def initiate_ota_session(device_id: str, firmware_version: str) -> Tuple[bool, O
                 'last_activity': datetime.now().isoformat()
             }
             
-            # Update stats
+            # Save to database
+            Database.save_ota_update(
+                device_id=device_id,
+                from_version=from_version,
+                to_version=firmware_version,
+                status='initiated',
+                firmware_size=manifest.get('total_size', 0),
+                chunks_total=manifest.get('total_chunks', 0)
+            )
+            
+            # Update in-memory stats (for backwards compatibility)
             ota_stats['total_updates_initiated'] += 1
             ota_stats['active_sessions'] += 1
         
@@ -268,6 +284,8 @@ def complete_ota_session(device_id: str, success: bool) -> bool:
         bool: True if session completed successfully
     """
     try:
+        from database import Database
+        
         with ota_lock:
             if device_id not in ota_sessions:
                 logger.warning(f"No OTA session found for {device_id}")
@@ -277,7 +295,13 @@ def complete_ota_session(device_id: str, success: bool) -> bool:
             session['status'] = 'completed' if success else 'failed'
             session['completed_at'] = datetime.now().isoformat()
             
-            # Update stats
+            # Update database
+            Database.update_ota_status(
+                device_id=device_id,
+                status='completed' if success else 'failed'
+            )
+            
+            # Update in-memory stats (for backwards compatibility)
             if success:
                 ota_stats['successful_updates'] += 1
             else:
@@ -349,30 +373,30 @@ def get_ota_status(device_id: Optional[str] = None) -> Dict:
 
 def get_ota_stats() -> Dict:
     """
-    Get OTA statistics
+    Get OTA statistics from database
     
     Returns:
         dict: OTA statistics
     """
     try:
-        with ota_lock:
-            stats_copy = ota_stats.copy()
-            
-            # Calculate success rate
-            total = stats_copy['total_updates_initiated']
-            if total > 0:
-                stats_copy['success_rate'] = round(
-                    (stats_copy['successful_updates'] / total) * 100, 2
-                )
-            else:
-                stats_copy['success_rate'] = 0.0
+        from database import Database
         
-        logger.debug(f"Retrieved OTA stats: {stats_copy}")
-        return stats_copy
+        # Get statistics from database
+        db_stats = Database.get_ota_statistics()
+        
+        logger.debug(f"Retrieved OTA stats from database: {db_stats}")
+        return db_stats
         
     except Exception as e:
         logger.error(f"Error getting OTA stats: {e}")
-        return {'error': str(e)}
+        return {
+            'total_updates_initiated': 0,
+            'successful_updates': 0,
+            'failed_updates': 0,
+            'active_sessions': 0,
+            'success_rate': 0.0,
+            'error': str(e)
+        }
 
 
 def cancel_ota_session(device_id: str) -> bool:
@@ -386,6 +410,8 @@ def cancel_ota_session(device_id: str) -> bool:
         bool: True if cancelled successfully
     """
     try:
+        from database import Database
+        
         with ota_lock:
             if device_id not in ota_sessions:
                 logger.warning(f"No OTA session found for {device_id}")
@@ -395,7 +421,10 @@ def cancel_ota_session(device_id: str) -> bool:
             session['status'] = 'cancelled'
             session['completed_at'] = datetime.now().isoformat()
             
-            # Update stats
+            # Update database
+            Database.update_ota_status(device_id=device_id, status='failed', error_msg='Cancelled by user')
+            
+            # Update in-memory stats (for backwards compatibility)
             ota_stats['failed_updates'] += 1
             ota_stats['active_sessions'] -= 1
             

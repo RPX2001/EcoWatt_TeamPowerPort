@@ -83,6 +83,19 @@ const OTAProgress = () => {
 
   const status = statusData?.data?.status || {};
   const stats = statsData?.data || {};
+  
+  // Get OTA check interval from device-specific status (default to 60 minutes if not available)
+  // This uses the device's actual firmware_check_interval config value
+  const otaCheckIntervalMinutes = status.ota_check_interval_minutes || 60;
+  
+  // Format interval for display
+  const formatInterval = (minutes) => {
+    if (minutes >= 60) {
+      const hours = minutes / 60;
+      return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+    }
+    return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
+  };
 
   // Cancel OTA mutation
   const cancelMutation = useMutation({
@@ -102,14 +115,10 @@ const OTAProgress = () => {
     }
   };
 
-  const getStatusIcon = (state) => {
-    switch (state) {
-      case 'downloading':
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case 'in_progress':
         return <DownloadIcon color="primary" />;
-      case 'verifying':
-        return <VerifyIcon color="info" />;
-      case 'installing':
-        return <InstallIcon color="warning" />;
       case 'completed':
         return <SuccessIcon color="success" />;
       case 'failed':
@@ -119,11 +128,9 @@ const OTAProgress = () => {
     }
   };
 
-  const getStatusColor = (state) => {
-    switch (state) {
-      case 'downloading':
-      case 'verifying':
-      case 'installing':
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'in_progress':
         return 'primary';
       case 'completed':
         return 'success';
@@ -135,23 +142,23 @@ const OTAProgress = () => {
   };
 
   const getProgressValue = () => {
-    if (!status.state || status.state === 'idle') return 0;
-    if (status.state === 'completed') return 100;
-    if (status.progress !== undefined) return status.progress;
-    
-    // Estimate progress based on state
-    switch (status.state) {
-      case 'downloading': return 33;
-      case 'verifying': return 66;
-      case 'installing': return 90;
-      default: return 0;
+    // Use progress_percent from backend if available
+    if (status.progress_percent !== undefined) {
+      return status.progress_percent;
     }
+    
+    // Otherwise use current_chunk and total_chunks to calculate
+    if (status.current_chunk !== undefined && status.total_chunks > 0) {
+      return Math.round((status.current_chunk / status.total_chunks) * 100);
+    }
+    
+    // Default based on status
+    if (status.status === 'completed') return 100;
+    if (status.status === 'in_progress') return 0;
+    return 0;
   };
 
-  const isActive = status.state && 
-    status.state !== 'idle' && 
-    status.state !== 'completed' && 
-    status.state !== 'failed';
+  const isActive = status.status === 'in_progress';
 
   return (
     <Box sx={{ p: 3 }}>
@@ -193,23 +200,33 @@ const OTAProgress = () => {
         {/* Status Display */}
         {!isLoading && !isError && selectedDevice && (
           <Box>
+            {/* Current Firmware Version */}
+            <Box sx={{ mb: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Current Firmware Version
+              </Typography>
+              <Typography variant="h6" fontWeight="bold">
+                {status.current_firmware_version || 'unknown'}
+              </Typography>
+            </Box>
+
             {/* Current Status */}
             <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 3 }}>
-              {getStatusIcon(status.state)}
+              {getStatusIcon(status.status)}
               <Box sx={{ flexGrow: 1 }}>
                 <Typography variant="subtitle1" fontWeight="bold">
-                  Status: {status.state || 'idle'}
+                  Status: {status.status || 'idle'}
                 </Typography>
-                {status.target_version && (
+                {status.firmware_version && (
                   <Typography variant="body2" color="text.secondary">
-                    Target version: {status.target_version}
+                    Target version: {status.firmware_version}
                   </Typography>
                 )}
               </Box>
               <Chip 
-                label={status.state || 'idle'}
-                color={getStatusColor(status.state)}
-                icon={getStatusIcon(status.state)}
+                label={status.status || 'idle'}
+                color={getStatusColor(status.status)}
+                icon={getStatusIcon(status.status)}
               />
             </Stack>
 
@@ -230,10 +247,47 @@ const OTAProgress = () => {
               />
             </Box>
 
-            {/* Additional Info */}
+            {/* Additional Info / Phase Message */}
             {status.message && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 {status.message}
+              </Alert>
+            )}
+            
+            {/* Phase-specific messages */}
+            {status.phase === 'download_complete' && (
+              <Alert severity="success" sx={{ mb: 2 }}>
+                ✓ Download completed successfully
+              </Alert>
+            )}
+            
+            {status.phase === 'verifying' && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                🔒 Verifying firmware security...
+              </Alert>
+            )}
+            
+            {status.phase === 'verification_success' && (
+              <Alert severity="success" sx={{ mb: 2 }}>
+                ✓ Security verification passed - Ready to install
+              </Alert>
+            )}
+            
+            {status.phase === 'verification_failed' && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                ✗ Security verification failed - Rolling back to previous version
+              </Alert>
+            )}
+            
+            {status.phase === 'installing' && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                ⚙️ Installing new firmware - Device will reboot soon
+              </Alert>
+            )}
+            
+            {status.phase === 'rollback' && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                ↩️ Rolling back to previous firmware version
               </Alert>
             )}
 
@@ -245,14 +299,14 @@ const OTAProgress = () => {
             )}
 
             {/* Success Message */}
-            {status.state === 'completed' && (
+            {status.status === 'completed' && (
               <Alert severity="success" icon={<SuccessIcon />} sx={{ mb: 2 }}>
-                OTA update completed successfully! Device is now running version {status.target_version}
+                OTA update completed successfully! Device is now running version {status.firmware_version}
               </Alert>
             )}
 
             {/* Error Message */}
-            {status.state === 'failed' && (
+            {status.status === 'failed' && (
               <Alert severity="error" icon={<ErrorIcon />} sx={{ mb: 2 }}>
                 OTA update failed: {status.error || 'Unknown error'}
               </Alert>
@@ -273,9 +327,9 @@ const OTAProgress = () => {
             )}
 
             {/* Idle State Message */}
-            {(!status.state || status.state === 'idle') && (
+            {(!status.status || status.error === 'No active OTA session') && (
               <Alert severity="info">
-                No active OTA update. Go to "Manage Firmware" to initiate an update.
+                No active OTA update. ESP32 devices automatically check for updates every {formatInterval(otaCheckIntervalMinutes)}.
               </Alert>
             )}
           </Box>

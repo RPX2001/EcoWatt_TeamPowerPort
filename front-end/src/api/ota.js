@@ -69,6 +69,14 @@ export const getOTAStatus = (deviceId) => {
 };
 
 /**
+ * Get OTA status for all devices
+ * @returns {Promise} API response with all devices OTA status
+ */
+export const getAllOTAStatus = () => {
+  return api.get('/ota/status');
+};
+
+/**
  * Get OTA statistics
  * @returns {Promise} API response with statistics
  */
@@ -94,7 +102,7 @@ export const cancelOTA = (deviceId) => {
  */
 export const uploadFirmware = (file, version, onProgress) => {
   const formData = new FormData();
-  formData.append('firmware', file);
+  formData.append('file', file);  // Backend expects 'file', not 'firmware'
   formData.append('version', version);
 
   return api.post('/ota/upload', formData, {
@@ -144,6 +152,7 @@ export default {
   getFirmwareChunk,
   completeOTA,
   getOTAStatus,
+  getAllOTAStatus,
   getOTAStats,
   cancelOTA,
   uploadFirmware,

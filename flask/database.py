@@ -326,6 +326,20 @@ class Database:
         conn.commit()
     
     @staticmethod
+    def update_device_firmware(device_id: str, firmware_version: str) -> bool:
+        """Update device firmware version"""
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE devices SET firmware_version = ? WHERE device_id = ?
+        ''', (firmware_version, device_id))
+        
+        conn.commit()
+        
+        return cursor.rowcount > 0
+    
+    @staticmethod
     def delete_device(device_id: str) -> bool:
         """Delete device from database"""
         conn = Database.get_connection()
@@ -599,6 +613,32 @@ class Database:
         return cursor.rowcount > 0
     
     @staticmethod
+    def update_ota_status(device_id: str, status: str, error_msg: str = None) -> bool:
+        """Update OTA status for latest update"""
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        if error_msg:
+            cursor.execute('''
+                UPDATE ota_updates 
+                SET status = ?, error_msg = ?
+                WHERE device_id = ?
+                ORDER BY initiated_at DESC
+                LIMIT 1
+            ''', (status, error_msg, device_id))
+        else:
+            cursor.execute('''
+                UPDATE ota_updates 
+                SET status = ?
+                WHERE device_id = ?
+                ORDER BY initiated_at DESC
+                LIMIT 1
+            ''', (status, device_id))
+        
+        conn.commit()
+        return cursor.rowcount > 0
+    
+    @staticmethod
     def get_latest_ota_update(device_id: str) -> Optional[Dict]:
         """Get latest OTA update record for device"""
         conn = Database.get_connection()
@@ -661,6 +701,41 @@ class Database:
             'download_completed_at': row['download_completed_at'],
             'install_completed_at': row['install_completed_at']
         } for row in rows]
+    
+    @staticmethod
+    def get_ota_statistics() -> Dict:
+        """Get OTA statistics from database"""
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        # Total updates initiated
+        cursor.execute('SELECT COUNT(*) as count FROM ota_updates')
+        total_updates = cursor.fetchone()['count']
+        
+        # Successful updates (completed status)
+        cursor.execute("SELECT COUNT(*) as count FROM ota_updates WHERE status = 'completed'")
+        successful_updates = cursor.fetchone()['count']
+        
+        # Failed updates (failed or error status)
+        cursor.execute("SELECT COUNT(*) as count FROM ota_updates WHERE status IN ('failed', 'error')")
+        failed_updates = cursor.fetchone()['count']
+        
+        # Active sessions (initiated, downloading, installing statuses)
+        cursor.execute("SELECT COUNT(*) as count FROM ota_updates WHERE status IN ('initiated', 'downloading', 'installing')")
+        active_sessions = cursor.fetchone()['count']
+        
+        # Success rate
+        success_rate = 0.0
+        if total_updates > 0:
+            success_rate = round((successful_updates / total_updates) * 100, 2)
+        
+        return {
+            'total_updates_initiated': total_updates,
+            'successful_updates': successful_updates,
+            'failed_updates': failed_updates,
+            'active_sessions': active_sessions,
+            'success_rate': success_rate
+        }
     
     # ============================================
     # CLEANUP OPERATIONS
