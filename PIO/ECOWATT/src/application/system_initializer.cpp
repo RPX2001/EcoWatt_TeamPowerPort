@@ -12,6 +12,7 @@
 #include "application/peripheral_power.h"
 #include "application/security.h"
 #include "application/OTAManager.h"
+#include "application/fault_recovery.h" // Milestone 5
 #include <time.h>
 
 // Include peripheral/print.h AFTER OTAManager.h
@@ -59,6 +60,11 @@ bool SystemInitializer::initializeAll() {
         return false;
     }
     Serial.println("[BOOT] Step 8: Security Layer initialized");
+
+    // Step 5: Fault Recovery (Milestone 5)
+    Serial.println("[BOOT] Step 9: Initializing Fault Recovery Module...");
+    initFaultRecovery();
+    Serial.println("[BOOT] Step 10: Fault Recovery initialized");
 
     initialized = true;
     Serial.println("[BOOT] ✓ All core systems initialized successfully");

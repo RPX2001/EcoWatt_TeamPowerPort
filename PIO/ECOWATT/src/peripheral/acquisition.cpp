@@ -1,4 +1,6 @@
 #include "peripheral/acquisition.h"
+#include "application/fault_recovery.h" // Milestone 5: Fault Recovery
+#include "application/data_uploader.h"  // For getDeviceID()
 
 ProtocolAdapter adapter;
 
@@ -212,7 +214,7 @@ bool setPower(uint16_t powerValue)
 /**
  * @fn DecodedValues readRequest(const RegID* regs, size_t regCount)
  * 
- * @brief Read specified registers from the inverter.
+ * @brief Read specified registers from the inverter with fault detection and recovery (Milestone 5).
  * 
  * @param regs Array of RegIDs to read.
  * @param regCount Number of registers to read.
@@ -237,6 +239,9 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
     return result;
   }
 
+  // Calculate expected byte count for validation
+  uint8_t expectedByteCount = count * 2; // Each register is 2 bytes
+
   // send request
   char responseFrame[256];
   
@@ -256,11 +261,94 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
   if (!ok) 
   {
     debug.log("Read request failed after retries.\n");
+    
+    // MILESTONE 5: Report timeout fault
+    FaultRecoveryEvent event;
+    const char* deviceId = DataUploader::getDeviceID();
+    strncpy(event.device_id, deviceId ? deviceId : "ESP32_UNKNOWN", sizeof(event.device_id));
+    event.device_id[sizeof(event.device_id) - 1] = '\0';
+    event.timestamp = millis() / 1000; // Convert to seconds
+    event.fault_type = FaultType::TIMEOUT;
+    event.recovery_action = RecoveryAction::RETRY_READ;
+    event.success = false;
+    event.retry_count = 0;
+    snprintf(event.details, sizeof(event.details), "Modbus read timeout, WiFi or network error");
+    
+    sendRecoveryEvent(event);
+    
     result.values[0] = 0xFFFF; // Indicate error
     result.count = 1;
     return result;
   }
+  
   const char* response_frame = responseFrame;
+  
+  // MILESTONE 5: Detect faults in response
+  FaultType fault = detectFault(response_frame, expectedByteCount, sizeof(responseFrame));
+  
+  if (fault != FaultType::NONE) {
+    debug.log("[FAULT DETECTED] Type: %s\n", getFaultTypeName(fault));
+    
+    // Execute recovery with retries
+    uint8_t retryCount = 0;
+    bool recoverySuccess = false;
+    
+    // Define retry function
+    auto retryReadFunc = [&]() -> bool {
+      char retryResponse[256];
+      bool retryOk = adapter.readRegister(frame, retryResponse, sizeof(retryResponse));
+      
+      if (!retryOk) return false;
+      
+      // Check if retry response is fault-free
+      FaultType retryFault = detectFault(retryResponse, expectedByteCount, sizeof(retryResponse));
+      
+      if (retryFault == FaultType::NONE) {
+        // Success! Copy response to main buffer
+        strncpy(responseFrame, retryResponse, sizeof(responseFrame));
+        responseFrame[sizeof(responseFrame) - 1] = '\0';
+        return true;
+      }
+      
+      return false; // Still faulty
+    };
+    
+    recoverySuccess = executeRecovery(fault, retryReadFunc, retryCount);
+    
+    // Report recovery event
+    FaultRecoveryEvent event;
+    const char* deviceId = DataUploader::getDeviceID();
+    strncpy(event.device_id, deviceId ? deviceId : "ESP32_UNKNOWN", sizeof(event.device_id));
+    event.device_id[sizeof(event.device_id) - 1] = '\0';
+    event.timestamp = millis() / 1000;
+    event.fault_type = fault;
+    event.recovery_action = RecoveryAction::RETRY_READ;
+    event.success = recoverySuccess;
+    event.retry_count = retryCount;
+    
+    if (recoverySuccess) {
+      snprintf(event.details, sizeof(event.details), 
+               "%s detected and recovered after %u retries", 
+               getFaultTypeName(fault), retryCount);
+    } else {
+      snprintf(event.details, sizeof(event.details), 
+               "%s detected, recovery FAILED after %u retries", 
+               getFaultTypeName(fault), retryCount);
+    }
+    
+    sendRecoveryEvent(event);
+    
+    if (!recoverySuccess) {
+      // Recovery failed - return error
+      result.values[0] = 0xFFFF;
+      result.count = 1;
+      return result;
+    }
+    
+    // Recovery succeeded - continue with corrected response
+    response_frame = responseFrame;
+  }
+  
   // decode response
   result = decodeReadResponse(response_frame, startAddr, count, regs, regCount);
 

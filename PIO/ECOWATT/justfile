@@ -71,6 +71,16 @@ test-fota:
     {{pio}} test --filter "test_fota*"
     @echo "✅ FOTA tests complete"
 
+# Run M5 fault recovery tests (Milestone 5)
+test-m5:
+    {{pio}} test --filter test_fault_recovery
+    @echo "✅ M5 fault recovery tests complete"
+
+# Run fault recovery unit tests
+test-fault-recovery:
+    {{pio}} test --filter test_fault_recovery
+    @echo "✅ Fault recovery tests complete"
+
 # Run all tests with verbose output
 test-verbose:
     {{pio}} test -v

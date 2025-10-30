@@ -376,3 +376,299 @@ def get_available_fault_types():
             'success': False,
             'error': str(e)
         }), 500
+
+
+# ============================================================================
+# FAULT RECOVERY ENDPOINTS (Milestone 5)
+# ============================================================================
+
+# Storage for recovery events (in-memory, indexed by device_id)
+recovery_events: Dict[str, list] = {}  # device_id -> list of recovery dicts
+
+# Recovery statistics
+recovery_statistics: Dict[str, int] = {
+    'total_recoveries': 0,
+    'successful_recoveries': 0,
+    'failed_recoveries': 0
+}
+
+
+@fault_bp.route('/fault/recovery', methods=['POST'])
+def receive_recovery():
+    """
+    Receive fault recovery event from ESP32
+    
+    This endpoint is called by ESP32 when it detects and recovers from a fault.
+    
+    Request Body (JSON):
+    {
+      "device_id": "ESP32_EcoWatt_Smart",
+      "timestamp": 1698527500,
+      "fault_type": "crc_error",           # crc_error, truncated, buffer_overflow, garbage
+      "recovery_action": "retry_read",     # retry_read, reset_connection, discard_data
+      "success": true,
+      "details": "CRC validation failed, retried successfully after 1 attempt"
+    }
+    
+    Response:
+    {
+      "success": true,
+      "message": "Recovery event recorded"
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Request body is required'
+            }), 400
+        
+        # Validate required fields
+        required_fields = ['device_id', 'timestamp', 'fault_type', 'recovery_action', 'success']
+        missing_fields = [field for field in required_fields if field not in data]
+        
+        if missing_fields:
+            return jsonify({
+                'success': False,
+                'error': f'Missing required fields: {", ".join(missing_fields)}'
+            }), 400
+        
+        device_id = data['device_id']
+        
+        # Initialize device recovery list if not exists
+        if device_id not in recovery_events:
+            recovery_events[device_id] = []
+        
+        # Add recovery event
+        recovery_event = {
+            'device_id': device_id,
+            'timestamp': data['timestamp'],
+            'fault_type': data['fault_type'],
+            'recovery_action': data['recovery_action'],
+            'success': data['success'],
+            'details': data.get('details', ''),
+            'received_at': int(time.time())  # Server timestamp
+        }
+        
+        recovery_events[device_id].append(recovery_event)
+        
+        # Update statistics
+        recovery_statistics['total_recoveries'] += 1
+        if data['success']:
+            recovery_statistics['successful_recoveries'] += 1
+        else:
+            recovery_statistics['failed_recoveries'] += 1
+        
+        logger.info(f"[Recovery] Event from {device_id}: {data['fault_type']} - {data['recovery_action']} - Success: {data['success']}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Recovery event recorded',
+            'event_id': len(recovery_events[device_id])
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error receiving recovery event: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@fault_bp.route('/fault/recovery/<device_id>', methods=['GET'])
+def get_recovery_history(device_id):
+    """
+    Get recovery event history for a specific device
+    
+    Query Parameters:
+    - limit: Maximum number of events to return (default: 50)
+    - offset: Number of events to skip (default: 0)
+    - fault_type: Filter by fault type (optional)
+    
+    Response:
+    {
+      "device_id": "ESP32_EcoWatt_Smart",
+      "total_events": 10,
+      "events": [
+        {
+          "timestamp": 1698527500,
+          "fault_type": "crc_error",
+          "recovery_action": "retry_read",
+          "success": true,
+          "details": "...",
+          "received_at": 1698527501
+        },
+        ...
+      ],
+      "statistics": {
+        "total": 10,
+        "successful": 8,
+        "failed": 2,
+        "success_rate": 80.0
+      }
+    }
+    """
+    try:
+        # Get query parameters
+        limit = request.args.get('limit', 50, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        fault_type_filter = request.args.get('fault_type', None)
+        
+        # Get events for device
+        device_events = recovery_events.get(device_id, [])
+        
+        # Filter by fault type if specified
+        if fault_type_filter:
+            device_events = [e for e in device_events if e['fault_type'] == fault_type_filter]
+        
+        # Calculate statistics
+        total = len(device_events)
+        successful = sum(1 for e in device_events if e['success'])
+        failed = total - successful
+        success_rate = (successful / total * 100) if total > 0 else 0.0
+        
+        # Apply pagination
+        paginated_events = device_events[offset:offset + limit]
+        
+        return jsonify({
+            'device_id': device_id,
+            'total_events': total,
+            'events': paginated_events,
+            'statistics': {
+                'total': total,
+                'successful': successful,
+                'failed': failed,
+                'success_rate': round(success_rate, 2)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting recovery history: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@fault_bp.route('/fault/recovery/all', methods=['GET'])
+def get_all_recovery_events():
+    """
+    Get recovery events from all devices
+    
+    Query Parameters:
+    - limit: Maximum number of events per device (default: 10)
+    
+    Response:
+    {
+      "devices": {
+        "ESP32_EcoWatt_Smart": {
+          "total_events": 10,
+          "recent_events": [...],
+          "statistics": {...}
+        },
+        ...
+      },
+      "global_statistics": {
+        "total_recoveries": 20,
+        "successful_recoveries": 16,
+        "failed_recoveries": 4,
+        "success_rate": 80.0
+      }
+    }
+    """
+    try:
+        limit = request.args.get('limit', 10, type=int)
+        
+        devices_data = {}
+        
+        for device_id, events in recovery_events.items():
+            total = len(events)
+            successful = sum(1 for e in events if e['success'])
+            failed = total - successful
+            success_rate = (successful / total * 100) if total > 0 else 0.0
+            
+            devices_data[device_id] = {
+                'total_events': total,
+                'recent_events': events[-limit:],  # Last N events
+                'statistics': {
+                    'total': total,
+                    'successful': successful,
+                    'failed': failed,
+                    'success_rate': round(success_rate, 2)
+                }
+            }
+        
+        # Calculate global success rate
+        global_total = recovery_statistics['total_recoveries']
+        global_success = recovery_statistics['successful_recoveries']
+        global_success_rate = (global_success / global_total * 100) if global_total > 0 else 0.0
+        
+        return jsonify({
+            'devices': devices_data,
+            'global_statistics': {
+                'total_recoveries': global_total,
+                'successful_recoveries': global_success,
+                'failed_recoveries': recovery_statistics['failed_recoveries'],
+                'success_rate': round(global_success_rate, 2)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting all recovery events: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@fault_bp.route('/fault/recovery/clear', methods=['POST'])
+def clear_recovery_events():
+    """
+    Clear recovery events (for testing)
+    
+    Request Body (optional):
+    {
+      "device_id": "ESP32_EcoWatt_Smart"  # Clear specific device, or omit to clear all
+    }
+    """
+    try:
+        data = request.get_json() or {}
+        device_id = data.get('device_id')
+        
+        if device_id:
+            # Clear specific device
+            if device_id in recovery_events:
+                event_count = len(recovery_events[device_id])
+                recovery_events[device_id] = []
+                logger.info(f"[Recovery] Cleared {event_count} events for {device_id}")
+                return jsonify({
+                    'success': True,
+                    'message': f'Cleared {event_count} events for {device_id}'
+                }), 200
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'No events found for device {device_id}'
+                }), 404
+        else:
+            # Clear all devices
+            total_cleared = sum(len(events) for events in recovery_events.values())
+            recovery_events.clear()
+            recovery_statistics['total_recoveries'] = 0
+            recovery_statistics['successful_recoveries'] = 0
+            recovery_statistics['failed_recoveries'] = 0
+            
+            logger.info(f"[Recovery] Cleared all {total_cleared} recovery events")
+            return jsonify({
+                'success': True,
+                'message': f'Cleared all {total_cleared} recovery events'
+            }), 200
+        
+    except Exception as e:
+        logger.error(f"Error clearing recovery events: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
