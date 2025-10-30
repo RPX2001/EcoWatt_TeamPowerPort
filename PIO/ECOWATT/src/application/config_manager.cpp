@@ -8,6 +8,7 @@
 
 #include "application/config_manager.h"
 #include "application/task_manager.h"
+#include "application/power_management.h"
 #include "peripheral/print.h"
 #include "application/nvs.h"
 #include <HTTPClient.h>
@@ -215,6 +216,85 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                         }
                     }
                     
+                    // 7. Check power_management block
+                    if (config.containsKey("power_management")) {
+                        JsonObject powerConfig = config["power_management"].as<JsonObject>();
+                        
+                        if (!powerConfig.isNull()) {
+                            print("[ConfigManager] Processing power management configuration:\n");
+                            
+                            // Check if power management is enabled
+                            if (powerConfig.containsKey("enabled")) {
+                                bool enabled = powerConfig["enabled"].as<bool>();
+                                bool currentEnabled = nvs::getPowerEnabled();
+                                
+                                if (enabled != currentEnabled) {
+                                    nvs::setPowerEnabled(enabled);
+                                    anyChanges = true;
+                                    print("  - Power Management: %s\n", 
+                                          enabled ? "ENABLED" : "DISABLED");
+                                    
+                                    // Apply the enable/disable state
+                                    PowerManagement::enable(enabled);
+                                } else {
+                                    print("  - Power Management: %s (unchanged)\n", 
+                                          enabled ? "ENABLED" : "DISABLED");
+                                }
+                            }
+                            
+                            // Check techniques bitmask
+                            if (powerConfig.containsKey("techniques")) {
+                                uint8_t techniques = powerConfig["techniques"].as<uint8_t>();
+                                uint8_t currentTechniques = nvs::getPowerTechniques();
+                                
+                                if (techniques != currentTechniques) {
+                                    nvs::setPowerTechniques(techniques);
+                                    PowerManagement::setTechniques(techniques);
+                                    anyChanges = true;
+                                    
+                                    print("  - Active Techniques (0x%02X):\n", techniques);
+                                    if (techniques & POWER_TECH_WIFI_MODEM_SLEEP) {
+                                        print("      • WiFi Modem Sleep [ACTIVE]\n");
+                                    }
+                                    if (techniques & POWER_TECH_CPU_FREQ_SCALING) {
+                                        print("      • CPU Frequency Scaling [FUTURE]\n");
+                                    }
+                                    if (techniques & POWER_TECH_LIGHT_SLEEP) {
+                                        print("      • Light Sleep [FUTURE]\n");
+                                    }
+                                    if (techniques & POWER_TECH_PERIPHERAL_GATING) {
+                                        print("      • Peripheral Gating [FUTURE]\n");
+                                    }
+                                    if (techniques == 0x00) {
+                                        print("      • None (full performance mode)\n");
+                                    }
+                                } else {
+                                    print("  - Active Techniques: 0x%02X (unchanged)\n", techniques);
+                                }
+                            }
+                            
+                            print("[ConfigManager] ✓ Power management config processed\n");
+                        }
+                    }
+                    
+                    // Check energy poll interval (in seconds from frontend) - TOP LEVEL CONFIG
+                    if (config.containsKey("energy_poll_interval")) {
+                        uint32_t interval_sec = config["energy_poll_interval"].as<uint32_t>();
+                        // Convert seconds to microseconds for NVS storage
+                        uint64_t freq_us = static_cast<uint64_t>(interval_sec) * 1000000ULL;
+                        uint64_t currentFreq = nvs::getEnergyPollFreq();  // Returns microseconds
+                        
+                        if (freq_us != currentFreq) {
+                            nvs::setEnergyPollFreq(freq_us);  // Expects microseconds
+                            // Update TaskManager's power report frequency (expects milliseconds)
+                            uint64_t freq_ms = static_cast<uint64_t>(interval_sec) * 1000ULL;
+                            TaskManager::updatePowerReportFrequency(freq_ms);
+                            anyChanges = true;
+                            print("[ConfigManager] ✓ Energy report interval updated to %u s (%llu μs)\n", 
+                                  interval_sec, freq_us);
+                        }
+                    }
+                    
                     if (anyChanges) {
                         print("[ConfigManager] ✅ Configuration changes applied successfully\n");
                         
@@ -311,6 +391,22 @@ void ConfigManager::printCurrentConfig() {
           currentConfig.pollFrequency, currentConfig.pollFrequency / 1000000.0);
     print("  Upload Frequency:  %llu μs (%.2f s)\n", 
           currentConfig.uploadFrequency, currentConfig.uploadFrequency / 1000000.0);
+    
+    // Print power management configuration
+    bool powerEnabled = nvs::getPowerEnabled();
+    uint8_t techniques = nvs::getPowerTechniques();
+    uint64_t energyPollFreq = nvs::getEnergyPollFreq();
+    
+    print("  Power Management:  %s\n", powerEnabled ? "ENABLED" : "DISABLED");
+    print("  Techniques:        0x%02X ", techniques);
+    if (techniques & 0x01) print("[WiFi] ");
+    if (techniques & 0x02) print("[CPU] ");
+    if (techniques & 0x04) print("[Sleep] ");
+    if (techniques & 0x08) print("[Periph] ");
+    print("\n");
+    print("  Energy Poll:       %llu μs (%.2f s)\n", 
+          energyPollFreq, energyPollFreq / 1000000.0);
+    
     print("===========================================\n\n");
 }
 
@@ -340,12 +436,20 @@ void ConfigManager::sendConfigAcknowledgment(const char* status, const char* mes
     http.setTimeout(15000);  // 15 seconds HTTP timeout (in milliseconds)
     
     // Create JSON payload
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<512> doc;  // Increased from 256 to 512 for power_management
     doc["status"] = status;
     doc["timestamp"] = getCurrentTimestamp();  // Unix timestamp in seconds
     if (message != nullptr && strlen(message) > 0) {
         doc["error_msg"] = message;
     }
+    
+    // Include current power management configuration in acknowledgment
+    JsonObject powerMgmt = doc.createNestedObject("power_management");
+    powerMgmt["enabled"] = nvs::getPowerEnabled();
+    powerMgmt["techniques"] = nvs::getPowerTechniques();
+    // Send frequency in milliseconds (energy_poll_freq not energy_poll_interval)
+    uint64_t freq_ms = nvs::getEnergyPollFreq();
+    powerMgmt["energy_poll_freq"] = static_cast<uint32_t>(freq_ms);
     
     String payload;
     serializeJson(doc, payload);
@@ -408,6 +512,16 @@ void ConfigManager::sendCurrentConfig() {
     doc["config_poll_interval"] = (uint32_t)(TaskManager::getConfigFrequency() / 1000);  // Convert ms to seconds
     doc["command_poll_interval"] = (uint32_t)(TaskManager::getCommandFrequency() / 1000);  // Convert ms to seconds
     doc["firmware_check_interval"] = (uint32_t)(TaskManager::getOtaFrequency() / 1000);  // Convert ms to seconds
+    
+    // Add energy poll interval (convert microseconds to seconds)
+    uint64_t energyPollUs = nvs::getEnergyPollFreq();  // Returns microseconds
+    doc["energy_poll_interval"] = (uint32_t)(energyPollUs / 1000000);  // Convert μs to seconds
+    
+    // Add power management configuration
+    JsonObject powerMgmt = doc.createNestedObject("power_management");
+    powerMgmt["enabled"] = nvs::getPowerEnabled();
+    powerMgmt["techniques"] = nvs::getPowerTechniques();
+
     doc["compression_enabled"] = true;  // Always enabled in our implementation
     doc["timestamp"] = getCurrentTimestamp();
     

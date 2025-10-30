@@ -47,8 +47,13 @@ def get_default_config():
         'firmware_check_interval': 60,    # Check for firmware updates every 60s
         'command_poll_interval': 10,      # Check for pending commands every 10s
         'config_poll_interval': 5,        # Check for config updates every 5s
+        'energy_poll_interval': 300,      # Energy self-report interval in seconds (5 minutes = 300s)
         'compression_enabled': True,
-        'registers': ['Vac1', 'Iac1', 'Pac']  # Default registers using actual names
+        'registers': ['Vac1', 'Iac1', 'Pac'],  # Default registers using actual names
+        'power_management': {
+            'enabled': False,             # Power management disabled by default
+            'techniques': 0x01            # WiFi modem sleep only (0x01)
+        }
     }
 
 
@@ -102,6 +107,14 @@ def validate_config(config: dict) -> tuple:
             rejected.append('config_poll_interval')
             errors.append('config_poll_interval must be between 1 and 300 seconds')
 
+    # Validate energy_poll_interval (in seconds)
+    if 'energy_poll_interval' in config:
+        if 60 <= config['energy_poll_interval'] <= 3600:
+            accepted.append('energy_poll_interval')
+        else:
+            rejected.append('energy_poll_interval')
+            errors.append('energy_poll_interval must be between 60 and 3600 seconds')
+
     # Validate compression_enabled
     if 'compression_enabled' in config:
         if isinstance(config['compression_enabled'], bool):
@@ -122,6 +135,48 @@ def validate_config(config: dict) -> tuple:
         else:
             rejected.append('registers')
             errors.append('registers must be a non-empty list')
+
+    # Validate power_management
+    if 'power_management' in config:
+        pm = config['power_management']
+        logger.info(f"[Config] Validating power_management: {pm}")
+        
+        if isinstance(pm, dict):
+            pm_valid = True
+            # Validate enabled (must be present and be boolean)
+            if 'enabled' not in pm:
+                pm_valid = False
+                errors.append('power_management.enabled is required')
+                logger.warning(f"[Config] power_management.enabled is missing")
+            elif not isinstance(pm['enabled'], bool):
+                pm_valid = False
+                errors.append('power_management.enabled must be a boolean')
+                logger.warning(f"[Config] power_management.enabled is not a boolean: {type(pm['enabled'])}")
+            
+            # Validate techniques (must be present and be 0x00 to 0x0F)
+            if 'techniques' not in pm:
+                pm_valid = False
+                errors.append('power_management.techniques is required')
+                logger.warning(f"[Config] power_management.techniques is missing")
+            else:
+                techniques = pm['techniques']
+                if isinstance(techniques, str) and techniques.startswith('0x'):
+                    techniques = int(techniques, 16)
+                if not isinstance(techniques, int) or techniques < 0x00 or techniques > 0x0F:
+                    pm_valid = False
+                    errors.append(f'power_management.techniques must be 0x00-0x0F (got: {techniques})')
+                    logger.warning(f"[Config] power_management.techniques out of range: {techniques}")
+            
+            if pm_valid:
+                accepted.append('power_management')
+                logger.info(f"[Config] power_management validation PASSED")
+            else:
+                rejected.append('power_management')
+                logger.warning(f"[Config] power_management validation FAILED: {errors}")
+        else:
+            rejected.append('power_management')
+            errors.append('power_management must be a dict with {enabled, techniques}')
+            logger.warning(f"[Config] power_management is not a dict: {type(pm)}")
 
     return len(rejected) == 0, accepted, rejected, unchanged, errors
 
@@ -148,6 +203,8 @@ def get_config(device_id):
         else:
             current_config = device_configs[device_id]
         
+        logger.info(f"[Config] GET request for {device_id}, returning config: {current_config}")
+        
         # Check if there's a pending config in database (what ESP32 should apply next)
         pending_config_data = Database.get_pending_config(device_id)
         
@@ -163,7 +220,9 @@ def get_config(device_id):
         
         # If there's a pending config, include it for ESP32 to apply
         if pending_config_data:
-            response['pending_config'] = pending_config_data['config']
+            pending = pending_config_data['config']
+            
+            response['pending_config'] = pending
             response['pending_created_at'] = pending_config_data['created_at']
             logger.info(f"[Config] Returning CURRENT config for display + PENDING config for ESP32 (device: {device_id}, pending created: {pending_config_data['created_at']})")
         else:
@@ -203,10 +262,16 @@ def update_config(device_id):
     
     Configuration changes take effect after the next upload cycle, without reboot.
     """
+    logger.info(f"[Config] ========== UPDATE CONFIG REQUEST RECEIVED ==========")
+    logger.info(f"[Config] Device ID: {device_id}")
+    logger.info(f"[Config] Method: {request.method}")
+    logger.info(f"[Config] Content-Type: {request.content_type}")
+    
     try:
         from database import Database
         
         data = request.get_json()
+        logger.info(f"[Config] Raw request data: {data}")
         
         if not data or 'config_update' not in data:
             return jsonify({
@@ -216,45 +281,66 @@ def update_config(device_id):
         
         config_update = data['config_update']
         
+        logger.info(f"[Config] Received config update for {device_id}")
+        logger.info(f"[Config] Config update contents: {config_update}")
+        
         # Get current config or create default
         if device_id not in device_configs:
             device_configs[device_id] = get_default_config()
         
         current_config = device_configs[device_id].copy()
         
+        logger.info(f"[Config] Current config before update: {current_config}")
+        
         # Validate new configuration
         is_valid, accepted, rejected, unchanged, errors = validate_config(config_update)
         
+        logger.info(f"[Config] Validation results - Accepted: {accepted}, Rejected: {rejected}, Errors: {errors}")
+        
         # Apply accepted parameters
-        for param in accepted:
+        actually_changed = []
+        for param in accepted[:]:  # Use a copy to avoid modification during iteration
             old_value = current_config.get(param)
             new_value = config_update[param]
             
             if old_value == new_value:
-                accepted.remove(param)
                 unchanged.append(param)
             else:
                 current_config[param] = new_value
+                actually_changed.append(param)
+                logger.info(f"[Config] Applied change: {param} = {new_value} (was: {old_value})")
+        
+        # Update accepted list to only include actually changed params
+        accepted = actually_changed
         
         # Store updated config in memory
         device_configs[device_id] = current_config
         
-        # Save to database with config_update wrapper (Milestone 4 format)
+        logger.info(f"[Config] Updated device_configs[{device_id}]: {device_configs[device_id]}")
+        
+        # Prepare config to save to database (Milestone 4 format with config_update wrapper)
         config_to_save = {'config_update': config_update}
+        
+        # Save to database with config_update wrapper (Milestone 4 format)
         Database.save_config(device_id=device_id, config=config_to_save)
         
         # Log configuration change in memory history
         if device_id not in config_history:
             config_history[device_id] = []
         
-        config_history[device_id].append({
+        history_entry = {
             'timestamp': time.time(),
-            'config_update': config_update,
+            'config_update': config_update,  # This contains ALL fields including power_management
             'accepted': accepted,
             'rejected': rejected,
             'unchanged': unchanged,
             'errors': errors
-        })
+        }
+        
+        config_history[device_id].append(history_entry)
+        
+        logger.info(f"[Config] Added to config_history: timestamp={history_entry['timestamp']}, accepted={accepted}")
+        logger.info(f"[Config] Config update in history: {history_entry['config_update']}")
         
         # Keep only last 50 history entries
         if len(config_history[device_id]) > 50:
@@ -352,17 +438,27 @@ def receive_current_config(device_id):
         
         logger.info(f"[Config] Received current config from {device_id}: {data}")
         
-        # Store this as the current running configuration
-        # Update in-memory storage with ALL reported values
-        device_configs[device_id] = {
-            'sampling_interval': data.get('sampling_interval', 2),
-            'upload_interval': data.get('upload_interval', 15),
-            'firmware_check_interval': data.get('firmware_check_interval', 60),
-            'command_poll_interval': data.get('command_poll_interval', 10),
-            'config_poll_interval': data.get('config_poll_interval', 5),
-            'compression_enabled': data.get('compression_enabled', True),
-            'registers': data.get('registers', [])
-        }
+        # Get existing config or create default
+        if device_id not in device_configs:
+            device_configs[device_id] = get_default_config()
+        
+        # Update (merge) the current config with reported values
+        device_configs[device_id].update({
+            'sampling_interval': data.get('sampling_interval', device_configs[device_id].get('sampling_interval', 2)),
+            'upload_interval': data.get('upload_interval', device_configs[device_id].get('upload_interval', 15)),
+            'firmware_check_interval': data.get('firmware_check_interval', device_configs[device_id].get('firmware_check_interval', 60)),
+            'command_poll_interval': data.get('command_poll_interval', device_configs[device_id].get('command_poll_interval', 10)),
+            'config_poll_interval': data.get('config_poll_interval', device_configs[device_id].get('config_poll_interval', 5)),
+            'energy_poll_interval': data.get('energy_poll_interval', device_configs[device_id].get('energy_poll_interval', 300)),
+            'compression_enabled': data.get('compression_enabled', device_configs[device_id].get('compression_enabled', True)),
+            'registers': data.get('registers', device_configs[device_id].get('registers', []))
+        })
+        
+        # If power_management is included in ESP32's report, update it
+        if 'power_management' in data:
+            device_configs[device_id]['power_management'] = data['power_management']
+        
+        logger.info(f"[Config] Updated device_configs[{device_id}]: {device_configs[device_id]}")
         
         # If there was a pending config and ESP32 is reporting this config,
         # it means ESP32 has applied it - mark as acknowledged
@@ -428,6 +524,7 @@ def acknowledge_config(device_id):
         
         status = data['status']
         error_msg = data.get('error_msg')
+        power_management = data.get('power_management')  # Optional power management config
         
         # Update database with acknowledgment
         success = Database.update_config_status(
@@ -444,6 +541,17 @@ def acknowledge_config(device_id):
                 config_history[device_id][-1]['acknowledged_at'] = int(time.time())
                 if error_msg:
                     config_history[device_id][-1]['error_msg'] = error_msg
+            
+            # Update power management configuration in power_routes if provided
+            if power_management:
+                # Import power_configs from power_routes
+                from routes.power_routes import power_configs
+                if device_id not in power_configs:
+                    power_configs[device_id] = {}
+                power_configs[device_id]['enabled'] = power_management.get('enabled', False)
+                power_configs[device_id]['techniques'] = power_management.get('techniques', 0)
+                power_configs[device_id]['energy_poll_freq'] = power_management.get('energy_poll_freq', 300000)
+                logger.info(f"[Config] Updated power management for {device_id}: enabled={power_management.get('enabled')}, techniques=0x{power_management.get('techniques', 0):02X}")
             
             logger.info(f"[Config] ESP32 acknowledged config for {device_id}: {status}")
             return jsonify({

@@ -345,3 +345,173 @@ bool nvs::changeOtaFreq(uint64_t ota_time)
 
     return true;
 }
+
+
+// ============================================
+// POWER MANAGEMENT NVS FUNCTIONS
+// ============================================
+
+void nvs::initPowerNamespace()
+{
+    // Initialize power namespace with default values if it doesn't exist
+    // This ensures the namespace exists before any reads/writes
+    
+    if (!esp_prefs_nvs.begin("power", false)) {
+        // Failed to create/open namespace - this is a critical error
+        Serial.println("[NVS] ERROR: Failed to initialize power namespace!");
+        return;
+    }
+    
+    // Check and initialize each key with defaults if not present
+    if (!esp_prefs_nvs.isKey("enabled")) {
+        esp_prefs_nvs.putBool("enabled", DEFAULT_POWER_ENABLED);
+        Serial.printf("[NVS] Initialized power.enabled = %s\n", DEFAULT_POWER_ENABLED ? "true" : "false");
+    }
+    
+    if (!esp_prefs_nvs.isKey("techniques")) {
+        esp_prefs_nvs.putUChar("techniques", DEFAULT_POWER_TECHNIQUES);
+        Serial.printf("[NVS] Initialized power.techniques = 0x%02X\n", DEFAULT_POWER_TECHNIQUES);
+    }
+    
+    if (!esp_prefs_nvs.isKey("energy_poll")) {
+        esp_prefs_nvs.putULong64("energy_poll", DEFAULT_ENERGY_POLL_FREQUENCY_US);
+        Serial.printf("[NVS] Initialized power.energy_poll = %llu us (%.1f s)\n", 
+                     DEFAULT_ENERGY_POLL_FREQUENCY_US, 
+                     DEFAULT_ENERGY_POLL_FREQUENCY_US / 1000000.0);
+    }
+    
+    esp_prefs_nvs.end();
+    Serial.println("[NVS] Power namespace initialized successfully");
+}
+
+bool nvs::getPowerEnabled()
+{
+    // Open in read-only mode
+    if (!esp_prefs_nvs.begin("power", true)) {
+        return DEFAULT_POWER_ENABLED;  // Default: false (disabled)
+    }
+
+    if (!esp_prefs_nvs.isKey("enabled")) {
+        // Write default value for future calls
+        esp_prefs_nvs.end();
+        if (!esp_prefs_nvs.begin("power", false)) {
+            return DEFAULT_POWER_ENABLED;
+        }
+        esp_prefs_nvs.putBool("enabled", DEFAULT_POWER_ENABLED);
+        esp_prefs_nvs.end();
+        return DEFAULT_POWER_ENABLED;
+    }
+
+    bool enabled = esp_prefs_nvs.getBool("enabled", DEFAULT_POWER_ENABLED);
+    esp_prefs_nvs.end();
+    return enabled;
+}
+
+
+bool nvs::setPowerEnabled(bool enabled)
+{
+    if (!esp_prefs_nvs.begin("power", false)) // Open NVS in read-write mode
+    {
+        return false; // Failed to open NVS
+    }
+
+    esp_prefs_nvs.putBool("enabled", enabled);
+    esp_prefs_nvs.end();
+    return true;
+}
+
+
+uint8_t nvs::getPowerTechniques()
+{
+    // Open in read-only mode
+    if (!esp_prefs_nvs.begin("power", true)) {
+        return DEFAULT_POWER_TECHNIQUES;  // Default: 0x01 (WiFi modem sleep only)
+    }
+
+    if (!esp_prefs_nvs.isKey("techniques")) {
+        // Write default value for future calls
+        esp_prefs_nvs.end();
+        if (!esp_prefs_nvs.begin("power", false)) {
+            return DEFAULT_POWER_TECHNIQUES;
+        }
+        esp_prefs_nvs.putUChar("techniques", DEFAULT_POWER_TECHNIQUES);
+        esp_prefs_nvs.end();
+        return DEFAULT_POWER_TECHNIQUES;
+    }
+
+    uint8_t techniques = esp_prefs_nvs.getUChar("techniques", DEFAULT_POWER_TECHNIQUES);
+    esp_prefs_nvs.end();
+    
+    // Validate techniques are within valid range (0x00-0x0F for 4 techniques)
+    if (techniques > 0x0F) {
+        return DEFAULT_POWER_TECHNIQUES;
+    }
+    
+    return techniques;
+}
+
+
+bool nvs::setPowerTechniques(uint8_t techniques)
+{
+    // Validate input (max 4 bits for 4 techniques)
+    if (techniques > 0x0F) {
+        return false; // Invalid technique combination
+    }
+
+    if (!esp_prefs_nvs.begin("power", false)) // Open NVS in read-write mode
+    {
+        return false; // Failed to open NVS
+    }
+
+    esp_prefs_nvs.putUChar("techniques", techniques);
+    esp_prefs_nvs.end();
+    return true;
+}
+
+
+uint64_t nvs::getEnergyPollFreq()
+{
+    // Open in read-only mode
+    if (!esp_prefs_nvs.begin("power", true)) {
+        return DEFAULT_ENERGY_POLL_FREQUENCY_US;  // Default: 5 minutes
+    }
+
+    if (!esp_prefs_nvs.isKey("energy_poll")) {
+        // Write default value for future calls
+        esp_prefs_nvs.end();
+        if (!esp_prefs_nvs.begin("power", false)) {
+            return DEFAULT_ENERGY_POLL_FREQUENCY_US;
+        }
+        esp_prefs_nvs.putULong64("energy_poll", DEFAULT_ENERGY_POLL_FREQUENCY_US);
+        esp_prefs_nvs.end();
+        return DEFAULT_ENERGY_POLL_FREQUENCY_US;
+    }
+
+    uint64_t freq = esp_prefs_nvs.getULong64("energy_poll", DEFAULT_ENERGY_POLL_FREQUENCY_US);
+    esp_prefs_nvs.end();
+    
+    // Minimum 1 minute for energy polling
+    if (freq < 60000000) {
+        return DEFAULT_ENERGY_POLL_FREQUENCY_US;
+    }
+    
+    return freq;
+}
+
+
+bool nvs::setEnergyPollFreq(uint64_t freq)
+{
+    // Validate input (minimum 1 minute)
+    if (freq < 60000000) {
+        return false; // Too short for energy polling
+    }
+
+    if (!esp_prefs_nvs.begin("power", false)) // Open NVS in read-write mode
+    {
+        return false; // Failed to open NVS
+    }
+
+    esp_prefs_nvs.putULong64("energy_poll", freq);
+    esp_prefs_nvs.end();
+    return true;
+}

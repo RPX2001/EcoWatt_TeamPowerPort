@@ -46,7 +46,9 @@ const DeviceConfiguration = ({ config }) => {
   const formatInterval = (value, unit = 's') => {
     if (value === null || value === undefined) return 'N/A';
     if (unit === 's') {
-      return `${value} seconds`;
+      return `${value} s`;
+    } else if (unit === 'min') {
+      return `${value} min`;
     } else if (unit === 'ms') {
       return `${value} ms`;
     }
@@ -142,6 +144,21 @@ const DeviceConfiguration = ({ config }) => {
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 Check for config updates
+              </Typography>
+            </Box>
+          </Grid>
+
+          {/* Energy Poll Interval */}
+          <Grid item xs={12} sm={6} md={4}>
+            <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                Energy Poll Interval
+              </Typography>
+              <Typography variant="h6">
+                {formatInterval(params.energy_poll_interval)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Energy reporting frequency
               </Typography>
             </Box>
           </Grid>

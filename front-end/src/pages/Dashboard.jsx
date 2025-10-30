@@ -13,6 +13,7 @@ import MetricsCard from '../components/dashboard/MetricsCard';
 import RegisterValues from '../components/dashboard/RegisterValues';
 import DeviceConfiguration from '../components/dashboard/DeviceConfiguration';
 import TimeSeriesChart from '../components/dashboard/TimeSeriesChart';
+import PowerWidget from '../components/dashboard/PowerWidget';
 import { getLatestData, getHistoricalData } from '../api/aggregation';
 import { getConfig } from '../api/config';
 
@@ -57,12 +58,18 @@ const Dashboard = () => {
     return 'other';
   };
 
-  // Dynamically determine available registers from latest data OR historical data
-  // Show ALL registers that have data, regardless of configuration
+  // Dynamically determine available registers from CONFIGURED registers only
+  // Show only what user configured to poll, ignoring stale data
   const availableRegisters = useMemo(() => {
-    // First try to get from latest data (preferred when device is online)
+    // Use configured registers from deviceConfig as source of truth
+    const configuredRegs = deviceConfig?.config?.registers || [];
+    
+    if (configuredRegs.length > 0) {
+      return configuredRegs;
+    }
+    
+    // Fallback: if no config yet, show registers that have actual data
     if (latestData?.registers) {
-      // Get all register names that have values
       return Object.keys(latestData.registers).filter(regName => {
         const hasValue = latestData.registers[regName] !== null && 
                          latestData.registers[regName] !== undefined;
@@ -70,32 +77,8 @@ const Dashboard = () => {
       });
     }
     
-    // Fallback: If device is offline, show ALL 10 possible registers
-    // Even if some don't have data in historical records
-    if (historicalData.length > 0) {
-      // Get unique register keys from historical data
-      const historicalKeys = new Set();
-      historicalData.forEach(record => {
-        Object.keys(record).forEach(key => {
-          if (key !== 'timestamp') {
-            // Convert lowercase keys back to proper capitalization
-            const capitalizedKey = ALL_REGISTERS.find(
-              reg => reg.toLowerCase() === key.toLowerCase()
-            );
-            if (capitalizedKey) {
-              historicalKeys.add(capitalizedKey);
-            }
-          }
-        });
-      });
-      
-      // Return ALL registers, not just ones with historical data
-      // This ensures all 10 registers are shown even when offline
-      return ALL_REGISTERS;
-    }
-    
     return [];
-  }, [latestData, historicalData]);
+  }, [deviceConfig, latestData]);
 
   // Create dynamic register mapping with metadata
   const registerConfig = useMemo(() => {
@@ -312,7 +295,7 @@ const Dashboard = () => {
                 <RegisterValues data={latestData} deviceConfig={deviceConfig} />
               </Box>
 
-              {/* Device Configuration - Full width */}
+              {/* Device Configuration */}
               {deviceConfig && (
                 <Box sx={{ mb: 3 }}>
                   <DeviceConfiguration config={deviceConfig} />
@@ -497,6 +480,11 @@ const Dashboard = () => {
             </Paper>
           </Box>
           )}
+
+          {/* Power Management Widget - Bottom of dashboard */}
+          <Box sx={{ mb: 3 }}>
+            <PowerWidget deviceId={selectedDevice} />
+          </Box>
         </>
       )}
 

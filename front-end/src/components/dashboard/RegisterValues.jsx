@@ -8,14 +8,12 @@ const RegisterValues = ({ data, deviceConfig }) => {
 
   const { registers, timestamp, metadata } = data;
   
-  // Get configured registers from device config
-  // Only show registers that are configured to be polled by ESP32
+  // Filter to show ONLY registers that are CONFIGURED to poll
+  // Use deviceConfig.config.registers as source of truth
+  // This shows only what user configured, ignoring stale data
   const configuredRegisterIds = deviceConfig?.config?.registers || [];
-  
-  // Filter registers to show only configured ones (exact match, case-sensitive)
-  const filteredRegisters = Object.entries(registers).filter(([key]) => {
-    // Check if this register is in the configured list
-    return configuredRegisterIds.includes(key);
+  const displayRegisters = Object.entries(registers).filter(([key, value]) => {
+    return configuredRegisterIds.includes(key) && value !== null && value !== undefined;
   });
 
   // Format register values based on metadata
@@ -59,8 +57,8 @@ const RegisterValues = ({ data, deviceConfig }) => {
         </Box>
 
         <Grid container spacing={2}>
-          {filteredRegisters.length > 0 ? (
-            filteredRegisters.map(([key, value]) => (
+          {displayRegisters.length > 0 ? (
+            displayRegisters.map(([key, value]) => (
               <Grid item xs={12} sm={6} md={4} lg={3} key={key}>
                 <Box
                   sx={{

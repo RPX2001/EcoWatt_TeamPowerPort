@@ -11,6 +11,7 @@ from .ota_routes import ota_bp
 from .command_routes import command_bp
 from .fault_routes import fault_bp
 from .general_routes import general_bp
+from .power_routes import power_bp
 
 # Export all blueprints
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     'ota_bp',
     'command_bp',
     'fault_bp',
-    'general_bp'
+    'general_bp',
+    'power_bp'
 ]

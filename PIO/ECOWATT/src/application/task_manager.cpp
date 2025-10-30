@@ -8,6 +8,7 @@
 
 #include "application/task_manager.h"
 #include "application/system_config.h"  // Centralized configuration constants
+#include "application/credentials.h"    // DEVICE_ID and FLASK_SERVER_URL
 #include "peripheral/print.h"
 #include "peripheral/acquisition.h"
 #include "application/compression.h"
@@ -17,20 +18,24 @@
 #include "application/config_manager.h"
 #include "application/statistics_manager.h"
 #include "application/OTAManager.h"
+#include "application/power_management.h"
 #include "application/nvs.h"
 #include <esp_task_wdt.h>
 #include <time.h>
+#include <HTTPClient.h>
+#include <WiFi.h>
 
 // Helper function to get current Unix timestamp in milliseconds
-static unsigned long getCurrentTimestampMs() {
+static unsigned long long getCurrentTimestampMs() {
     struct tm timeinfo;
     if (getLocalTime(&timeinfo)) {
-        // Convert tm struct to Unix timestamp in seconds, then to milliseconds
+        // Convert tm struct to Unix timestamp in MILLISECONDS
         time_t now = mktime(&timeinfo);
-        return (unsigned long)now * 1000;
+        // Cast to 64-bit BEFORE multiplying to avoid overflow
+        return (unsigned long long)now * 1000ULL;
     }
     // Fallback to millis if NTP not synced
-    return millis();
+    return (unsigned long long)millis();
 }
 
 // ============================================
@@ -44,6 +49,7 @@ TaskHandle_t TaskManager::uploadTask_h = NULL;
 TaskHandle_t TaskManager::commandTask_h = NULL;
 TaskHandle_t TaskManager::configTask_h = NULL;
 TaskHandle_t TaskManager::statisticsTask_h = NULL;
+TaskHandle_t TaskManager::powerReportTask_h = NULL;
 TaskHandle_t TaskManager::otaTask_h = NULL;
 TaskHandle_t TaskManager::watchdogTask_h = NULL;
 
@@ -64,6 +70,7 @@ uint32_t TaskManager::uploadFrequency = DEFAULT_UPLOAD_FREQUENCY_US / 1000;    /
 uint32_t TaskManager::configFrequency = DEFAULT_CONFIG_FREQUENCY_US / 1000;    // Convert to ms
 uint32_t TaskManager::commandFrequency = DEFAULT_COMMAND_FREQUENCY_US / 1000;  // Convert to ms
 uint32_t TaskManager::otaFrequency = DEFAULT_OTA_FREQUENCY_US / 1000;          // Convert to ms
+uint32_t TaskManager::powerReportFrequency = 300000;  // 5 minutes default
 
 // Statistics
 TaskStats TaskManager::stats_sensorPoll = {0};
@@ -72,6 +79,7 @@ TaskStats TaskManager::stats_upload = {0};
 TaskStats TaskManager::stats_command = {0};
 TaskStats TaskManager::stats_config = {0};
 TaskStats TaskManager::stats_statistics = {0};
+TaskStats TaskManager::stats_powerReport = {0};
 TaskStats TaskManager::stats_ota = {0};
 TaskStats TaskManager::stats_watchdog = {0};
 
@@ -242,6 +250,18 @@ void TaskManager::startAllTasks(void* otaManager) {
         CORE_NETWORK              // Core 0
     );
     print("[TaskManager] Created: Config (Core 0, Priority 12)\n");
+
+    // MEDIUM-LOW: Power Report Task
+    xTaskCreatePinnedToCore(
+        powerReportTask,
+        "PowerReport",
+        STACK_POWER_REPORT,
+        NULL,
+        PRIORITY_POWER_REPORT,
+        &powerReportTask_h,
+        CORE_NETWORK              // Core 0
+    );
+    print("[TaskManager] Created: PowerReport (Core 0, Priority 8)\n");
     
     // LOW: OTA Task
     xTaskCreatePinnedToCore(
@@ -779,6 +799,118 @@ void TaskManager::configTask(void* parameter) {
 }
 
 // ============================================
+// MEDIUM-LOW: Power Report Task (Core 0)
+// ============================================
+
+void TaskManager::powerReportTask(void* parameter) {
+    print("[PowerReport] Task started on Core %d\n", xPortGetCoreID());
+    
+    // Register with watchdog
+    esp_task_wdt_add(NULL);
+    print("[PowerReport] Registered with watchdog\n");
+    
+    // Load frequency from NVS (converted to ms)
+    powerReportFrequency = nvs::getEnergyPollFreq() / 1000;  // Convert μs to ms
+    
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    TickType_t xFrequency = pdMS_TO_TICKS(powerReportFrequency);
+    const uint32_t deadlineUs = 5000000;  // 5s deadline
+    
+    print("[PowerReport] Report frequency: %lu ms\n", powerReportFrequency);
+    print("[PowerReport] Deadline: %lu us\n", deadlineUs);
+    
+    while (1) {
+        // Wait for power report interval
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        
+        // Update frequency if changed
+        xFrequency = pdMS_TO_TICKS(powerReportFrequency);
+        
+        uint32_t startTime = micros();
+        
+        // Always collect and report energy data (even if power management is disabled)
+        // This allows monitoring energy usage regardless of power-saving state
+        bool isPowerMgmtEnabled = PowerManagement::isEnabled();
+        
+        // Get power statistics
+        PowerStats stats = PowerManagement::getStats();
+        PowerTechniqueFlags techniques = PowerManagement::getTechniques();
+        
+        // Build JSON payload (always report, include actual enabled status)
+        char jsonBuffer[512];
+        snprintf(jsonBuffer, sizeof(jsonBuffer),
+            "{"
+            "\"device_id\":\"%s\","
+            "\"timestamp\":%llu,"
+            "\"power_management\":{"
+            "\"enabled\":%s,"
+            "\"techniques\":\"0x%02X\","
+            "\"avg_current_ma\":%.2f,"
+            "\"energy_saved_mah\":%.2f,"
+            "\"uptime_ms\":%lu,"
+            "\"high_perf_ms\":%lu,"
+            "\"normal_ms\":%lu,"
+            "\"low_power_ms\":%lu,"
+            "\"sleep_ms\":%lu"
+            "}"
+            "}",
+            DEVICE_ID,
+            getCurrentTimestampMs(),
+            isPowerMgmtEnabled ? "true" : "false",
+            techniques,
+            stats.avg_current_ma,
+            stats.energy_saved_mah,
+            stats.total_time_ms,
+            stats.high_perf_time_ms,
+            stats.normal_time_ms,
+            stats.low_power_time_ms,
+            stats.sleep_time_ms
+        );
+        
+        // Acquire WiFi mutex for network access
+        if (xSemaphoreTake(wifiClientMutex, pdMS_TO_TICKS(WIFI_MUTEX_TIMEOUT_CONFIG_MS)) == pdTRUE) {
+            
+            // Send power report to server
+            String uploadURL = String(FLASK_SERVER_URL) + "/power/energy/" + DEVICE_ID;
+            
+            WiFiClient client;
+            client.setTimeout(10000);
+            
+            HTTPClient http;
+            http.begin(client, uploadURL);
+            http.addHeader("Content-Type", "application/json");
+            http.setTimeout(10000);
+            
+            int httpResponseCode = http.POST(jsonBuffer);
+            
+            if (httpResponseCode > 0) {
+                if (httpResponseCode == 200 || httpResponseCode == 201) {
+                    print("[PowerReport] Successfully sent power report\n");
+                } else {
+                    print("[PowerReport] Server returned code: %d\n", httpResponseCode);
+                }
+            } else {
+                print("[PowerReport] POST failed: %s\n", http.errorToString(httpResponseCode).c_str());
+            }
+            
+            http.end();
+            xSemaphoreGive(wifiClientMutex);
+        } else {
+            print("[PowerReport] Failed to acquire WiFi mutex\n");
+        }
+        
+        uint32_t executionTime = micros() - startTime;
+        
+        // Record execution statistics
+        recordTaskExecution(stats_powerReport, executionTime);
+        checkDeadline("PowerReport", executionTime, deadlineUs, stats_powerReport);
+        
+        // Reset watchdog
+        esp_task_wdt_reset();
+    }
+}
+
+// ============================================
 // LOW: OTA Update Task (Core 0)
 // ============================================
 
@@ -950,4 +1082,9 @@ void TaskManager::updateCommandFrequency(uint32_t newFreqMs) {
 void TaskManager::updateOtaFrequency(uint32_t newFreqMs) {
     otaFrequency = newFreqMs;
     print("[TaskManager] OTA check frequency updated to %lu ms\n", newFreqMs);
+}
+
+void TaskManager::updatePowerReportFrequency(uint32_t newFreqMs) {
+    powerReportFrequency = newFreqMs;
+    print("[TaskManager] Power report frequency updated to %lu ms\n", newFreqMs);
 }

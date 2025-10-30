@@ -37,6 +37,7 @@
 #define PRIORITY_COMMANDS       16  // MEDIUM-HIGH
 #define PRIORITY_CONFIG         12  // MEDIUM
 #define PRIORITY_STATISTICS     10  // MEDIUM-LOW
+#define PRIORITY_POWER_REPORT   8   // MEDIUM-LOW - periodic power stats
 #define PRIORITY_OTA            5   // LOW - runs when idle
 #define PRIORITY_WATCHDOG       1   // LOWEST - safety net
 
@@ -47,6 +48,7 @@
 #define STACK_COMMANDS          4096
 #define STACK_CONFIG            6144  // Increased to prevent stack overflow
 #define STACK_STATISTICS        3072
+#define STACK_POWER_REPORT      4096  // Power stats reporting
 #define STACK_OTA               10240 // Large for firmware buffer
 #define STACK_WATCHDOG          2048
 
@@ -168,6 +170,11 @@ public:
     static void updateOtaFrequency(uint32_t newFreqMs);
     
     /**
+     * @brief Update power report frequency
+     */
+    static void updatePowerReportFrequency(uint32_t newFreqMs);
+    
+    /**
      * @brief Get current configuration frequencies (in milliseconds)
      */
     static uint32_t getConfigFrequency() { return configFrequency; }
@@ -197,6 +204,7 @@ private:
     static void commandTask(void* parameter);
     static void configTask(void* parameter);
     static void statisticsTask(void* parameter);
+    static void powerReportTask(void* parameter);
     static void otaTask(void* parameter);
     static void watchdogTask(void* parameter);
     
@@ -212,6 +220,7 @@ private:
     static TaskHandle_t commandTask_h;
     static TaskHandle_t configTask_h;
     static TaskHandle_t statisticsTask_h;
+    static TaskHandle_t powerReportTask_h;
     static TaskHandle_t otaTask_h;
     static TaskHandle_t watchdogTask_h;
     
@@ -232,6 +241,7 @@ private:
     static uint32_t configFrequency;
     static uint32_t commandFrequency;
     static uint32_t otaFrequency;
+    static uint32_t powerReportFrequency;
     
     // Statistics
     static TaskStats stats_sensorPoll;
@@ -240,6 +250,7 @@ private:
     static TaskStats stats_command;
     static TaskStats stats_config;
     static TaskStats stats_statistics;
+    static TaskStats stats_powerReport;
     static TaskStats stats_ota;
     static TaskStats stats_watchdog;
     

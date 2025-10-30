@@ -190,6 +190,11 @@ void setup()
     print("  - Config Check: %lu ms (configurable via NVS)\n", configFreqMs);
     print("  - Command Poll: %lu ms (configurable via NVS)\n", commandFreqMs);
     print("  - OTA Check:    %lu ms (configurable via NVS)\n", otaFreqMs);
+
+    uint64_t energyPollFreq = nvs::getEnergyPollFreq();
+    uint32_t energyPollMs = energyPollFreq / 1000;
+    print("  - Energy Poll:  %lu ms (%.1f s, configurable via NVS)\n", 
+          energyPollMs, energyPollMs / 1000.0);
     
     // Initialize Data Uploader (M4 format: /aggregated/<device_id>)
     DataUploader::init(FLASK_SERVER_URL "/aggregated/" DEVICE_ID, DEVICE_ID);

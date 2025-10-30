@@ -13,8 +13,11 @@ import {
   FormGroup,
   Checkbox,
   Divider,
+  Chip,
+  Tooltip,
 } from '@mui/material';
 import { updateConfig } from '../../api/config';
+import { getPowerConfig, updatePowerConfig, encodeTechniques, decodeTechniques, TECHNIQUE_NAMES, TECHNIQUE_DESCRIPTIONS } from '../../api/power';
 
 /**
  * Available Modbus Registers from Inverter SIM API
@@ -45,9 +48,16 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
     registers: ['Vac1', 'Iac1', 'Pac'],
   });
 
+  const [powerConfig, setPowerConfig] = useState({
+    enabled: false,
+    techniques: [],
+    energy_poll_interval: 300, // 300 seconds (5 minutes)
+  });
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [powerLoading, setPowerLoading] = useState(false);
 
   // Update local state when currentConfig changes
   useEffect(() => {
@@ -61,8 +71,61 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
         compression_enabled: currentConfig.compression_enabled ?? true,
         registers: currentConfig.registers ?? ['voltage', 'current', 'power'],
       });
+
+      // Extract power management from main config if present
+      if (currentConfig.power_management) {
+        // Decode techniques bitmask to array of technique names
+        const techniquesList = currentConfig.power_management.techniques_list || 
+                               decodeTechniques(currentConfig.power_management.techniques || 0);
+        
+        setPowerConfig({
+          enabled: currentConfig.power_management.enabled ?? false,
+          techniques: techniquesList,
+          energy_poll_interval: currentConfig.energy_poll_interval ?? 300,
+        });
+      } else if (currentConfig.energy_poll_interval) {
+        // If energy_poll_interval is present but power_management isn't, update it
+        setPowerConfig(prev => ({
+          ...prev,
+          energy_poll_interval: currentConfig.energy_poll_interval
+        }));
+      }
     }
   }, [currentConfig]);
+
+  // Fetch power configuration when device changes (fallback if not in main config)
+  useEffect(() => {
+    if (deviceId && !currentConfig?.power_management) {
+      fetchPowerConfig();
+    }
+  }, [deviceId, currentConfig]);
+
+  const fetchPowerConfig = async () => {
+    try {
+      setPowerLoading(true);
+      const response = await getPowerConfig(deviceId);
+      const pm = response.data.power_management;
+      
+      // Decode techniques bitmask to array of technique names
+      const techniquesList = pm.techniques_list || decodeTechniques(pm.techniques || 0);
+      
+      setPowerConfig({
+        enabled: pm.enabled,
+        techniques: techniquesList,
+        energy_poll_interval: pm.energy_poll_interval ?? 300,
+      });
+    } catch (err) {
+      console.error('Failed to fetch power config:', err);
+      // Use defaults on error
+      setPowerConfig({
+        enabled: false,
+        techniques: [],
+        energy_poll_interval: 300,
+      });
+    } finally {
+      setPowerLoading(false);
+    }
+  };
 
   const handleInputChange = (field, value) => {
     setConfig((prev) => ({ ...prev, [field]: value }));
@@ -76,6 +139,22 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
         ? prev.registers.filter((r) => r !== register)
         : [...prev.registers, register];
       return { ...prev, registers };
+    });
+    setSuccess(false);
+  };
+
+  const handlePowerToggle = (field, value) => {
+    setPowerConfig((prev) => ({ ...prev, [field]: value }));
+    setSuccess(false);
+    setError(null);
+  };
+
+  const handleTechniqueToggle = (technique) => {
+    setPowerConfig((prev) => {
+      const techniques = prev.techniques.includes(technique)
+        ? prev.techniques.filter((t) => t !== technique)
+        : [...prev.techniques, technique];
+      return { ...prev, techniques };
     });
     setSuccess(false);
   };
@@ -108,6 +187,11 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
       setError('Config poll interval must be between 1 and 300 seconds');
       return;
     }
+
+    if (powerConfig.energy_poll_interval < 60 || powerConfig.energy_poll_interval > 3600) {
+      setError('Energy poll interval must be between 60 and 3600 seconds');
+      return;
+    }
     
     if (config.registers.length === 0) {
       setError('At least one register must be selected');
@@ -119,7 +203,8 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
       setError(null);
       setSuccess(false);
 
-      // Send config update following Milestone 4 format
+      // Send config update with power management integrated
+      const techniquesBitmask = encodeTechniques(powerConfig.techniques);
       const configUpdate = {
         sampling_interval: config.sampling_interval,
         upload_interval: config.upload_interval,
@@ -128,9 +213,36 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
         config_poll_interval: config.config_poll_interval,
         compression_enabled: config.compression_enabled,
         registers: config.registers,
+        energy_poll_interval: powerConfig.energy_poll_interval,
+        power_management: {
+          enabled: powerConfig.enabled,
+          techniques: techniquesBitmask,
+        },
       };
 
+      console.log('[ConfigForm] Sending config update:', configUpdate);
+      console.log('[ConfigForm] Power management:', configUpdate.power_management);
+      
       await updateConfig(deviceId, configUpdate);
+      
+      // Update local state to reflect the changes immediately
+      setConfig(prev => ({
+        ...prev,
+        sampling_interval: configUpdate.sampling_interval,
+        upload_interval: configUpdate.upload_interval,
+        firmware_check_interval: configUpdate.firmware_check_interval,
+        command_poll_interval: configUpdate.command_poll_interval,
+        config_poll_interval: configUpdate.config_poll_interval,
+        compression_enabled: configUpdate.compression_enabled,
+        registers: configUpdate.registers,
+      }));
+      
+      setPowerConfig(prev => ({
+        ...prev,
+        enabled: configUpdate.power_management.enabled,
+        techniques: powerConfig.techniques, // Keep the list form
+        energy_poll_interval: configUpdate.energy_poll_interval,
+      }));
       
       setSuccess(true);
       if (onConfigUpdate) {
@@ -156,6 +268,8 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
         registers: currentConfig.registers ?? ['voltage', 'current', 'power'],
       });
     }
+    // Refetch power config to reset to server values
+    fetchPowerConfig();
     setError(null);
     setSuccess(false);
   };
@@ -293,6 +407,129 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
                   label={`${register.name} (Address ${register.address}, ${register.unit}, Gain: ${register.gain})`}
                 />
               ))}
+            </FormGroup>
+          </Grid>
+
+          {/* Power Management Section */}
+          <Grid item xs={12}>
+            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', mt: 2 }}>
+              Power Management
+            </Typography>
+            <Typography variant="caption" color="text.secondary" gutterBottom>
+              Configure power-saving techniques to reduce energy consumption
+            </Typography>
+            <Divider sx={{ mb: 2 }} />
+          </Grid>
+
+          <Grid item xs={12} md={6}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={powerConfig.enabled}
+                  onChange={(e) => handlePowerToggle('enabled', e.target.checked)}
+                  disabled={powerLoading}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body1">Enable Power Management</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Activate power-saving techniques on the device
+                  </Typography>
+                </Box>
+              }
+            />
+          </Grid>
+
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              label="Energy Report Frequency (seconds)"
+              type="number"
+              value={powerConfig.energy_poll_interval}
+              onChange={(e) => handlePowerToggle('energy_poll_interval', Number(e.target.value))}
+              helperText="How often device reports energy statistics (60-3600 s, always active)"
+              inputProps={{ min: 60, max: 3600, step: 60 }}
+              disabled={powerLoading}
+            />
+          </Grid>
+
+          <Grid item xs={12}>
+            <Typography variant="body2" gutterBottom sx={{ fontWeight: 'bold' }}>
+              Power Saving Techniques
+            </Typography>
+            <FormGroup>
+              <Tooltip title={TECHNIQUE_DESCRIPTIONS.wifi_modem_sleep} arrow placement="right">
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={powerConfig.techniques.includes('wifi_modem_sleep')}
+                      onChange={() => handleTechniqueToggle('wifi_modem_sleep')}
+                      disabled={powerLoading || !powerConfig.enabled}
+                    />
+                  }
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography>{TECHNIQUE_NAMES.wifi_modem_sleep}</Typography>
+                      <Chip label="Active" size="small" color="success" variant="outlined" />
+                    </Box>
+                  }
+                />
+              </Tooltip>
+
+              <Tooltip title={TECHNIQUE_DESCRIPTIONS.cpu_freq_scaling} arrow placement="right">
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={powerConfig.techniques.includes('cpu_freq_scaling')}
+                      onChange={() => handleTechniqueToggle('cpu_freq_scaling')}
+                      disabled={powerLoading || !powerConfig.enabled}
+                    />
+                  }
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography>{TECHNIQUE_NAMES.cpu_freq_scaling}</Typography>
+                      <Chip label="Future" size="small" color="warning" variant="outlined" />
+                    </Box>
+                  }
+                />
+              </Tooltip>
+
+              <Tooltip title={TECHNIQUE_DESCRIPTIONS.light_sleep} arrow placement="right">
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={powerConfig.techniques.includes('light_sleep')}
+                      onChange={() => handleTechniqueToggle('light_sleep')}
+                      disabled={powerLoading || !powerConfig.enabled}
+                    />
+                  }
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography>{TECHNIQUE_NAMES.light_sleep}</Typography>
+                      <Chip label="Future" size="small" color="warning" variant="outlined" />
+                    </Box>
+                  }
+                />
+              </Tooltip>
+
+              <Tooltip title={TECHNIQUE_DESCRIPTIONS.peripheral_gating} arrow placement="right">
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={powerConfig.techniques.includes('peripheral_gating')}
+                      onChange={() => handleTechniqueToggle('peripheral_gating')}
+                      disabled={powerLoading || !powerConfig.enabled}
+                    />
+                  }
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography>{TECHNIQUE_NAMES.peripheral_gating}</Typography>
+                      <Chip label="Future" size="small" color="warning" variant="outlined" />
+                    </Box>
+                  }
+                />
+              </Tooltip>
             </FormGroup>
           </Grid>
 

@@ -36,7 +36,8 @@ from routes import (
     security_bp,
     ota_bp,
     command_bp,
-    fault_bp
+    fault_bp,
+    power_bp
 )
 from routes.device_routes import device_bp
 from routes.config_routes import config_bp
@@ -96,6 +97,8 @@ def register_blueprints():
         app.register_blueprint(config_bp)
         logger.info("Registering utilities_bp...")
         app.register_blueprint(utilities_bp)
+        logger.info("Registering power_bp...")
+        app.register_blueprint(power_bp)
         
         # Debug: Print all registered routes
         logger.info("✓ All route blueprints registered")

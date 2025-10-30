@@ -33,10 +33,35 @@ def convert_utc_to_local(utc_timestamp_str):
     if not utc_timestamp_str:
         return None
     try:
-        # Parse the UTC timestamp from SQLite (format: YYYY-MM-DD HH:MM:SS)
-        utc_dt = datetime.strptime(utc_timestamp_str, '%Y-%m-%d %H:%M:%S')
-        # Add UTC timezone info
-        utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+        # Parse the UTC timestamp from SQLite
+        # Try different formats that SQLite might use
+        utc_dt = None
+        
+        # Try with timezone offset first (format: YYYY-MM-DD HH:MM:SS+00:00)
+        try:
+            # Remove timezone suffix if present and parse manually
+            if '+' in utc_timestamp_str or utc_timestamp_str.endswith('Z'):
+                # Strip timezone info - we know it's UTC
+                base_timestamp = utc_timestamp_str.split('+')[0].split('Z')[0]
+                if '.' in base_timestamp:
+                    utc_dt = datetime.strptime(base_timestamp, '%Y-%m-%d %H:%M:%S.%f')
+                else:
+                    utc_dt = datetime.strptime(base_timestamp, '%Y-%m-%d %H:%M:%S')
+                # Already UTC, just add timezone info
+                utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+        
+        # Fallback: Try with microseconds (format: YYYY-MM-DD HH:MM:SS.ffffff)
+        if utc_dt is None:
+            try:
+                utc_dt = datetime.strptime(utc_timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
+                utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+            except ValueError:
+                # Fallback to format without microseconds (format: YYYY-MM-DD HH:MM:SS)
+                utc_dt = datetime.strptime(utc_timestamp_str, '%Y-%m-%d %H:%M:%S')
+                utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+        
         # Convert to Sri Lanka time
         local_dt = utc_dt.astimezone(SRI_LANKA_TZ)
         # Return as ISO format string
@@ -145,6 +170,27 @@ class Database:
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_status_ota ON ota_updates(device_id, status)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_initiated_at ON ota_updates(initiated_at)')
+        
+        # Power reports table - stores energy consumption and power management statistics
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS power_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id TEXT NOT NULL,
+                timestamp DATETIME NOT NULL,
+                enabled INTEGER NOT NULL,
+                techniques INTEGER NOT NULL,
+                avg_current_ma REAL NOT NULL,
+                energy_saved_mah REAL NOT NULL,
+                uptime_ms INTEGER NOT NULL,
+                high_perf_ms INTEGER DEFAULT 0,
+                normal_ms INTEGER DEFAULT 0,
+                low_power_ms INTEGER DEFAULT 0,
+                sleep_ms INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_timestamp_power ON power_reports(device_id, timestamp)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_created_at_power ON power_reports(created_at)')
         
         conn.commit()
         logger.info("[Database] Schema initialized successfully")
@@ -738,6 +784,153 @@ class Database:
         }
     
     # ============================================
+    # POWER MANAGEMENT OPERATIONS
+    # ============================================
+    
+    @staticmethod
+    def save_power_report(device_id: str, timestamp: int, enabled: bool, techniques: int,
+                         avg_current_ma: float, energy_saved_mah: float, uptime_ms: int,
+                         high_perf_ms: int = 0, normal_ms: int = 0, 
+                         low_power_ms: int = 0, sleep_ms: int = 0) -> int:
+        """
+        Save power report from ESP32 to database
+        
+        Args:
+            device_id: Device identifier
+            timestamp: Report timestamp in milliseconds (from ESP32)
+            enabled: Power management enabled status
+            techniques: Bitmask of active techniques (0x00-0x0F)
+            avg_current_ma: Average current consumption in milliamps
+            energy_saved_mah: Energy saved in milliamp-hours
+            uptime_ms: Device uptime in milliseconds
+            high_perf_ms: Time spent in high performance mode
+            normal_ms: Time spent in normal mode
+            low_power_ms: Time spent in low power mode
+            sleep_ms: Time spent in sleep mode
+            
+        Returns:
+            Row ID of inserted report
+        """
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        # Convert millisecond timestamp to UTC datetime
+        report_datetime = datetime.fromtimestamp(timestamp / 1000.0, tz=timezone.utc)
+        
+        cursor.execute('''
+            INSERT INTO power_reports 
+            (device_id, timestamp, enabled, techniques, avg_current_ma, energy_saved_mah, 
+             uptime_ms, high_perf_ms, normal_ms, low_power_ms, sleep_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (device_id, report_datetime, int(enabled), techniques, avg_current_ma, 
+              energy_saved_mah, uptime_ms, high_perf_ms, normal_ms, low_power_ms, sleep_ms))
+        
+        conn.commit()
+        return cursor.lastrowid
+    
+    @staticmethod
+    def get_power_reports(device_id: str, period: str = '24h', limit: int = 100) -> List[Dict]:
+        """
+        Get power reports for a device within a time period
+        
+        Args:
+            device_id: Device identifier
+            period: Time period ('1h', '24h', '7d', '30d', 'all')
+            limit: Maximum number of records to return
+            
+        Returns:
+            List of power report dictionaries
+        """
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        # Handle 'all' period - no time filter
+        if period == 'all':
+            cursor.execute('''
+                SELECT device_id, timestamp, enabled, techniques, avg_current_ma, energy_saved_mah,
+                       uptime_ms, high_perf_ms, normal_ms, low_power_ms, sleep_ms, created_at
+                FROM power_reports
+                WHERE device_id = ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+            ''', (device_id, limit))
+        else:
+            # Calculate cutoff datetime based on period
+            period_map = {
+                '1h': timedelta(hours=1),
+                '24h': timedelta(hours=24),
+                '7d': timedelta(days=7),
+                '30d': timedelta(days=30)
+            }
+            
+            if period not in period_map:
+                period = '24h'  # Default to 24 hours
+            
+            cutoff_datetime = datetime.now() - period_map[period]
+            
+            cursor.execute('''
+                SELECT device_id, timestamp, enabled, techniques, avg_current_ma, energy_saved_mah,
+                       uptime_ms, high_perf_ms, normal_ms, low_power_ms, sleep_ms, created_at
+                FROM power_reports
+                WHERE device_id = ? AND timestamp >= ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+            ''', (device_id, cutoff_datetime, limit))
+        
+        reports = []
+        for row in cursor.fetchall():
+            reports.append({
+                'device_id': row['device_id'],
+                'timestamp': row['timestamp'],
+                'enabled': bool(row['enabled']),
+                'techniques': row['techniques'],
+                'avg_current_ma': row['avg_current_ma'],
+                'energy_saved_mah': row['energy_saved_mah'],
+                'uptime_ms': row['uptime_ms'],
+                'high_perf_ms': row['high_perf_ms'],
+                'normal_ms': row['normal_ms'],
+                'low_power_ms': row['low_power_ms'],
+                'sleep_ms': row['sleep_ms'],
+                'created_at': row['created_at']
+            })
+        
+        return reports
+    
+    @staticmethod
+    def get_latest_power_report(device_id: str) -> Optional[Dict]:
+        """Get the most recent power report for a device"""
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT device_id, timestamp, enabled, techniques, avg_current_ma, energy_saved_mah,
+                   uptime_ms, high_perf_ms, normal_ms, low_power_ms, sleep_ms, created_at
+            FROM power_reports
+            WHERE device_id = ?
+            ORDER BY timestamp DESC
+            LIMIT 1
+        ''', (device_id,))
+        
+        row = cursor.fetchone()
+        if not row:
+            return None
+        
+        return {
+            'device_id': row['device_id'],
+            'timestamp': row['timestamp'],
+            'enabled': bool(row['enabled']),
+            'techniques': row['techniques'],
+            'avg_current_ma': row['avg_current_ma'],
+            'energy_saved_mah': row['energy_saved_mah'],
+            'uptime_ms': row['uptime_ms'],
+            'high_perf_ms': row['high_perf_ms'],
+            'normal_ms': row['normal_ms'],
+            'low_power_ms': row['low_power_ms'],
+            'sleep_ms': row['sleep_ms'],
+            'created_at': row['created_at']
+        }
+    
+    # ============================================
     # CLEANUP OPERATIONS
     # ============================================
     
@@ -755,6 +948,7 @@ class Database:
                 'commands': 0,
                 'configurations': 0,
                 'ota_updates': 0,
+                'power_reports': 0,
                 'message': 'Cleanup skipped - unlimited retention enabled'
             }
         
@@ -779,17 +973,25 @@ class Database:
         cursor.execute('DELETE FROM ota_updates WHERE initiated_at < ?', (cutoff_date,))
         ota_deleted = cursor.rowcount
         
+        # Clean old power reports (keep last 7 days detailed, aggregate older data)
+        # For now, keep 7 days of detailed reports
+        power_cutoff = datetime.now() - timedelta(days=7)
+        cursor.execute('DELETE FROM power_reports WHERE created_at < ?', (power_cutoff,))
+        power_deleted = cursor.rowcount
+        
         conn.commit()
         
-        if sensor_deleted + commands_deleted + config_deleted + ota_deleted > 0:
+        if sensor_deleted + commands_deleted + config_deleted + ota_deleted + power_deleted > 0:
             logger.info(f"[Database] Cleanup: Deleted {sensor_deleted} sensor records, "
-                  f"{commands_deleted} commands, {config_deleted} configs, {ota_deleted} OTA records")
+                  f"{commands_deleted} commands, {config_deleted} configs, {ota_deleted} OTA records, "
+                  f"{power_deleted} power reports")
         
         return {
             'sensor_data': sensor_deleted,
             'commands': commands_deleted,
             'configurations': config_deleted,
-            'ota_updates': ota_deleted
+            'ota_updates': ota_deleted,
+            'power_reports': power_deleted
         }
     
     @staticmethod

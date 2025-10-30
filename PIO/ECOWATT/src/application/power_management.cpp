@@ -7,7 +7,9 @@
  */
 
 #include "application/power_management.h"
+#include "application/nvs.h"
 #include "peripheral/formatted_print.h"
+#include <WiFi.h>
 
 // Static member initialization
 PowerMode PowerManagement::currentMode = POWER_HIGH_PERFORMANCE;
@@ -15,6 +17,8 @@ PowerStats PowerManagement::stats = {0};
 uint32_t PowerManagement::lastUpdateTime = 0;
 bool PowerManagement::autoPowerManagement = true;
 uint32_t PowerManagement::currentFrequency = 240;
+PowerTechniqueFlags PowerManagement::enabledTechniques = POWER_TECH_WIFI_MODEM_SLEEP;
+bool PowerManagement::powerManagementEnabled = false;
 
 /**
  * @brief Initialize power management system
@@ -22,17 +26,48 @@ uint32_t PowerManagement::currentFrequency = 240;
 void PowerManagement::init() {
     PRINT_SECTION("POWER MANAGEMENT INITIALIZATION");
     
-    // CRITICAL FINDING: ESP32 WiFi requires 240 MHz for stable operation
-    // Frequency scaling below 240 MHz causes BEACON_TIMEOUT and disconnections
-    // This is a hardware limitation when WiFi is continuously active
+    // Initialize NVS namespace first (ensures it exists)
+    nvs::initPowerNamespace();
     
-    PRINT_INFO("Power management strategy:");
+    // Load settings from NVS
+    powerManagementEnabled = nvs::getPowerEnabled();
+    enabledTechniques = nvs::getPowerTechniques();
+    
+    PRINT_INFO("Power management configuration:");
     PRINT_INFO("  CPU Frequency: Fixed 240 MHz (WiFi requirement)");
     PRINT_INFO("  WiFi always active (polling/upload requirements)");
-    PRINT_INFO("  Alternative optimizations:");
-    PRINT_INFO("    - Modem sleep between operations");
-    PRINT_INFO("    - Peripheral gating (future)");
-    PRINT_INFO("    - Code optimization for efficiency");
+    
+    // Print loaded configuration
+    Serial.printf("  Loaded from NVS:\n");
+    Serial.printf("    Enabled: %s\n", powerManagementEnabled ? "YES" : "NO");
+    Serial.printf("    Techniques bitmask: 0x%02X\n", enabledTechniques);
+    
+    // List enabled techniques
+    PRINT_INFO("  Enabled techniques:");
+    if (enabledTechniques == POWER_TECH_NONE) {
+        PRINT_INFO("    - NONE (full performance)");
+    } else {
+        if (enabledTechniques & POWER_TECH_WIFI_MODEM_SLEEP) {
+            PRINT_INFO("    - WiFi Modem Sleep");
+        }
+        if (enabledTechniques & POWER_TECH_CPU_FREQ_SCALING) {
+            PRINT_INFO("    - CPU Frequency Scaling");
+        }
+        if (enabledTechniques & POWER_TECH_LIGHT_SLEEP) {
+            PRINT_INFO("    - Light Sleep");
+        }
+        if (enabledTechniques & POWER_TECH_PERIPHERAL_GATING) {
+            PRINT_INFO("    - Peripheral Gating");
+        }
+    }
+    
+    if (powerManagementEnabled) {
+        // Apply the enabled techniques
+        applyTechniques();
+    } else {
+        PRINT_INFO("  Power management DISABLED - all at full power");
+        WiFi.setSleep(false);  // WIFI_PS_NONE
+    }
     
     // Reset statistics
     resetStats();
@@ -44,7 +79,7 @@ void PowerManagement::init() {
     
     lastUpdateTime = millis();
     
-    PRINT_SUCCESS("Power management initialized (WiFi-safe mode)");
+    PRINT_SUCCESS("Power management initialized");
 }
 
 /**
@@ -282,4 +317,137 @@ void PowerManagement::enableAutoPowerManagement(bool enable) {
  */
 bool PowerManagement::isAutoPowerManagementEnabled() {
     return autoPowerManagement;
+}
+
+/**
+ * @brief Enable or disable power management system
+ */
+void PowerManagement::enable(bool enabled) {
+    powerManagementEnabled = enabled;
+    
+    // Save to NVS
+    nvs::setPowerEnabled(enabled);
+    
+    if (enabled) {
+        PRINT_SUCCESS("Power management ENABLED");
+        // Apply currently enabled techniques
+        applyTechniques();
+    } else {
+        PRINT_INFO("Power management DISABLED");
+        // Disable all power saving
+        WiFi.setSleep(false);  // WIFI_PS_NONE
+        setCPUFrequency(POWER_HIGH_PERFORMANCE);
+    }
+}
+
+/**
+ * @brief Check if power management is enabled
+ */
+bool PowerManagement::isEnabled() {
+    return powerManagementEnabled;
+}
+
+/**
+ * @brief Set power management techniques
+ */
+void PowerManagement::setTechniques(PowerTechniqueFlags techniques) {
+    enabledTechniques = techniques;
+    
+    // Save to NVS
+    nvs::setPowerTechniques(techniques);
+    
+    Serial.printf("Power techniques set to: 0x%02X\n", techniques);
+    
+    // List what was enabled
+    PRINT_INFO("  Enabled techniques:");
+    if (techniques == POWER_TECH_NONE) {
+        PRINT_INFO("    - NONE");
+    } else {
+        if (techniques & POWER_TECH_WIFI_MODEM_SLEEP) {
+            PRINT_INFO("    - WiFi Modem Sleep");
+        }
+        if (techniques & POWER_TECH_CPU_FREQ_SCALING) {
+            PRINT_INFO("    - CPU Frequency Scaling");
+        }
+        if (techniques & POWER_TECH_LIGHT_SLEEP) {
+            PRINT_INFO("    - Light Sleep");
+        }
+        if (techniques & POWER_TECH_PERIPHERAL_GATING) {
+            PRINT_INFO("    - Peripheral Gating");
+        }
+    }
+    
+    // Apply if power management is enabled
+    if (powerManagementEnabled) {
+        applyTechniques();
+    }
+    
+    PRINT_SUCCESS("Power techniques updated");
+}
+
+/**
+ * @brief Get current enabled techniques
+ */
+PowerTechniqueFlags PowerManagement::getTechniques() {
+    return enabledTechniques;
+}
+
+/**
+ * @brief Enable a specific technique
+ */
+void PowerManagement::enableTechnique(PowerTechnique technique) {
+    enabledTechniques |= technique;
+    setTechniques(enabledTechniques);
+}
+
+/**
+ * @brief Disable a specific technique
+ */
+void PowerManagement::disableTechnique(PowerTechnique technique) {
+    enabledTechniques &= ~technique;
+    setTechniques(enabledTechniques);
+}
+
+/**
+ * @brief Check if a technique is enabled
+ */
+bool PowerManagement::isTechniqueEnabled(PowerTechnique technique) {
+    return (enabledTechniques & technique) != 0;
+}
+
+/**
+ * @brief Apply currently enabled techniques
+ */
+void PowerManagement::applyTechniques() {
+    PRINT_INFO("Applying power management techniques...");
+    
+    // 1. WiFi Modem Sleep
+    if (enabledTechniques & POWER_TECH_WIFI_MODEM_SLEEP) {
+        PRINT_INFO("  Enabling WiFi modem sleep (WIFI_PS_MAX_MODEM)");
+        WiFi.setSleep(WIFI_PS_MAX_MODEM);  // Max power save
+    } else {
+        PRINT_INFO("  WiFi modem sleep disabled");
+        WiFi.setSleep(WIFI_PS_NONE);
+    }
+    
+    // 2. CPU Frequency Scaling
+    if (enabledTechniques & POWER_TECH_CPU_FREQ_SCALING) {
+        PRINT_INFO("  CPU frequency scaling enabled (future implementation)");
+        // Future: Enable dynamic frequency scaling via esp_pm
+        // Currently keeping at 240 MHz for WiFi stability
+    }
+    
+    // 3. Light Sleep
+    if (enabledTechniques & POWER_TECH_LIGHT_SLEEP) {
+        PRINT_INFO("  Light sleep enabled (future implementation)");
+        // Future: Enable automatic light sleep via esp_pm
+    }
+    
+    // 4. Peripheral Gating
+    if (enabledTechniques & POWER_TECH_PERIPHERAL_GATING) {
+        PRINT_INFO("  Peripheral gating enabled");
+        // Future: Integrate with PeripheralPower class
+    }
+    
+    PRINT_SUCCESS("Techniques applied");
 }
