@@ -1,25 +1,14 @@
 # 🌱 EcoWatt - Smart Energy Monitoring System
 **Team PowerPort** | EN4440 Embedded Systems and Design
 
-[![Compression](https://img.shields.io/badge/Compression-96.4%25-blue?style=flat-square)]()
+[![Compression](https://img.shields.io/badge/Compression25-blue?style=flat-square)]()
 [![FOTA](https://img.shields.io/badge/FOTA-Secure-success?style=flat-square)]()
-[![M4](https://img.shields.io/badge/M4-Complete-brightgreen?style=flat-square)]()
-
 ---
 
 ## 📋 Overview
 
-**EcoWatt** is an IoT system for real-time monitoring and control of solar inverters. The system uses ESP32 hardware with secure cloud connectivity via Flask server, achieving **96.4% data compression** and supporting **secure over-the-air firmware updates** (FOTA).
+**EcoWatt** is an IoT system for real-time monitoring and control of solar inverters. The system uses ESP32 hardware with secure cloud connectivity via Flask server, achieving **data compression** and supporting **secure over-the-air firmware updates** (FOTA).
 
-### � Key Features
-- ✅ **Real-time data acquisition** from solar inverters via Modbus RTU
-- ✅ **Advanced compression** - 96.4% compression ratio (SEMANTIC/DICTIONARY algorithms)
-- ✅ **Secure communication** - AES-128 encryption, HMAC validation, anti-replay protection
-- ✅ **Remote command execution** - Power control, frequency tuning, inverter management
-- ✅ **Firmware OTA updates** - RSA-2048 signature verification, AES-CBC decryption
-- ✅ **Comprehensive testing** - M3/M4 integration tests, component tests, security validation
-
----
 
 ## 📚 Documentation
 
@@ -38,64 +27,133 @@
 
 ### Prerequisites
 - **Python 3.10+** (Flask server)
+- **Node.js 20+** (React frontend)
 - **PlatformIO** (ESP32 development)
-- **Just** command runner (optional, for task automation)
+- **Just** command runner (recommended for task automation)
 
-### Flask Server Setup
+### Automated Setup (Recommended)
+
+The easiest way to get started is using the `just` command runner:
 
 ```bash
-# Navigate to Flask directory
-cd flask
+# Complete first-time setup (installs all dependencies)
+just setup
 
-# Install dependencies
-pip install -r req.txt
+# Check installation status
+just status
+```
+
+### Manual Setup
+
+If you prefer manual setup:
+
+**Backend (Flask):**
+```bash
+# Create virtual environment and install dependencies
+python3 -m venv .venv
+.venv/bin/pip install -r flask/requirements.txt
 
 # Generate cryptographic keys (first time only)
-python generate_keys.py
-
-# Start the server
-python flask_server_modular.py
-# Or using just:
-just server
+cd flask && python scripts/generate_keys.py
 ```
 
-Server runs on `http://localhost:5000`
+**Frontend (React):**
+```bash
+cd front-end
+npm install
+```
 
-### ESP32 Firmware Build & Upload
+**ESP32 Firmware:**
+```bash
+# Install PlatformIO
+pip install platformio
+```
+
+---
+
+## 🎮 Available Commands
+
+### Quick Commands (Shortcuts)
 
 ```bash
-# Navigate to PlatformIO directory
-cd PIO/ECOWATT
-
-# Build firmware
-pio run
-
-# Upload to ESP32
-pio run --target upload
-
-# Monitor serial output
-pio device monitor
-
-# Or using just:
-just build
-just upload
-just monitor
+just s              # Start Flask backend server
+just d              # Start React frontend dev server
+just f              # Flash ESP32 firmware
+just m              # Monitor ESP32 serial output
+just fm             # Flash and monitor ESP32
 ```
 
-### Running Tests
+### Development Commands
 
-**Flask Tests:**
+**Setup & Installation:**
+```bash
+just setup          # Complete first-time setup
+just install-deps   # Install all dependencies
+just status         # Check system status
+```
+
+**Backend Development:**
+```bash
+just server         # Start Flask backend (http://localhost:5001)
+just s              # Shortcut for 'just server'
+```
+
+**Frontend Development:**
+```bash
+just dev            # Start React frontend (http://localhost:5173)
+just d              # Shortcut for 'just dev'
+```
+
+**ESP32 Development:**
+```bash
+just flash          # Build and flash ESP32 firmware
+just monitor        # Monitor ESP32 serial output
+just flash-monitor  # Flash then immediately monitor
+just f              # Shortcut for 'just flash'
+just m              # Shortcut for 'just monitor'
+just fm             # Shortcut for 'just flash-monitor'
+```
+
+**Testing:**
+```bash
+just test-all       # Run all tests (frontend + ESP32)
+just test-frontend  # Frontend tests only
+just test-esp32     # ESP32 tests only
+```
+
+**Utilities:**
+```bash
+just clean          # Clean build artifacts
+just clean-all      # Remove all dependencies (nuclear option)
+just db-init        # Initialize database
+just db-backup      # Backup database
+just help           # Show detailed help
+```
+
+### Manual Commands (Without Just)
+
+**Start Backend:**
 ```bash
 cd flask
-pytest -v  # Run all tests
-pytest test_m4_integration/ -v  # M4 tests only
+../.venv/bin/python3 flask_server_modular.py
 ```
 
-**ESP32 Tests:**
+**Start Frontend:**
+```bash
+cd front-end
+npm run dev
+```
+
+**Flash ESP32:**
 ```bash
 cd PIO/ECOWATT
-pio test  # Run all tests
-pio test -e test_m4_integration  # Specific test environment
+pio run --target upload
+```
+
+**Monitor ESP32:**
+```bash
+cd PIO/ECOWATT
+pio device monitor
 ```
 
 ---
@@ -104,14 +162,25 @@ pio test -e test_m4_integration  # Specific test environment
 
 ```
 EcoWatt_TeamPowerPort/
-├── flask/                          # Flask server (Python)
+├── flask/                          # Flask backend server (Python)
 │   ├── flask_server_modular.py     # Main server entry point
-│   ├── handlers/                   # Request handlers (command, OTA, security, etc.)
-│   ├── routes/                     # API routes (7 modules)
-│   ├── utils/                      # Utilities (compression, MQTT, logging)
-│   ├── test_m3_integration/        # M3 integration tests (8 tests)
-│   ├── test_m4_integration/        # M4 integration tests (9 tests)
-│   └── justfile                    # Task automation
+│   ├── handlers/                   # Request handlers (command, OTA, security, fault)
+│   ├── routes/                     # API routes (10+ modules)
+│   ├── utils/                      # Utilities (compression, data, logging)
+│   ├── scripts/                    # Admin scripts (key generation, firmware prep)
+│   ├── tests/                      # Backend tests (unit + integration)
+│   ├── database.py                 # SQLite database interface
+│   └── justfile                    # Flask task automation
+│
+├── front-end/                      # React frontend (JavaScript)
+│   ├── src/                        # Source code
+│   │   ├── components/             # React components (dashboard, testing, etc.)
+│   │   ├── pages/                  # Page components
+│   │   ├── api/                    # API client functions
+│   │   └── contexts/               # React contexts
+│   ├── public/                     # Static assets
+│   ├── package.json                # Node.js dependencies
+│   └── justfile                    # Frontend task automation
 │
 ├── PIO/ECOWATT/                    # ESP32 firmware (C++)
 │   ├── src/main.cpp                # Main firmware (Petri net state machine)
@@ -124,30 +193,19 @@ EcoWatt_TeamPowerPort/
 │   │   ├── test_security_*/        # Security validation tests
 │   │   └── test_fota_*/            # OTA component tests
 │   ├── platformio.ini              # PlatformIO configuration
-│   └── justfile                    # Task automation
+│   └── justfile                    # ESP32 task automation
 │
 ├── plans_and_progress/             # Comprehensive documentation
 │   ├── FLASK_ARCHITECTURE.md       # Flask server documentation (123KB)
 │   ├── FLASK_TESTS.md              # Flask test documentation (65KB)
 │   ├── ESP32_ARCHITECTURE.md       # ESP32 firmware documentation (112KB)
-│   └── ESP32_TESTS.md              # ESP32 test documentation (68KB)
+│   ├── ESP32_TESTS.md              # ESP32 test documentation (68KB)
+│   └── MILESTONE_5_TODO.md         # M5 progress tracking
 │
-└── docs/                           # Project requirements & API specs
+├── docs/                           # Project requirements & API specs
+├── justfile                        # Root task automation (orchestrates all)
+└── README.md                       # This file
 ```
-
----
-
-## 📊 Milestone Status
-
-| Milestone | Title | Status | Key Features |
-|-----------|-------|--------|--------------|
-| **M1** | Petri Net Design | ✅ Complete | State machine modeling |
-| **M2** | Inverter Integration | ✅ Complete | Modbus RTU, sensor polling |
-| **M3** | Compression & Upload | ✅ Complete | 96.4% compression, ring buffer, cloud upload |
-| **M4** | Security & FOTA | ✅ Complete | AES encryption, HMAC, RSA signatures, OTA updates, remote commands |
-| **M5** | Power Management | ⏳ Pending | Sleep modes, fault recovery, diagnostics |
-
-**Overall Progress**: **80%** (4/5 milestones complete)
 
 ---
 
@@ -156,22 +214,69 @@ EcoWatt_TeamPowerPort/
 ### High-Level Overview
 
 ```
-┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
-│  Solar Inverter │◄────────┤   ESP32 Device  │────────►│  Flask Server   │
-│  (Modbus RTU)   │  Modbus │   (EcoWatt)     │  HTTPS  │  (Cloud)        │
-└─────────────────┘         └─────────────────┘         └─────────────────┘
-                                     │                            │
-                              Compression (96.4%)          MQTT Publishing
-                              AES Encryption                Command Queue
-                              Ring Buffer                   Firmware Hosting
+┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
+│  Solar Inverter │◄────────┤   ESP32 Device  │────────►│  Flask Server   │────────►│  React Frontend │
+│  (Modbus RTU)   │  Modbus │   (EcoWatt)     │  HTTPS  │  (Port 5001)    │   API   │  (Port 5173)    │
+└─────────────────┘         └─────────────────┘         └─────────────────┘         └─────────────────┘
+                                     │                            │                           │
+                              Compression          MQTT Publishing            Web Dashboard
+                              AES Encryption                Command Queue              Real-time Monitoring
+                              Ring Buffer                   Firmware Hosting          Fault Injection
 ```
 
 ### Data Flow
 
+**Data Acquisition & Upload (ESP32 → Backend):**
 ```
-Modbus Polling (2s) → Ring Buffer (7 samples) → Compression (96.4%)
-    → AES Encryption → HTTPS Upload (15s) → Flask Server
-    → Storage & MQTT → Dashboard
+Modbus RTU Polling (2s interval)
+    ↓
+Ring Buffer (7 samples)
+    ↓
+Compression (96.4% ratio: 140 bytes → 5 bytes)
+    ↓
+AES-128 Encryption + HMAC-SHA256
+    ↓
+HTTPS Upload (15s interval)
+    ↓
+Flask Server (Validation & Storage)
+    ↓
+SQLite Database + MQTT Publish
+```
+
+**Remote Control (Frontend → ESP32):**
+```
+React Dashboard (User Action)
+    ↓
+REST API Request (POST /command)
+    ↓
+Flask Server (Command Queue)
+    ↓
+ESP32 Polling (GET /command/pending)
+    ↓
+Command Execution (Modbus, Power Control, etc.)
+    ↓
+Status Report (POST /command/status)
+    ↓
+Frontend Update (Real-time Display)
+```
+
+**Firmware OTA (Backend → ESP32):**
+```
+Firmware Upload (Flask Server)
+    ↓
+RSA-2048 Signature + AES-CBC Encryption
+    ↓
+Manifest Generation (version, hash, signature)
+    ↓
+ESP32 Check Update (GET /ota/manifest)
+    ↓
+Chunk Download (GET /ota/firmware/<chunk>)
+    ↓
+Hash Verification + RSA Signature Validation
+    ↓
+AES Decryption + Flash Write
+    ↓
+Boot to New Firmware
 ```
 
 ---
@@ -185,25 +290,26 @@ Modbus Polling (2s) → Ring Buffer (7 samples) → Compression (96.4%)
 - **Protocols**: Modbus RTU, HTTP/HTTPS, MQTT
 - **Test Framework**: Unity
 
-**Flask Server:**
+**Flask Backend:**
 - **Language**: Python 3.10+
 - **Framework**: Flask + Flask-CORS
 - **Security**: Cryptography library (RSA, AES, HMAC)
+- **Database**: SQLite
 - **MQTT**: Paho-MQTT (HiveMQ)
 - **Test Framework**: Pytest
 
----
+**React Frontend:**
+- **Language**: JavaScript (ES6+)
+- **Framework**: React 18 + Vite
+- **UI Library**: Material-UI (MUI)
+- **State Management**: React Query (TanStack Query)
+- **HTTP Client**: Axios
+- **Build Tool**: Vite
 
-## 📈 Performance Highlights
-
-| Metric | Achievement |
-|--------|-------------|
-| **Compression Ratio** | 96.4% (140 bytes → 5 bytes) |
-| **Data Throughput** | 30 samples/minute |
-| **Upload Success** | 100% |
-| **Command Latency** | <10 seconds |
-| **OTA Success** | 100% (997/997 chunks) |
-| **Free Heap** | 75% (235KB available) |
+**DevOps & Tools:**
+- **Task Automation**: Just (justfile)
+- **Version Control**: Git + GitHub
+- **API Testing**: Postman, curl
 
 ---
 
@@ -263,6 +369,5 @@ Academic project - University of Moratuwa, EN4440 Module
 
 ---
 
-**Last Updated**: October 28, 2025  
-**Current Version**: v1.0.4  
-**Status**: M4 Complete, M5 Pending
+**Last Updated**: November 5, 2025  
+**Current Version**: v1.2.0  

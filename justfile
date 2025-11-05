@@ -2,8 +2,11 @@
 # Manages Flask backend, React frontend, and ESP32 firmware
 # Usage: just <command>
 
+# Get absolute project root path
+project_root := justfile_directory()
+
 # Python virtual environment path
-venv_dir := ".venv"
+venv_dir := project_root + "/.venv"
 python := venv_dir + "/bin/python3"
 pip := venv_dir + "/bin/pip"
 
@@ -22,7 +25,7 @@ default:
 setup: check-just install-python install-node install-platformio install-deps
     @echo ""
     @echo "════════════════════════════════════════════════════"
-    @echo "✅ EcoWatt Project Setup Complete!"
+    @echo " EcoWatt Project Setup Complete!"
     @echo "════════════════════════════════════════════════════"
     @echo ""
     @echo "Next steps:"
@@ -34,71 +37,45 @@ setup: check-just install-python install-node install-platformio install-deps
 
 # Check if just is installed (called automatically)
 @check-just:
-    @echo "Checking for just command runner..."
-    @if ! command -v just &> /dev/null; then \
-        echo "❌ just is not installed!"; \
-        echo ""; \
-        echo "Install just:"; \
-        echo "  • Ubuntu/Debian: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin"; \
-        echo "  • macOS:         brew install just"; \
-        echo "  • Arch:          sudo pacman -S just"; \
-        echo ""; \
-        echo "Or visit: https://github.com/casey/just#installation"; \
-        exit 1; \
-    else \
-        echo "✅ just is installed ($(just --version))"; \
-    fi
+    @echo "just is installed ($(just --version))"
 
 # Install Python dependencies (Flask server)
 install-python:
     @echo ""
     @echo "════════════════════════════════════════════════════"
-    @echo "📦 Installing Python Dependencies"
+    @echo " Installing Python Dependencies"
     @echo "════════════════════════════════════════════════════"
-    @if ! command -v python3 &> /dev/null; then \
-        echo "❌ Python 3 is not installed!"; \
-        echo "Install Python 3.8+ and try again."; \
-        exit 1; \
-    fi
-    @echo "✅ Python $(python3 --version) found"
+    @echo "Python $(python3 --version) found"
     @echo "Creating virtual environment..."
     @if [ ! -d "{{venv_dir}}" ]; then \
         python3 -m venv {{venv_dir}}; \
-        echo "✅ Virtual environment created"; \
+        echo "Virtual environment created"; \
     else \
-        echo "✅ Virtual environment already exists"; \
+        echo "Virtual environment already exists"; \
     fi
     @echo "Installing Flask dependencies..."
     {{pip}} install --upgrade pip
     {{pip}} install -r flask/requirements.txt
-    @echo "✅ Python dependencies installed"
+    @echo "Python dependencies installed"
 
 # Install Node.js dependencies (React frontend)
 install-node:
     @echo ""
     @echo "════════════════════════════════════════════════════"
-    @echo "📦 Installing Node.js Dependencies"
+    @echo " Installing Node.js Dependencies"
     @echo "════════════════════════════════════════════════════"
-    @if ! command -v node &> /dev/null; then \
-        echo "❌ Node.js is not installed!"; \
-        echo ""; \
-        echo "Install Node.js 18+ from:"; \
-        echo "  • Ubuntu/Debian: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs"; \
-        echo "  • macOS:         brew install node"; \
-        echo "  • Or visit:      https://nodejs.org/"; \
-        exit 1; \
-    fi
     @echo "✅ Node.js $(node --version) found"
     @echo "✅ npm $(npm --version) found"
     @echo "Installing frontend dependencies..."
     cd front-end && npm install
-    @echo "✅ Node.js dependencies installed"
+    @echo "✅ Frontend dependencies installed"
+
 
 # Install PlatformIO for ESP32 development
 install-platformio:
     @echo ""
     @echo "════════════════════════════════════════════════════"
-    @echo "📦 Installing PlatformIO"
+    @echo " Installing PlatformIO"
     @echo "════════════════════════════════════════════════════"
     @if ! command -v pio &> /dev/null && [ ! -f "$HOME/.platformio/penv/bin/platformio" ]; then \
         echo "Installing PlatformIO Core..."; \
@@ -124,14 +101,14 @@ install-deps: install-python install-node install-platformio
 
 # Start Flask backend server (development mode)
 server:
-    @echo "🚀 Starting Flask backend server..."
+    @echo "Starting Flask backend server..."
     @echo "Server will be available at: http://localhost:5001"
     @echo ""
     cd flask && {{python}} flask_server_modular.py
 
 # Start Flask server in background
 server-bg:
-    @echo "🚀 Starting Flask server in background..."
+    @echo "Starting Flask server in background..."
     cd flask && nohup {{python}} flask_server_modular.py > server.log 2>&1 &
     @echo "✅ Server started in background (logs: flask/server.log)"
     @echo "   Access at: http://localhost:5001"
@@ -144,7 +121,7 @@ server-stop:
 
 # View Flask server logs
 server-logs:
-    @echo "📋 Flask server logs (Ctrl+C to exit):"
+    @echo "Flask server logs (Ctrl+C to exit):"
     @tail -f flask/server.log
 
 # ============================================================
@@ -153,26 +130,26 @@ server-logs:
 
 # Start React frontend development server
 dev:
-    @echo "🚀 Starting React frontend development server..."
+    @echo "Starting React frontend development server..."
     @echo "Frontend will be available at: http://localhost:5173"
     @echo ""
     cd front-end && npm run dev
 
 # Build frontend for production
 build:
-    @echo "🏗️  Building React frontend for production..."
+    @echo "Building React frontend for production..."
     cd front-end && npm run build
     @echo "✅ Frontend built to: flask/static/frontend"
 
 # Install frontend dependencies only
 install-frontend:
-    @echo "📦 Installing frontend dependencies..."
+    @echo "Installing frontend dependencies..."
     cd front-end && npm install
     @echo "✅ Frontend dependencies installed"
 
 # Run frontend tests
 test-frontend:
-    @echo "🧪 Running frontend tests..."
+    @echo "Running frontend tests..."
     cd front-end && npm run test
 
 # ============================================================
@@ -181,22 +158,27 @@ test-frontend:
 
 # Flash firmware to ESP32 (build + upload)
 flash:
-    @echo "⚡ Flashing ESP32 firmware..."
+    @echo "Flashing ESP32 firmware..."
     cd PIO/ECOWATT && just flash
+
+# Erase Flash (including nvs storage)
+erase-flash:
+    @echo "Flashing ESP32 firmware..."
+    cd PIO/ECOWATT && just erase-flash
 
 # Build ESP32 firmware only (no upload)
 build-esp32:
-    @echo "🔨 Building ESP32 firmware..."
+    @echo "Building ESP32 firmware..."
     cd PIO/ECOWATT && just build
 
 # Upload pre-built firmware to ESP32
 upload-esp32:
-    @echo "📤 Uploading firmware to ESP32..."
+    @echo "Uploading firmware to ESP32..."
     cd PIO/ECOWATT && just upload
 
 # Monitor ESP32 serial output
 monitor:
-    @echo "🖥️  Monitoring ESP32 serial output (Ctrl+C to exit)..."
+    @echo "Monitoring ESP32 serial output (Ctrl+C to exit)..."
     @echo ""
     cd PIO/ECOWATT && just monitor
 
@@ -205,12 +187,12 @@ flash-monitor: flash monitor
 
 # Clean ESP32 build artifacts
 clean-esp32:
-    @echo "🧹 Cleaning ESP32 build artifacts..."
+    @echo "Cleaning ESP32 build artifacts..."
     cd PIO/ECOWATT && just clean
 
 # Run ESP32 tests
 test-esp32:
-    @echo "🧪 Running ESP32 tests..."
+    @echo "Running ESP32 tests..."
     cd PIO/ECOWATT && just test
 
 # ============================================================
@@ -219,13 +201,13 @@ test-esp32:
 
 # Start both backend and frontend in parallel (requires tmux or separate terminals)
 start-all:
-    @echo "🚀 Starting complete development environment..."
+    @echo "Starting complete development environment..."
     @echo ""
     @echo "This will start:"
     @echo "  1. Flask backend (http://localhost:5001)"
     @echo "  2. React frontend (http://localhost:5173)"
     @echo ""
-    @echo "⚠️  Run these in separate terminals:"
+    @echo "Run these in separate terminals:"
     @echo "  Terminal 1: just server"
     @echo "  Terminal 2: just dev"
     @echo ""
@@ -240,12 +222,12 @@ stop-all: server-stop
 
 # Initialize/reset database
 db-init:
-    @echo "🗄️  Initializing database..."
+    @echo "Initializing database..."
     cd flask && {{python}} -c "from database import Database; Database.init_db(); print('✅ Database initialized')"
 
 # Backup database
 db-backup:
-    @echo "💾 Backing up database..."
+    @echo "Backing up database..."
     @mkdir -p backups
     @cp flask/ecowatt.db backups/ecowatt_$(date +%Y%m%d_%H%M%S).db
     @echo "✅ Database backed up to: backups/"
@@ -260,22 +242,22 @@ test-all: test-frontend test-esp32
 
 # Format Python code
 format-python:
-    @echo "🎨 Formatting Python code..."
+    @echo "Formatting Python code..."
     cd flask && {{python}} -m black . || echo "Install black: pip install black"
 
 # Lint Python code
 lint-python:
-    @echo "🔍 Linting Python code..."
+    @echo "Linting Python code..."
     cd flask && {{python}} -m pylint *.py routes/ handlers/ utils/ || echo "Install pylint: pip install pylint"
 
 # Format frontend code
 format-frontend:
-    @echo "🎨 Formatting frontend code..."
+    @echo "Formatting frontend code..."
     cd front-end && npm run format || echo "No format script defined"
 
 # Lint frontend code
 lint-frontend:
-    @echo "🔍 Linting frontend code..."
+    @echo "Linting frontend code..."
     cd front-end && npm run lint
 
 # ============================================================
@@ -285,7 +267,7 @@ lint-frontend:
 # Check system status and installed tools
 status:
     @echo "════════════════════════════════════════════════════"
-    @echo "📊 EcoWatt Project Status"
+    @echo "EcoWatt Project Status"
     @echo "════════════════════════════════════════════════════"
     @echo ""
     @echo "Python:"
@@ -311,7 +293,7 @@ status:
 
 # Clean all build artifacts and caches
 clean:
-    @echo "🧹 Cleaning all build artifacts..."
+    @echo "Cleaning all build artifacts..."
     rm -rf front-end/dist
     rm -rf front-end/node_modules/.vite
     cd PIO/ECOWATT && just clean
@@ -319,8 +301,8 @@ clean:
 
 # Clean everything including dependencies (nuclear option)
 clean-all: clean
-    @echo "🧹 Removing all dependencies..."
-    @read -p "⚠️  This will remove venv, node_modules, and PlatformIO builds. Continue? [y/N] " -n 1 -r; \
+    @echo "Removing all dependencies..."
+    @read -p "This will remove venv, node_modules, and PlatformIO builds. Continue? [y/N] " -n 1 -r; \
     echo; \
     if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
         rm -rf {{venv_dir}}; \
@@ -333,12 +315,12 @@ clean-all: clean
 
 # Show project structure
 tree:
-    @echo "📁 Project structure:"
+    @echo "Project structure:"
     @tree -L 2 -I 'node_modules|.venv|.pio|__pycache__|*.pyc' || echo "Install tree: sudo apt install tree"
 
 # Open project documentation
 docs:
-    @echo "📚 Opening project documentation..."
+    @echo "Opening project documentation..."
     @xdg-open docs/In21-EN4440-Project\ Outline.md 2>/dev/null || \
      open docs/In21-EN4440-Project\ Outline.md 2>/dev/null || \
      echo "Open docs/In21-EN4440-Project Outline.md manually"
