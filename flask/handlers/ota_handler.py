@@ -138,6 +138,12 @@ def check_for_update(device_id: str, current_version: str) -> Tuple[bool, Option
                     'release_notes': manifest.get('release_notes', '')
                 }
                 
+                # Inject manifest faults if enabled (Milestone 5)
+                if _should_inject_fault(device_id):
+                    fault_type = ota_fault_injection['fault_type']
+                    if fault_type in ['bad_hash', 'bad_signature', 'manifest_corrupt']:
+                        update_info = _inject_manifest_corruption(update_info)
+                
                 logger.info(f"Update available for {device_id}: "
                           f"{current_version} -> {latest_version}")
                 return True, update_info
@@ -250,11 +256,55 @@ def get_firmware_chunk_for_device(
             if chunk_index >= session['total_chunks']:
                 return False, None, f"Invalid chunk index: {chunk_index}"
         
+        # Milestone 5: Check for fault injection
+        if _should_inject_fault(device_id, chunk_index):
+            fault_type = ota_fault_injection['fault_type']
+            
+            # Network delay injection
+            if fault_type == 'timeout':
+                _inject_network_delay()
+            
+            # Partial download - stop after certain percentage
+            if fault_type == 'partial_download':
+                max_chunk_percent = ota_fault_injection['parameters'].get('max_chunk_percent', 50)
+                max_chunk = int(session['total_chunks'] * max_chunk_percent / 100)
+                if chunk_index >= max_chunk:
+                    ota_fault_injection['fault_count'] += 1
+                    logger.warning(f"⚠️  Partial download limit reached at chunk {chunk_index}/{session['total_chunks']} "
+                                 f"({max_chunk_percent}%) - simulating network failure")
+                    return False, None, f"Network interrupted at {max_chunk_percent}% (chunk {chunk_index})"
+            
+            # Network interrupt - stop after specific chunk
+            if fault_type == 'network_interrupt':
+                interrupt_after = ota_fault_injection['parameters'].get('interrupt_after_chunk', 10)
+                if chunk_index > interrupt_after:
+                    ota_fault_injection['fault_count'] += 1
+                    logger.warning(f"⚠️  Network interrupted after chunk {interrupt_after}")
+                    return False, None, f"Network connection lost"
+            
+            # Check if this chunk should be dropped
+            if _should_drop_chunk(chunk_index):
+                return False, None, f"Chunk {chunk_index} dropped (fault injection)"
+        
         # Get chunk from firmware manager
         chunk_data = _get_firmware_chunk(firmware_version, chunk_index)
         
         if chunk_data is None:
             return False, None, f"Failed to retrieve chunk {chunk_index}"
+        
+        # Milestone 5: Inject chunk corruption if enabled
+        if _should_inject_fault(device_id, chunk_index):
+            if ota_fault_injection['fault_type'] == 'corrupt_chunk':
+                # Corrupt the chunk data
+                import random
+                ota_fault_injection['fault_count'] += 1
+                corrupted = bytearray(chunk_data)
+                # Flip random bits
+                for _ in range(10):
+                    pos = random.randint(0, len(corrupted) - 1)
+                    corrupted[pos] ^= 0xFF
+                chunk_data = bytes(corrupted)
+                logger.warning(f"⚠️  Chunk {chunk_index} corrupted (fault #{ota_fault_injection['fault_count']})")
         
         # Update session
         with ota_lock:
@@ -449,27 +499,53 @@ ota_fault_injection = {
     'fault_type': None,
     'target_device': None,
     'target_chunk': None,
-    'fault_count': 0
+    'fault_count': 0,
+    'parameters': {}  # Additional parameters for specific fault types
 }
 
 ota_fault_lock = threading.Lock()
 
 
 def enable_ota_fault_injection(fault_type: str, target_device: Optional[str] = None, 
-                               target_chunk: Optional[int] = None) -> Tuple[bool, str]:
+                               target_chunk: Optional[int] = None, **kwargs) -> Tuple[bool, str]:
     """
-    Enable OTA fault injection for testing
+    Enable OTA fault injection for testing (Milestone 5 requirement)
     
     Args:
-        fault_type: Type of fault ('corrupt_chunk', 'bad_hash', 'bad_hmac', 'timeout')
+        fault_type: Type of fault to inject
         target_device: Optional device ID to target (None = all devices)
         target_chunk: Optional chunk number to corrupt (None = random)
+        **kwargs: Additional parameters for specific fault types
+            - delay_ms: Delay in milliseconds for 'timeout' type
+            - corrupt_percent: Percentage of chunks to corrupt for 'partial_download'
+            - manifest_field: Field to corrupt in manifest for 'manifest_corrupt'
+        
+    Supported Fault Types (Milestone 5):
+        - corrupt_chunk: Corrupt specific chunk data (flips random bits)
+        - bad_hash: Provide incorrect SHA256 hash in manifest
+        - bad_signature: Provide incorrect signature in manifest
+        - timeout: Delay response to simulate network timeout
+        - incomplete: Simulate incomplete download (drop random chunks)
+        - partial_download: Simulate partial/interrupted download
+        - network_interrupt: Simulate network interruption mid-download
+        - manifest_corrupt: Corrupt manifest data (invalid JSON, wrong fields)
+        - hash_mismatch: Downloaded file hash doesn't match manifest
         
     Returns:
         tuple: (success, message)
     """
     with ota_fault_lock:
-        valid_types = ['corrupt_chunk', 'bad_hash', 'bad_hmac', 'timeout', 'incomplete']
+        valid_types = [
+            'corrupt_chunk',      # Corrupt chunk data
+            'bad_hash',           # Wrong SHA256 in manifest
+            'bad_signature',      # Wrong signature in manifest
+            'timeout',            # Response delay
+            'incomplete',         # Drop chunks randomly
+            'partial_download',   # Interrupt download partway
+            'network_interrupt',  # Simulate network failure
+            'manifest_corrupt',   # Invalid manifest
+            'hash_mismatch'       # Final hash doesn't match
+        ]
         
         if fault_type not in valid_types:
             return False, f"Invalid fault type. Must be one of: {valid_types}"
@@ -479,12 +555,15 @@ def enable_ota_fault_injection(fault_type: str, target_device: Optional[str] = N
         ota_fault_injection['target_device'] = target_device
         ota_fault_injection['target_chunk'] = target_chunk
         ota_fault_injection['fault_count'] = 0
+        ota_fault_injection['parameters'] = kwargs
         
         logger.warning(f"⚠️  OTA Fault Injection ENABLED: {fault_type}")
         if target_device:
             logger.warning(f"   Target Device: {target_device}")
         if target_chunk is not None:
             logger.warning(f"   Target Chunk: {target_chunk}")
+        if kwargs:
+            logger.warning(f"   Parameters: {kwargs}")
         
         return True, f"Fault injection enabled: {fault_type}"
 
@@ -500,6 +579,7 @@ def disable_ota_fault_injection() -> Tuple[bool, str]:
         ota_fault_injection['target_device'] = None
         ota_fault_injection['target_chunk'] = None
         ota_fault_injection['fault_count'] = 0
+        ota_fault_injection['parameters'] = {}
         
         if was_enabled:
             logger.info(f"✓ OTA Fault Injection DISABLED (Faults injected: {fault_count})")
@@ -516,7 +596,8 @@ def get_ota_fault_status() -> Dict:
             'fault_type': ota_fault_injection['fault_type'],
             'target_device': ota_fault_injection['target_device'],
             'target_chunk': ota_fault_injection['target_chunk'],
-            'fault_count': ota_fault_injection['fault_count']
+            'fault_count': ota_fault_injection['fault_count'],
+            'parameters': ota_fault_injection.get('parameters', {})
         }
 
 
@@ -539,7 +620,7 @@ def _should_inject_fault(device_id: str, chunk_number: Optional[int] = None) -> 
 
 
 def _inject_chunk_corruption(chunk_data: Dict) -> Dict:
-    """Corrupt chunk data for testing"""
+    """Corrupt chunk data for testing (Milestone 5: Fault Injection)"""
     import base64
     import random
     
@@ -557,6 +638,77 @@ def _inject_chunk_corruption(chunk_data: Dict) -> Dict:
     
     chunk_data['data'] = base64.b64encode(bytes(corrupted)).decode('utf-8')
     return chunk_data
+
+
+def _inject_manifest_corruption(manifest: Dict) -> Dict:
+    """Corrupt manifest data for testing (Milestone 5: Fault Injection)"""
+    import random
+    
+    fault_type = ota_fault_injection['fault_type']
+    ota_fault_injection['fault_count'] += 1
+    
+    logger.warning(f"⚠️  Injecting manifest corruption: {fault_type} (fault #{ota_fault_injection['fault_count']})")
+    
+    if fault_type == 'bad_hash':
+        # Provide incorrect SHA256 hash
+        manifest['sha256_hash'] = 'deadbeef' * 8  # Invalid hash
+        logger.warning("   Corrupted SHA256 hash in manifest")
+    
+    elif fault_type == 'bad_signature':
+        # Provide incorrect signature
+        manifest['signature'] = 'invalid_signature_' + str(random.randint(1000, 9999))
+        logger.warning("   Corrupted signature in manifest")
+    
+    elif fault_type == 'manifest_corrupt':
+        # Corrupt specific manifest field
+        manifest_field = ota_fault_injection['parameters'].get('manifest_field', 'version')
+        if manifest_field in manifest:
+            manifest[manifest_field] = 'CORRUPTED_' + str(manifest.get(manifest_field, ''))
+            logger.warning(f"   Corrupted manifest field: {manifest_field}")
+    
+    return manifest
+
+
+def _inject_network_delay():
+    """Inject network delay for testing (Milestone 5: Fault Injection)"""
+    import time
+    
+    delay_ms = ota_fault_injection['parameters'].get('delay_ms', 5000)
+    ota_fault_injection['fault_count'] += 1
+    
+    logger.warning(f"⚠️  Injecting network delay: {delay_ms}ms (fault #{ota_fault_injection['fault_count']})")
+    time.sleep(delay_ms / 1000.0)
+
+
+def _should_drop_chunk(chunk_number: int) -> bool:
+    """Check if this chunk should be dropped (Milestone 5: Fault Injection)"""
+    import random
+    
+    fault_type = ota_fault_injection['fault_type']
+    
+    if fault_type == 'incomplete':
+        # Drop random chunks with configurable probability
+        drop_probability = ota_fault_injection['parameters'].get('drop_probability', 0.1)
+        if random.random() < drop_probability:
+            ota_fault_injection['fault_count'] += 1
+            logger.warning(f"⚠️  Dropping chunk {chunk_number} (fault #{ota_fault_injection['fault_count']})")
+            return True
+    
+    elif fault_type == 'partial_download':
+        # Drop all chunks after a certain percentage
+        max_chunk_percent = ota_fault_injection['parameters'].get('max_chunk_percent', 50)
+        # We'll need total_chunks from session - handle in get_firmware_chunk_for_device
+        return False  # Handled in get_firmware_chunk_for_device
+    
+    elif fault_type == 'network_interrupt':
+        # Drop all chunks after a specific chunk number
+        interrupt_after_chunk = ota_fault_injection['parameters'].get('interrupt_after_chunk')
+        if interrupt_after_chunk is not None and chunk_number > interrupt_after_chunk:
+            ota_fault_injection['fault_count'] += 1
+            logger.warning(f"⚠️  Network interrupted - dropping chunk {chunk_number} (fault #{ota_fault_injection['fault_count']})")
+            return True
+    
+    return False
 
 
 # Export functions

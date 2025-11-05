@@ -230,11 +230,26 @@ def inject_local_fault(data):
     """
     Inject fault locally (non-Inverter faults)
     
-    Fault Types:
-    - network: Network connectivity issues
-    - mqtt: MQTT communication faults
-    - command: Command execution faults
-    - ota: OTA update faults
+    Fault Types (Milestone 5):
+    - network: Network connectivity issues (timeout, connection drop, slow, intermittent)
+    - ota: OTA update faults (partial download, hash mismatch, corruption)
+    
+    OTA Fault Subtypes:
+        - corrupt_chunk: Corrupt specific chunk data
+        - bad_hash: Incorrect SHA256 hash in manifest
+        - bad_signature: Incorrect signature in manifest
+        - timeout: Network delay during download
+        - incomplete: Random chunk drops
+        - partial_download: Interrupt download at percentage
+        - network_interrupt: Interrupt after specific chunk
+        - manifest_corrupt: Invalid manifest data
+        - hash_mismatch: Final hash verification failure
+    
+    Network Fault Subtypes:
+        - timeout: Connection timeout (delay then fail)
+        - disconnect: Connection drop (immediate failure)
+        - slow: Slow network speed (add delay)
+        - intermittent: Random intermittent failures
     """
     try:
         fault_type = data.get('fault_type', '').lower()
@@ -247,7 +262,15 @@ def inject_local_fault(data):
                 'error': 'fault_type is required'
             }), 400
         
-        # Create fault entry
+        # Handle OTA faults specially using OTA handler
+        if fault_type == 'ota':
+            return inject_ota_fault(data)
+        
+        # Handle network faults using fault_handler
+        if fault_type == 'network':
+            return inject_network_fault_handler(data)
+        
+        # Create fault entry for other local faults
         fault_id = f"{fault_type}_{target}_{int(time.time())}"
         
         fault_entry = {
@@ -282,6 +305,154 @@ def inject_local_fault(data):
         
     except Exception as e:
         logger.error(f"[Fault] Error injecting local fault: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+def inject_network_fault_handler(data):
+    """
+    Inject network-specific fault using fault_handler (Milestone 5)
+    
+    Request Body:
+    {
+      "fault_type": "network",
+      "network_fault_subtype": "timeout",  # timeout, disconnect, slow, intermittent
+      "target_endpoint": "/power/upload",  # Optional - target specific endpoint
+      "probability": 100,                  # Optional - probability (0-100%)
+      "parameters": {                      # Optional
+        "timeout_ms": 30000,
+        "delay_ms": 3000,
+        "failure_rate": 0.5
+      }
+    }
+    """
+    try:
+        from handlers.fault_handler import enable_network_fault
+        
+        network_fault_subtype = data.get('network_fault_subtype', 'timeout')
+        target_endpoint = data.get('target_endpoint')
+        probability = data.get('probability', 100)
+        parameters = data.get('parameters', {})
+        
+        # Enable fault injection in fault_handler
+        success, message = enable_network_fault(
+            fault_type=network_fault_subtype,
+            target_endpoint=target_endpoint,
+            probability=probability,
+            **parameters
+        )
+        
+        if success:
+            # Update statistics
+            fault_statistics['total_injected'] += 1
+            fault_statistics['local_faults'] += 1
+            
+            # Save to database
+            Database.save_fault_injection(
+                device_id=None,  # Network faults affect all devices
+                fault_type='network',
+                backend='local_flask',
+                error_type=network_fault_subtype,
+                success=True,
+                parameters=parameters
+            )
+            
+            logger.info(f"[Fault] Network fault injected: {network_fault_subtype}")
+            
+            return jsonify({
+                'success': True,
+                'message': message,
+                'fault_type': 'network',
+                'network_fault_subtype': network_fault_subtype,
+                'target_endpoint': target_endpoint,
+                'probability': probability,
+                'parameters': parameters,
+                'backend': 'local_flask/fault_handler'
+            }), 201
+        else:
+            return jsonify({
+                'success': False,
+                'error': message
+            }), 400
+        
+    except Exception as e:
+        logger.error(f"[Fault] Error injecting network fault: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+def inject_ota_fault(data):
+    """
+    Inject OTA-specific fault using OTA handler (Milestone 5)
+    
+    Request Body:
+    {
+      "fault_type": "ota",
+      "ota_fault_subtype": "corrupt_chunk",  # See OTA handler for types
+      "target_device": "ESP32_001",           # Optional
+      "target_chunk": 50,                     # Optional
+      "parameters": {                         # Optional
+        "delay_ms": 5000,
+        "max_chunk_percent": 50,
+        "interrupt_after_chunk": 100
+      }
+    }
+    """
+    try:
+        from handlers.ota_handler import enable_ota_fault_injection
+        
+        ota_fault_subtype = data.get('ota_fault_subtype', 'corrupt_chunk')
+        target_device = data.get('target_device')
+        target_chunk = data.get('target_chunk')
+        parameters = data.get('parameters', {})
+        
+        # Enable fault injection in OTA handler
+        success, message = enable_ota_fault_injection(
+            fault_type=ota_fault_subtype,
+            target_device=target_device,
+            target_chunk=target_chunk,
+            **parameters
+        )
+        
+        if success:
+            # Update statistics
+            fault_statistics['total_injected'] += 1
+            fault_statistics['local_faults'] += 1
+            
+            # Save to database
+            Database.save_fault_injection(
+                device_id=target_device,
+                fault_type='ota',
+                backend='local_flask',
+                error_type=ota_fault_subtype,
+                success=True,
+                parameters=parameters
+            )
+            
+            logger.info(f"[Fault] OTA fault injected: {ota_fault_subtype}")
+            
+            return jsonify({
+                'success': True,
+                'message': message,
+                'fault_type': 'ota',
+                'ota_fault_subtype': ota_fault_subtype,
+                'target_device': target_device,
+                'target_chunk': target_chunk,
+                'parameters': parameters,
+                'backend': 'local_flask/ota_handler'
+            }), 201
+        else:
+            return jsonify({
+                'success': False,
+                'error': message
+            }), 400
+        
+    except Exception as e:
+        logger.error(f"[Fault] Error injecting OTA fault: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -368,49 +539,139 @@ def clear_faults():
 @fault_bp.route('/fault/types', methods=['GET'])
 def get_available_fault_types():
     """
-    Get list of available fault types and their descriptions
+    Get list of available fault types and their descriptions (Milestone 5)
     """
     try:
         fault_types = {
             'inverter_sim': {
                 'backend': 'Inverter SIM API (http://20.15.114.131:8080)',
+                'endpoint': 'POST /api/user/error-flag/add',
+                'description': 'Sets error flag for NEXT ESP32 Modbus request',
                 'types': {
-                    'EXCEPTION': 'Modbus exception with exception code (01-0B)',
-                    'CRC_ERROR': 'CRC checksum error in response',
+                    'EXCEPTION': {
+                        'description': 'Modbus exception with exception code',
+                        'codes': {
+                            '01': 'Illegal Function',
+                            '02': 'Illegal Data Address',
+                            '03': 'Illegal Data Value',
+                            '04': 'Slave Device Failure',
+                            '05': 'Acknowledge',
+                            '06': 'Slave Device Busy',
+                            '08': 'Memory Parity Error',
+                            '0A': 'Gateway Path Unavailable',
+                            '0B': 'Gateway Target Device Failed to Respond'
+                        }
+                    },
+                    'CRC_ERROR': 'CRC checksum error in response frame',
                     'CORRUPT': 'Corrupted/malformed response data',
                     'PACKET_DROP': 'Dropped packet (no response)',
                     'DELAY': 'Response delay in milliseconds'
                 },
                 'example': {
-                    'slaveAddress': 1,
-                    'functionCode': 3,
                     'errorType': 'EXCEPTION',
-                    'exceptionCode': 2
+                    'exceptionCode': 2,
+                    'delayMs': 0
                 }
             },
             'local_flask': {
                 'backend': 'Local Flask Server',
                 'types': {
-                    'network': 'Network connectivity issues',
-                    'mqtt': 'MQTT communication faults',
-                    'command': 'Command execution faults',
-                    'ota': 'OTA update faults'
-                },
-                'example': {
-                    'fault_type': 'network',
-                    'target': 'upload',
-                    'duration': 60
+                    'ota': {
+                        'description': 'OTA update faults',
+                        'subtypes': {
+                            'corrupt_chunk': 'Corrupt specific chunk data (flips random bits)',
+                            'bad_hash': 'Incorrect SHA256 hash in manifest',
+                            'bad_signature': 'Incorrect signature in manifest',
+                            'timeout': 'Network delay during chunk download',
+                            'incomplete': 'Random chunk drops during download',
+                            'partial_download': 'Interrupt download at percentage',
+                            'network_interrupt': 'Interrupt after specific chunk number',
+                            'manifest_corrupt': 'Invalid manifest data',
+                            'hash_mismatch': 'Final hash verification failure'
+                        },
+                        'example': {
+                            'fault_type': 'ota',
+                            'ota_fault_subtype': 'partial_download',
+                            'target_device': 'ESP32_001',
+                            'parameters': {
+                                'max_chunk_percent': 50
+                            }
+                        }
+                    },
+                    'network': {
+                        'description': 'Network connectivity issues',
+                        'subtypes': {
+                            'timeout': 'Connection timeout (delay then fail with 504)',
+                            'disconnect': 'Connection drop (immediate 503 failure)',
+                            'slow': 'Slow network speed (add delay to responses)',
+                            'intermittent': 'Random intermittent failures'
+                        },
+                        'parameters': {
+                            'timeout_ms': 'Timeout duration (default: 30000ms)',
+                            'delay_ms': 'Delay duration for slow network (default: 3000ms)',
+                            'failure_rate': 'Failure rate for intermittent (0.0-1.0, default: 0.5)',
+                            'probability': 'Probability of fault (0-100%, default: 100)'
+                        },
+                        'example': {
+                            'fault_type': 'network',
+                            'network_fault_subtype': 'timeout',
+                            'target_endpoint': '/power/upload',
+                            'probability': 50,
+                            'parameters': {
+                                'timeout_ms': 5000
+                            }
+                        }
+                    },
+                    'command': {
+                        'description': 'Command execution faults',
+                        'subtypes': {
+                            'timeout': 'Command execution timeout',
+                            'invalid_response': 'Return invalid response',
+                            'execution_failure': 'Simulate execution failure'
+                        },
+                        'example': {
+                            'fault_type': 'command',
+                            'target': 'config_update',
+                            'duration': 30
+                        }
+                    }
                 }
             }
         }
         
         return jsonify({
             'success': True,
-            'fault_types': fault_types
+            'fault_types': fault_types,
+            'note': 'Use POST /fault/inject to inject faults'
         }), 200
         
     except Exception as e:
         logger.error(f"Error getting fault types: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@fault_bp.route('/fault/history', methods=['GET'])
+def get_fault_history():
+    """Get fault injection history from database"""
+    try:
+        from database import Database
+        
+        device_id = request.args.get('device_id')
+        limit = request.args.get('limit', default=100, type=int)
+        
+        history = Database.get_fault_history(device_id=device_id, limit=limit)
+        
+        return jsonify({
+            'success': True,
+            'history': history,
+            'count': len(history)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting fault history: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

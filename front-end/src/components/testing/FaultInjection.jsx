@@ -59,6 +59,15 @@ const FaultInjection = () => {
   const [deviceId, setDeviceId] = useState('');
   const [selectedRecoveryDevice, setSelectedRecoveryDevice] = useState('');
   
+  // Additional parameters for specific fault types
+  const [exceptionCode, setExceptionCode] = useState(2);
+  const [delayMs, setDelayMs] = useState(5000);
+  const [maxChunkPercent, setMaxChunkPercent] = useState(50);
+  const [interruptChunk, setInterruptChunk] = useState(100);
+  const [failureRate, setFailureRate] = useState(0.5);
+  const [targetEndpoint, setTargetEndpoint] = useState('/power/upload');
+  const [probability, setProbability] = useState(100);
+  
   // Pagination for injection history
   const [injectionPage, setInjectionPage] = useState(0);
   const [injectionRowsPerPage, setInjectionRowsPerPage] = useState(10);
@@ -98,51 +107,88 @@ const FaultInjection = () => {
     staleTime: 2000
   });
 
-  // Inverter SIM fault types (from external API)
+  // Inverter SIM fault types (from external API - Milestone 5)
   const inverterSimFaults = [
-    { value: 'EXCEPTION', label: 'Exception Error', description: 'Trigger an exception in data processing' },
-    { value: 'CRC_ERROR', label: 'CRC Error', description: 'Corrupt data with CRC mismatch' },
-    { value: 'CORRUPT', label: 'Data Corruption', description: 'Send corrupted/malformed data' },
-    { value: 'PACKET_DROP', label: 'Packet Drop', description: 'Drop packets to simulate loss' },
-    { value: 'DELAY', label: 'Network Delay', description: 'Add artificial delay to responses' }
+    { value: 'EXCEPTION', label: 'Modbus Exception', description: 'Modbus exception with error code', exceptionCode: true },
+    { value: 'CRC_ERROR', label: 'CRC Error', description: 'Malformed CRC frames (Milestone 5)' },
+    { value: 'CORRUPT', label: 'Corrupt Data', description: 'Random byte garbage (Milestone 5)' },
+    { value: 'PACKET_DROP', label: 'Packet Drop', description: 'Dropped packets (no response)' },
+    { value: 'DELAY', label: 'Response Delay', description: 'Add delay to responses', requiresDelay: true }
   ];
 
-  // Local fault types (internal simulation)
-  const localFaults = [
-    { value: 'network_timeout', label: 'Network Timeout', description: 'Simulate network timeout' },
-    { value: 'command_failure', label: 'Command Failure', description: 'Simulate command execution failure' },
-    { value: 'ota_failure', label: 'OTA Failure', description: 'Simulate OTA update failure' },
-    { value: 'memory_error', label: 'Memory Error', description: 'Simulate memory allocation error' }
+  // Local fault types - OTA (Milestone 5)
+  const otaFaults = [
+    { value: 'corrupt_chunk', label: 'Corrupt Chunk', description: 'Corrupt firmware chunk data' },
+    { value: 'bad_hash', label: 'Bad Hash', description: 'Incorrect SHA256 hash in manifest' },
+    { value: 'bad_signature', label: 'Bad Signature', description: 'Incorrect signature in manifest' },
+    { value: 'partial_download', label: 'Partial Download', description: 'Interrupt download at percentage', requiresPercent: true },
+    { value: 'network_interrupt', label: 'Network Interrupt', description: 'Stop after specific chunk', requiresChunk: true },
+    { value: 'manifest_corrupt', label: 'Manifest Corrupt', description: 'Invalid manifest data' },
+    { value: 'timeout', label: 'Download Timeout', description: 'Delay chunk delivery', requiresDelay: true }
   ];
 
-  const faultOptions = backend === 'inverter_sim' ? inverterSimFaults : localFaults;
+  // Local fault types - Network (Milestone 5)
+  const networkFaults = [
+    { value: 'timeout', label: 'Connection Timeout', description: 'Connection timeout (504 error)', requiresDelay: true },
+    { value: 'disconnect', label: 'Connection Drop', description: 'Immediate connection failure (503)' },
+    { value: 'slow', label: 'Slow Network', description: 'Add delay to responses', requiresDelay: true },
+    { value: 'intermittent', label: 'Intermittent Failures', description: 'Random failures', requiresFailureRate: true }
+  ];
+
+  const faultOptions = backend === 'inverter_sim' 
+    ? inverterSimFaults 
+    : backend === 'ota' 
+    ? otaFaults 
+    : networkFaults;
 
   // Inject fault mutation
   const injectMutation = useMutation({
     mutationFn: () => {
-      // Build payload based on backend type
+      // Build payload based on backend type (Milestone 5 format)
       let payload;
       
       if (backend === 'inverter_sim') {
+        // Inverter SIM API payload (Section 7 format - no slaveAddress/functionCode)
         payload = {
-          slaveAddress: 1,
-          functionCode: 3,
-          errorType: faultType
+          errorType: faultType,
+          exceptionCode: faultType === 'EXCEPTION' ? exceptionCode : 0,
+          delayMs: faultType === 'DELAY' ? delayMs : 0
+        };
+      } else if (backend === 'ota') {
+        // OTA fault payload
+        payload = {
+          fault_type: 'ota',
+          ota_fault_subtype: faultType,
+          target_device: deviceId || undefined,
+          parameters: {}
         };
         
-        // Add optional fields based on fault type
-        if (faultType === 'EXCEPTION') {
-          payload.exceptionCode = 2; // Illegal Data Address
-        } else if (faultType === 'DELAY') {
-          payload.delayMs = 2000; // 2 second delay
+        // Add parameters based on fault type
+        if (faultType === 'partial_download') {
+          payload.parameters.max_chunk_percent = maxChunkPercent;
+        } else if (faultType === 'network_interrupt') {
+          payload.parameters.interrupt_after_chunk = interruptChunk;
+        } else if (faultType === 'timeout') {
+          payload.parameters.delay_ms = delayMs;
         }
-      } else {
-        // Local fault
+      } else if (backend === 'network') {
+        // Network fault payload
         payload = {
-          fault_type: faultType,
-          target: 'test',
-          duration: 60
+          fault_type: 'network',
+          network_fault_subtype: faultType,
+          target_endpoint: targetEndpoint || undefined,
+          probability: probability,
+          parameters: {}
         };
+        
+        // Add parameters based on fault type
+        if (faultType === 'timeout') {
+          payload.parameters.timeout_ms = delayMs;
+        } else if (faultType === 'slow') {
+          payload.parameters.delay_ms = delayMs;
+        } else if (faultType === 'intermittent') {
+          payload.parameters.failure_rate = failureRate;
+        }
       }
       
       return injectFault(payload);
@@ -263,25 +309,39 @@ const FaultInjection = () => {
               label="Backend"
               onChange={(e) => {
                 setBackend(e.target.value);
-                setFaultType(e.target.value === 'inverter_sim' ? 'EXCEPTION' : 'network_timeout');
+                // Reset fault type based on backend
+                if (e.target.value === 'inverter_sim') {
+                  setFaultType('EXCEPTION');
+                } else if (e.target.value === 'ota') {
+                  setFaultType('corrupt_chunk');
+                } else {
+                  setFaultType('timeout');
+                }
               }}
             >
               <MenuItem value="inverter_sim">
-                Inverter SIM API (External - Real hardware simulation)
+                Inverter SIM API (Modbus Faults - External)
               </MenuItem>
-              <MenuItem value="local">
-                Local Backend (Internal - Server simulation)
+              <MenuItem value="ota">
+                OTA Faults (Firmware Update - Local)
+              </MenuItem>
+              <MenuItem value="network">
+                Network Faults (Connectivity - Local)
               </MenuItem>
             </Select>
           </FormControl>
           <Alert severity="info" sx={{ mt: 1 }}>
             {backend === 'inverter_sim' ? (
               <>
-                <strong>Inverter SIM API:</strong> Uses external API (20.15.114.131:8080) to inject faults into actual inverter hardware simulation
+                <strong>Inverter SIM:</strong> Injects Modbus faults (CRC errors, exceptions, packet drops) for ESP32 testing
+              </>
+            ) : backend === 'ota' ? (
+              <>
+                <strong>OTA Faults:</strong> Simulates firmware update failures (corrupted chunks, hash mismatches, partial downloads)
               </>
             ) : (
               <>
-                <strong>Local Backend:</strong> Simulates faults internally in the Flask server for testing without external dependencies
+                <strong>Network Faults:</strong> Simulates network issues (timeouts, disconnects, slow connections)
               </>
             )}
           </Alert>
@@ -313,10 +373,131 @@ const FaultInjection = () => {
           )}
         </Box>
 
+        {/* Fault-Specific Parameters */}
+        {getCurrentFault()?.exceptionCode && (
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Exception Code
+            </Typography>
+            <FormControl fullWidth sx={{ mt: 1 }}>
+              <InputLabel>Modbus Exception Code</InputLabel>
+              <Select
+                value={exceptionCode}
+                label="Modbus Exception Code"
+                onChange={(e) => setExceptionCode(e.target.value)}
+              >
+                <MenuItem value={1}>01 - Illegal Function</MenuItem>
+                <MenuItem value={2}>02 - Illegal Data Address</MenuItem>
+                <MenuItem value={3}>03 - Illegal Data Value</MenuItem>
+                <MenuItem value={4}>04 - Slave Device Failure</MenuItem>
+                <MenuItem value={6}>06 - Slave Device Busy</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        )}
+
+        {getCurrentFault()?.requiresDelay && (
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Delay (milliseconds)
+            </Typography>
+            <TextField
+              fullWidth
+              type="number"
+              value={delayMs}
+              onChange={(e) => setDelayMs(parseInt(e.target.value) || 0)}
+              helperText="How long to delay response (ms)"
+              sx={{ mt: 1 }}
+            />
+          </Box>
+        )}
+
+        {getCurrentFault()?.requiresPercent && (
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Download Percentage Limit
+            </Typography>
+            <TextField
+              fullWidth
+              type="number"
+              value={maxChunkPercent}
+              onChange={(e) => setMaxChunkPercent(Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
+              helperText="Stop download at this percentage (0-100%)"
+              inputProps={{ min: 0, max: 100 }}
+              sx={{ mt: 1 }}
+            />
+          </Box>
+        )}
+
+        {getCurrentFault()?.requiresChunk && (
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Interrupt After Chunk
+            </Typography>
+            <TextField
+              fullWidth
+              type="number"
+              value={interruptChunk}
+              onChange={(e) => setInterruptChunk(parseInt(e.target.value) || 0)}
+              helperText="Stop after downloading this chunk number"
+              sx={{ mt: 1 }}
+            />
+          </Box>
+        )}
+
+        {getCurrentFault()?.requiresFailureRate && (
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Failure Rate (0.0 - 1.0)
+            </Typography>
+            <TextField
+              fullWidth
+              type="number"
+              value={failureRate}
+              onChange={(e) => setFailureRate(Math.min(1.0, Math.max(0.0, parseFloat(e.target.value) || 0)))}
+              helperText="Probability of intermittent failure (0.0 = never, 1.0 = always)"
+              inputProps={{ min: 0, max: 1, step: 0.1 }}
+              sx={{ mt: 1 }}
+            />
+          </Box>
+        )}
+
+        {backend === 'network' && (
+          <>
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Target Endpoint (Optional)
+              </Typography>
+              <TextField
+                fullWidth
+                value={targetEndpoint}
+                onChange={(e) => setTargetEndpoint(e.target.value)}
+                placeholder="/power/upload"
+                helperText="Leave empty to target all endpoints"
+                sx={{ mt: 1 }}
+              />
+            </Box>
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Probability (%)
+              </Typography>
+              <TextField
+                fullWidth
+                type="number"
+                value={probability}
+                onChange={(e) => setProbability(Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
+                helperText="Probability of fault occurring (0-100%)"
+                inputProps={{ min: 0, max: 100 }}
+                sx={{ mt: 1 }}
+              />
+            </Box>
+          </>
+        )}
+
         {/* Device Selection (Optional) */}
         <Box sx={{ mb: 3 }}>
           <Typography variant="subtitle2" gutterBottom>
-            3. Select Target Device (Optional)
+            {backend === 'ota' ? '3. Select Target Device' : '3. Select Target Device (Optional)'}
           </Typography>
           <FormControl fullWidth sx={{ mt: 1 }}>
             <InputLabel>Device</InputLabel>
@@ -325,7 +506,7 @@ const FaultInjection = () => {
               label="Device"
               onChange={(e) => setDeviceId(e.target.value)}
             >
-              <MenuItem value="">All Devices</MenuItem>
+              <MenuItem value="">{backend === 'ota' ? 'All Devices' : 'All Devices'}</MenuItem>
               {devices.map((device) => (
                 <MenuItem key={device.device_id} value={device.device_id}>
                   {device.device_name || device.device_id}
@@ -697,9 +878,9 @@ const FaultInjection = () => {
               <Card variant="outlined">
                 <CardContent>
                   <Typography variant="subtitle1" gutterBottom fontWeight="bold">
-                    Local Backend Faults
+                    OTA Faults
                   </Typography>
-                  {localFaults.map((fault) => (
+                  {otaFaults.map((fault) => (
                     <Box key={fault.value} sx={{ mb: 1 }}>
                       <Typography variant="body2" fontWeight="medium">
                         • {fault.label}
@@ -712,6 +893,27 @@ const FaultInjection = () => {
                 </CardContent>
               </Card>
             </Grid>
+
+            <Grid item xs={12} md={6}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                    Network Faults
+                  </Typography>
+                  {networkFaults.map((fault) => (
+                    <Box key={fault.value} sx={{ mb: 1 }}>
+                      <Typography variant="body2" fontWeight="medium">
+                        • {fault.label}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ ml: 2 }}>
+                        {fault.description}
+                      </Typography>
+                    </Box>
+                  ))}
+                </CardContent>
+              </Card>
+            </Grid>
+```
           </Grid>
         </Box>
       </Paper>

@@ -44,9 +44,75 @@
 
 ---
 
-## Part 2: Fault Recovery ✅ (MOSTLY COMPLETE - NEEDS CLEANUP)
+## Part 2: Fault Recovery ✅ (COMPLETE)
 
-### Inverter SIM Fault Injection ⏳ (NEEDS ALIGNMENT WITH MILESTONE 5)
+### Inverter SIM Fault Injection ✅ (COMPLETE - ALIGNED WITH MILESTONE 5)
+
+**Backend Implementation (Flask):**
+- [x] ✅ **Dual Backend Routing** - `fault_routes.py` routes faults to correct backend
+  - Inverter SIM API for Modbus faults (EXCEPTION, CRC_ERROR, CORRUPT, PACKET_DROP, DELAY)
+  - Local Flask for application faults (OTA, Network)
+- [x] ✅ **Inverter SIM Integration** - Uses correct API endpoint
+  - **Endpoint:** `POST http://20.15.114.131:8080/api/user/error-flag/add`
+  - **Purpose:** Sets error flag for NEXT ESP32 Modbus request
+  - **Payload:** `{errorType, exceptionCode, delayMs}` (no slaveAddress/functionCode needed)
+- [x] ✅ **Exception Codes Supported** - All Milestone 5 exception codes
+  - 01: Illegal Function
+  - 02: Illegal Data Address
+  - 03: Illegal Data Value
+  - 04: Slave Device Failure
+  - 05-0B: Other Modbus exceptions
+- [x] ✅ **Fault Types Implemented:**
+  - **EXCEPTION** - Valid Modbus exception frames with exception codes
+  - **CRC_ERROR** - Malformed CRC frames (Milestone 5 requirement)
+  - **CORRUPT** - Random byte garbage (Milestone 5 requirement)
+  - **PACKET_DROP** - Dropped packets (no response)
+  - **DELAY** - Response delays in milliseconds
+
+### Local Fault Injection ✅ (COMPLETE - MILESTONE 5)
+
+**OTA Fault Injection (`ota_handler.py`):**
+- [x] ✅ **Partial Download Simulation**
+  - `partial_download`: Interrupts download at configurable percentage
+  - `network_interrupt`: Stops after specific chunk number
+  - **Parameters:** `max_chunk_percent`, `interrupt_after_chunk`
+- [x] ✅ **Hash/Signature Faults**
+  - `bad_hash`: Incorrect SHA256 hash in manifest
+  - `bad_signature`: Wrong signature in manifest
+  - `hash_mismatch`: Final hash verification failure
+- [x] ✅ **Chunk-Level Faults**
+  - `corrupt_chunk`: Corrupts specific chunk data (flips random bits)
+  - `incomplete`: Random chunk drops during download
+  - **Parameters:** `target_chunk`, `drop_probability`
+- [x] ✅ **Manifest Corruption**
+  - `manifest_corrupt`: Invalid manifest data (corrupted fields)
+  - **Parameters:** `manifest_field` (which field to corrupt)
+- [x] ✅ **Network Delays**
+  - `timeout`: Delays chunk delivery to simulate slow network
+  - **Parameters:** `delay_ms`
+
+**Network Fault Injection (`fault_handler.py`):**
+- [x] ✅ **Connection Faults**
+  - `timeout`: Connection timeout (delay then 504 error)
+  - `disconnect`: Connection drop (immediate 503 error)
+  - **Parameters:** `timeout_ms` (default: 30000ms)
+- [x] ✅ **Performance Faults**
+  - `slow`: Slow network speed (adds delay to responses)
+  - `intermittent`: Random intermittent failures
+  - **Parameters:** `delay_ms`, `failure_rate` (0.0-1.0)
+- [x] ✅ **Endpoint Targeting**
+  - Can target specific endpoints (e.g., `/power/upload`, `/ota/chunk`)
+  - Configurable probability (0-100%)
+  - **Parameters:** `target_endpoint`, `probability`
+
+**API Endpoints:**
+- [x] ✅ `POST /fault/inject` - Inject fault (routes to correct backend)
+- [x] ✅ `GET /fault/types` - Get available fault types with examples
+- [x] ✅ `GET /fault/status` - Get active faults status
+- [x] ✅ `POST /fault/clear` - Clear all or specific faults
+- [x] ✅ `GET /fault/history` - Get fault injection history
+
+### ESP32 Fault Detection ⏳ (NEEDS IMPLEMENTATION)
 
 According to Milestone 5 Resources, the Inverter SIM API should support:
 - [ ] ⏳ **Malformed CRC frames** - Trigger via API endpoint

@@ -50,6 +50,31 @@ fault_stats = {
 }
 stats_lock = threading.Lock()
 
+# ============================================================================
+# NETWORK FAULT INJECTION (Milestone 5)
+# ============================================================================
+
+# Network fault state (thread-safe)
+network_fault_state = {
+    'enabled': False,
+    'fault_type': None,
+    'target_endpoint': None,  # None = all endpoints
+    'probability': 100,  # Percentage (0-100)
+    'parameters': {},
+    'faults_injected': 0,
+    'requests_processed': 0
+}
+network_fault_lock = threading.Lock()
+
+# Network fault statistics
+network_fault_stats = {
+    'timeouts_triggered': 0,
+    'connections_dropped': 0,
+    'delays_injected': 0,
+    'failures_triggered': 0
+}
+network_stats_lock = threading.Lock()
+
 
 def calculate_modbus_crc(data_hex: str) -> str:
     """
@@ -483,6 +508,197 @@ def reset_fault_statistics() -> bool:
         return False
 
 
+# ============================================================================
+# NETWORK FAULT INJECTION FUNCTIONS (Milestone 5)
+# ============================================================================
+
+
+def enable_network_fault(fault_type: str, target_endpoint: Optional[str] = None, 
+                        probability: int = 100, **kwargs) -> Tuple[bool, str]:
+    """
+    Enable network fault injection (Milestone 5)
+    
+    Args:
+        fault_type: Type of network fault to inject
+            - 'timeout': Simulate connection timeout (delay then fail)
+            - 'disconnect': Simulate connection drop (immediate failure)
+            - 'slow': Slow network speed (add delay to responses)
+            - 'intermittent': Random intermittent failures
+        target_endpoint: Optional endpoint pattern to target (e.g., '/power', '/ota')
+        probability: Probability of fault occurring (0-100%)
+        **kwargs: Additional parameters
+            - timeout_ms: Timeout duration for 'timeout' type (default: 30000)
+            - delay_ms: Delay duration for 'slow' type (default: 3000)
+            - failure_rate: Failure rate for 'intermittent' type (0.0-1.0, default: 0.5)
+    
+    Returns:
+        tuple: (success, message)
+    """
+    with network_fault_lock:
+        valid_types = ['timeout', 'disconnect', 'slow', 'intermittent']
+        
+        if fault_type not in valid_types:
+            return False, f"Invalid fault type. Must be one of: {valid_types}"
+        
+        if not 0 <= probability <= 100:
+            return False, "Probability must be between 0 and 100"
+        
+        network_fault_state['enabled'] = True
+        network_fault_state['fault_type'] = fault_type
+        network_fault_state['target_endpoint'] = target_endpoint
+        network_fault_state['probability'] = probability
+        network_fault_state['parameters'] = kwargs
+        network_fault_state['faults_injected'] = 0
+        network_fault_state['requests_processed'] = 0
+        
+        logger.warning(f"⚠️  Network Fault Injection ENABLED: {fault_type}")
+        if target_endpoint:
+            logger.warning(f"   Target Endpoint: {target_endpoint}")
+        logger.warning(f"   Probability: {probability}%")
+        if kwargs:
+            logger.warning(f"   Parameters: {kwargs}")
+        
+        return True, f"Network fault injection enabled: {fault_type}"
+
+
+def disable_network_fault() -> Tuple[bool, str]:
+    """Disable network fault injection"""
+    with network_fault_lock:
+        was_enabled = network_fault_state['enabled']
+        faults_injected = network_fault_state['faults_injected']
+        
+        network_fault_state['enabled'] = False
+        network_fault_state['fault_type'] = None
+        network_fault_state['target_endpoint'] = None
+        network_fault_state['probability'] = 100
+        network_fault_state['parameters'] = {}
+        network_fault_state['faults_injected'] = 0
+        network_fault_state['requests_processed'] = 0
+        
+        if was_enabled:
+            logger.info(f"✓ Network Fault Injection DISABLED (Faults injected: {faults_injected})")
+            return True, f"Network fault injection disabled (Faults injected: {faults_injected})"
+        else:
+            return True, "Network fault injection was not enabled"
+
+
+def get_network_fault_status() -> Dict:
+    """Get current network fault injection status"""
+    with network_fault_lock:
+        return {
+            'enabled': network_fault_state['enabled'],
+            'fault_type': network_fault_state['fault_type'],
+            'target_endpoint': network_fault_state['target_endpoint'],
+            'probability': network_fault_state['probability'],
+            'parameters': network_fault_state['parameters'],
+            'faults_injected': network_fault_state['faults_injected'],
+            'requests_processed': network_fault_state['requests_processed'],
+            'statistics': network_fault_stats.copy()
+        }
+
+
+def should_inject_network_fault(endpoint: str) -> bool:
+    """Check if network fault should be injected for this request"""
+    if not network_fault_state['enabled']:
+        return False
+    
+    # Increment request counter
+    network_fault_state['requests_processed'] += 1
+    
+    # Check endpoint filter
+    if network_fault_state['target_endpoint']:
+        if network_fault_state['target_endpoint'] not in endpoint:
+            return False
+    
+    # Check probability
+    if random.randint(1, 100) > network_fault_state['probability']:
+        return False
+    
+    return True
+
+
+def inject_network_fault(endpoint: str) -> Optional[Tuple[Dict, int]]:
+    """
+    Inject network fault for an endpoint (Milestone 5)
+    
+    Args:
+        endpoint: The endpoint path being accessed
+        
+    Returns:
+        Optional tuple of (error_response_dict, status_code) if fault injected,
+        None if no fault should be injected (continue normal processing)
+    """
+    if not should_inject_network_fault(endpoint):
+        return None
+    
+    fault_type = network_fault_state['fault_type']
+    network_fault_state['faults_injected'] += 1
+    
+    logger.warning(f"⚠️  Network fault injected on {endpoint}: {fault_type} "
+                 f"(fault #{network_fault_state['faults_injected']})")
+    
+    if fault_type == 'timeout':
+        # Simulate timeout: delay then return error
+        timeout_ms = network_fault_state['parameters'].get('timeout_ms', 30000)
+        logger.warning(f"   Simulating timeout: {timeout_ms}ms delay then 504")
+        time.sleep(timeout_ms / 1000.0)
+        
+        with network_stats_lock:
+            network_fault_stats['timeouts_triggered'] += 1
+        
+        return {
+            'success': False,
+            'error': 'Request timeout',
+            'fault_injection': True,
+            'fault_type': 'timeout'
+        }, 504
+    
+    elif fault_type == 'disconnect':
+        # Simulate connection drop: immediate failure
+        logger.warning("   Simulating connection drop (503 Service Unavailable)")
+        
+        with network_stats_lock:
+            network_fault_stats['connections_dropped'] += 1
+        
+        return {
+            'success': False,
+            'error': 'Connection reset by peer',
+            'fault_injection': True,
+            'fault_type': 'disconnect'
+        }, 503
+    
+    elif fault_type == 'slow':
+        # Simulate slow network: add delay before processing
+        delay_ms = network_fault_state['parameters'].get('delay_ms', 3000)
+        logger.warning(f"   Simulating slow network: {delay_ms}ms delay")
+        time.sleep(delay_ms / 1000.0)
+        
+        with network_stats_lock:
+            network_fault_stats['delays_injected'] += 1
+        
+        # Return None to continue with normal processing after delay
+        return None
+    
+    elif fault_type == 'intermittent':
+        # Random intermittent failures
+        failure_rate = network_fault_state['parameters'].get('failure_rate', 0.5)
+        if random.random() < failure_rate:
+            logger.warning(f"   Intermittent failure triggered (rate: {failure_rate})")
+            
+            with network_stats_lock:
+                network_fault_stats['failures_triggered'] += 1
+            
+            return {
+                'success': False,
+                'error': 'Network error',
+                'fault_injection': True,
+                'fault_type': 'intermittent'
+            }, 500
+    
+    # No fault or continue normal processing
+    return None
+
+
 # Export functions
 __all__ = [
     'enable_fault_injection',
@@ -497,5 +713,10 @@ __all__ = [
     'truncate_frame',
     'generate_garbage',
     'generate_modbus_exception',
-    'simulate_timeout'
+    'simulate_timeout',
+    # Network fault injection
+    'enable_network_fault',
+    'disable_network_fault',
+    'get_network_fault_status',
+    'inject_network_fault'
 ]
