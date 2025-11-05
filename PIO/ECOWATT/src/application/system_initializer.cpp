@@ -97,14 +97,11 @@ bool SystemInitializer::syncNTPTime() {
 bool SystemInitializer::initPowerManagement() {
     PowerManagement::init();
     PeripheralPower::init();
-    LOG_SUCCESS(LOG_TAG_POWER, "Power management initialized");
-    LOG_SUCCESS(LOG_TAG_POWER, "Peripheral power gating enabled");
     return true;
 }
 
 bool SystemInitializer::initSecurity() {
     SecurityLayer::init();
-    LOG_SUCCESS(LOG_TAG_SECURITY, "Security layer initialized");
     return true;
 }
 

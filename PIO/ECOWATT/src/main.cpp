@@ -79,10 +79,24 @@ bool registerDeviceWithServer() {
     doc["description"] = "EcoWatt Energy Monitor";
     
     String payload;
-    serializeJson(doc, payload);
+    serializeJsonPretty(doc, payload);
     
     LOG_INFO(LOG_TAG_BOOT, "Sending registration:");
-    LOG_INFO(LOG_TAG_BOOT, "  %s", payload.c_str());
+    // Print each line of the JSON with proper indentation
+    int startPos = 0;
+    int endPos = payload.indexOf('\n');
+    while (endPos != -1) {
+        LOG_INFO(LOG_TAG_BOOT, "  %s", payload.substring(startPos, endPos).c_str());
+        startPos = endPos + 1;
+        endPos = payload.indexOf('\n', startPos);
+    }
+    if (startPos < payload.length()) {
+        LOG_INFO(LOG_TAG_BOOT, "  %s", payload.substring(startPos).c_str());
+    }
+    
+    // Re-serialize compact for actual transmission
+    payload = "";
+    serializeJson(doc, payload);
     
     int httpCode = http.POST(payload);
     
@@ -190,11 +204,11 @@ void setup()
     uint32_t otaFreqMs = otaCheckFreq / 1000;
     
     LOG_INFO(LOG_TAG_BOOT, "Task frequencies configured from NVS:");;
-    LOG_INFO(LOG_TAG_BOOT, "  - Sensor Poll:  %lu ms (configurable via NVS)\n", pollFreqMs);
-    LOG_INFO(LOG_TAG_BOOT, "  - Upload:       %lu ms (configurable via NVS)\n", uploadFreqMs);
-    LOG_INFO(LOG_TAG_BOOT, "  - Config Check: %lu ms (configurable via NVS)\n", configFreqMs);
-    LOG_INFO(LOG_TAG_BOOT, "  - Command Poll: %lu ms (configurable via NVS)\n", commandFreqMs);
-    LOG_INFO(LOG_TAG_BOOT, "  - OTA Check:    %lu ms (configurable via NVS)\n", otaFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "  - Sensor Poll:  %lu ms (configurable via NVS)", pollFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "  - Upload:       %lu ms (configurable via NVS)", uploadFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "  - Config Check: %lu ms (configurable via NVS)", configFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "  - Command Poll: %lu ms (configurable via NVS)", commandFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "  - OTA Check:    %lu ms (configurable via NVS)", otaFreqMs);
 
     uint64_t energyPollFreq = nvs::getEnergyPollFreq();
     uint32_t energyPollMs = energyPollFreq / 1000;
@@ -224,7 +238,7 @@ void setup()
     // ========================================
     // Initialize FreeRTOS Task Manager
     // ========================================
-    LOG_INFO(LOG_TAG_BOOT, "\n[Main] Initializing FreeRTOS Task Manager...");;
+    LOG_INFO(LOG_TAG_BOOT, "Initializing FreeRTOS Task Manager...");;
     if (!TaskManager::init(pollFreqMs, uploadFreqMs, configFreqMs, commandFreqMs, otaFreqMs)) {
         LOG_INFO(LOG_TAG_BOOT, "ERROR: Failed to initialize TaskManager!");;
         LOG_INFO(LOG_TAG_BOOT, "System halted.");;
