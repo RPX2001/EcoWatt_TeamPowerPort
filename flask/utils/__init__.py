@@ -10,16 +10,6 @@ from .compression_utils import (
     decompress_smart_binary_data
 )
 
-from .mqtt_utils import (
-    init_mqtt,
-    publish_mqtt,
-    get_settings_state,
-    update_settings_state,
-    reset_settings_flags,
-    cleanup_mqtt,
-    is_mqtt_connected
-)
-
 from .logger_utils import (
     init_logging,
     get_logger,
@@ -45,14 +35,6 @@ __all__ = [
     'decompress_semantic_rle',
     'decompress_bit_packed',
     'decompress_smart_binary_data',
-    # MQTT
-    'init_mqtt',
-    'publish_mqtt',
-    'get_settings_state',
-    'update_settings_state',
-    'reset_settings_flags',
-    'cleanup_mqtt',
-    'is_mqtt_connected',
     # Logging
     'init_logging',
     'get_logger',

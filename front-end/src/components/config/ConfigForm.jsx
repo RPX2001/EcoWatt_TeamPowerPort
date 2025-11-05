@@ -275,179 +275,191 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
   };
 
   return (
-    <Paper elevation={2} sx={{ p: 3 }}>
-      <Typography variant="h6" gutterBottom>
+    <Paper elevation={2} sx={{ p: 4, maxWidth: 1200 }}>
+      <Typography variant="h5" gutterBottom sx={{ mb: 3 }}>
         Device Configuration
       </Typography>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error" sx={{ mb: 3 }}>
           {error}
         </Alert>
       )}
 
       {success && (
-        <Alert severity="success" sx={{ mb: 2 }}>
+        <Alert severity="success" sx={{ mb: 3 }}>
           Configuration updated successfully! Command queued for device.
         </Alert>
       )}
 
       <Box component="form" onSubmit={handleSubmit}>
-        <Grid container spacing={3}>
-          {/* Timing Parameters Section */}
-          <Grid item xs={12}>
-            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', mt: 1 }}>
-              Timing Parameters
-            </Typography>
-            <Divider sx={{ mb: 2 }} />
-          </Grid>
+        {/* Timing Parameters Section */}
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', mb: 2 }}>
+            ⏱️ Timing Parameters
+          </Typography>
+          <Divider sx={{ mb: 3 }} />
+          
+          <Grid container spacing={3}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Sampling Interval"
+                type="number"
+                value={config.sampling_interval}
+                onChange={(e) => handleInputChange('sampling_interval', Number(e.target.value))}
+                helperText="Device reads from inverter every N seconds (1-300s)"
+                inputProps={{ min: 1, max: 300, step: 1 }}
+              />
+            </Grid>
 
-          <Grid item xs={12} md={6}>
-            <TextField
-              fullWidth
-              label="Sampling Interval (seconds)"
-              type="number"
-              value={config.sampling_interval}
-              onChange={(e) => handleInputChange('sampling_interval', Number(e.target.value))}
-              helperText="Device reads from inverter every N seconds (1-300s)"
-              inputProps={{ min: 1, max: 300, step: 1 }}
-            />
-          </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Upload Interval"
+                type="number"
+                value={config.upload_interval}
+                onChange={(e) => handleInputChange('upload_interval', Number(e.target.value))}
+                helperText="Device uploads to cloud every N seconds (10-3600s)"
+                inputProps={{ min: 10, max: 3600, step: 5 }}
+              />
+            </Grid>
 
-          <Grid item xs={12} md={6}>
-            <TextField
-              fullWidth
-              label="Upload Interval (seconds)"
-              type="number"
-              value={config.upload_interval}
-              onChange={(e) => handleInputChange('upload_interval', Number(e.target.value))}
-              helperText="Device uploads to cloud every N seconds (10-3600s)"
-              inputProps={{ min: 10, max: 3600, step: 5 }}
-            />
-          </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Firmware Check Interval"
+                type="number"
+                value={config.firmware_check_interval}
+                onChange={(e) => handleInputChange('firmware_check_interval', Number(e.target.value))}
+                helperText="Check for firmware updates every N seconds (30-86400s)"
+                inputProps={{ min: 30, max: 86400, step: 10 }}
+              />
+            </Grid>
 
-          <Grid item xs={12} md={6}>
-            <TextField
-              fullWidth
-              label="Firmware Check Interval (seconds)"
-              type="number"
-              value={config.firmware_check_interval}
-              onChange={(e) => handleInputChange('firmware_check_interval', Number(e.target.value))}
-              helperText="Check for firmware updates every N seconds (30-86400s)"
-              inputProps={{ min: 30, max: 86400, step: 10 }}
-            />
-          </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Command Poll Interval"
+                type="number"
+                value={config.command_poll_interval}
+                onChange={(e) => handleInputChange('command_poll_interval', Number(e.target.value))}
+                helperText="Check for pending commands every N seconds (5-300s)"
+                inputProps={{ min: 5, max: 300, step: 5 }}
+              />
+            </Grid>
 
-          <Grid item xs={12} md={6}>
-            <TextField
-              fullWidth
-              label="Command Poll Interval (seconds)"
-              type="number"
-              value={config.command_poll_interval}
-              onChange={(e) => handleInputChange('command_poll_interval', Number(e.target.value))}
-              helperText="Check for pending commands every N seconds (5-300s)"
-              inputProps={{ min: 5, max: 300, step: 5 }}
-            />
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Config Poll Interval"
+                type="number"
+                value={config.config_poll_interval}
+                onChange={(e) => handleInputChange('config_poll_interval', Number(e.target.value))}
+                helperText="Check for config updates every N seconds (1-300s)"
+                inputProps={{ min: 1, max: 300, step: 1 }}
+              />
+            </Grid>
           </Grid>
+        </Box>
 
-          <Grid item xs={12} md={6}>
-            <TextField
-              fullWidth
-              label="Config Poll Interval (seconds)"
-              type="number"
-              value={config.config_poll_interval}
-              onChange={(e) => handleInputChange('config_poll_interval', Number(e.target.value))}
-              helperText="Check for config updates every N seconds (1-300s)"
-              inputProps={{ min: 1, max: 300, step: 1 }}
-            />
-          </Grid>
+        {/* Data Processing Section */}
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', mb: 2 }}>
+            🗜️ Data Processing
+          </Typography>
+          <Divider sx={{ mb: 3 }} />
+          
+          <FormControlLabel
+            control={
+              <Switch
+                checked={config.compression_enabled}
+                onChange={(e) => handleInputChange('compression_enabled', e.target.checked)}
+              />
+            }
+            label={
+              <Box>
+                <Typography variant="body1">Enable Data Compression</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Compress data before uploading to reduce bandwidth usage
+                </Typography>
+              </Box>
+            }
+          />
+        </Box>
 
-          {/* Data Processing Section */}
-          <Grid item xs={12}>
-            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', mt: 2 }}>
-              Data Processing
-            </Typography>
-            <Divider sx={{ mb: 2 }} />
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={config.compression_enabled}
-                  onChange={(e) => handleInputChange('compression_enabled', e.target.checked)}
-                />
-              }
-              label="Enable Data Compression"
-            />
-          </Grid>
-
-          {/* Registers Section */}
-          <Grid item xs={12}>
-            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', mt: 2 }}>
-              Modbus Registers to Monitor
-            </Typography>
-            <Typography variant="caption" color="text.secondary" gutterBottom>
-              Based on Inverter SIM API - Section 4: Modbus Data Registers
-            </Typography>
-            <Divider sx={{ mb: 2 }} />
-          </Grid>
-
-          <Grid item xs={12}>
-            <FormGroup>
-              {AVAILABLE_REGISTERS.map((register) => (
+        {/* Registers Section */}
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', mb: 1 }}>
+            📊 Modbus Registers to Monitor
+          </Typography>
+          <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
+            Based on Inverter SIM API - Section 4: Modbus Data Registers
+          </Typography>
+          <Divider sx={{ mb: 3 }} />
+          
+          <Grid container spacing={2}>
+            {AVAILABLE_REGISTERS.map((register) => (
+              <Grid item xs={12} sm={6} md={4} key={register.id}>
                 <FormControlLabel
-                  key={register.id}
                   control={
                     <Checkbox
                       checked={config.registers.includes(register.id)}
                       onChange={() => handleRegisterToggle(register.id)}
                     />
                   }
-                  label={`${register.name} (Address ${register.address}, ${register.unit}, Gain: ${register.gain})`}
+                  label={
+                    <Tooltip title={`Address: ${register.address}, Unit: ${register.unit}, Gain: ${register.gain}${register.writable ? ' (Writable)' : ''}`}>
+                      <Typography variant="body2">
+                        {register.name}
+                      </Typography>
+                    </Tooltip>
+                  }
+                  sx={{ width: '100%' }}
                 />
-              ))}
-            </FormGroup>
+              </Grid>
+            ))}
           </Grid>
+        </Box>
 
-          {/* Power Management Section */}
-          <Grid item xs={12}>
-            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', mt: 2 }}>
-              Power Management
-            </Typography>
-            <Typography variant="caption" color="text.secondary" gutterBottom>
-              Configure power-saving techniques to reduce energy consumption
-            </Typography>
-            <Divider sx={{ mb: 2 }} />
-          </Grid>
+        {/* Power Management Section */}
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', mb: 1 }}>
+            ⚡ Power Management
+          </Typography>
+          <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
+            Configure power-saving techniques to reduce energy consumption
+          </Typography>
+          <Divider sx={{ mb: 3 }} />
+          
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={powerConfig.enabled}
+                    onChange={(e) => handlePowerToggle('enabled', e.target.checked)}
+                    disabled={powerLoading}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body1">Enable Power Management</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Activate power-saving techniques on the device
+                    </Typography>
+                  </Box>
+                }
+              />
+            </Grid>
 
-          <Grid item xs={12} md={6}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={powerConfig.enabled}
-                  onChange={(e) => handlePowerToggle('enabled', e.target.checked)}
-                  disabled={powerLoading}
-                />
-              }
-              label={
-                <Box>
-                  <Typography variant="body1">Enable Power Management</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Activate power-saving techniques on the device
-                  </Typography>
-                </Box>
-              }
-            />
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <TextField
-              fullWidth
-              label="Energy Report Frequency (seconds)"
-              type="number"
-              value={powerConfig.energy_poll_interval}
-              onChange={(e) => handlePowerToggle('energy_poll_interval', Number(e.target.value))}
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Energy Report Frequency"
+                type="number"
+                value={powerConfig.energy_poll_interval}
+                onChange={(e) => handlePowerToggle('energy_poll_interval', Number(e.target.value))}
               helperText="How often device reports energy statistics (60-3600 s, always active)"
               inputProps={{ min: 60, max: 3600, step: 60 }}
               disabled={powerLoading}
@@ -455,100 +467,112 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
           </Grid>
 
           <Grid item xs={12}>
-            <Typography variant="body2" gutterBottom sx={{ fontWeight: 'bold' }}>
+            <Typography variant="body2" gutterBottom sx={{ fontWeight: 'bold', mt: 2 }}>
               Power Saving Techniques
             </Typography>
-            <FormGroup>
-              <Tooltip title={TECHNIQUE_DESCRIPTIONS.wifi_modem_sleep} arrow placement="right">
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={powerConfig.techniques.includes('wifi_modem_sleep')}
-                      onChange={() => handleTechniqueToggle('wifi_modem_sleep')}
-                      disabled={powerLoading || !powerConfig.enabled}
-                    />
-                  }
-                  label={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography>{TECHNIQUE_NAMES.wifi_modem_sleep}</Typography>
-                      <Chip label="Active" size="small" color="success" variant="outlined" />
-                    </Box>
-                  }
-                />
-              </Tooltip>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <Tooltip title={TECHNIQUE_DESCRIPTIONS.wifi_modem_sleep} arrow placement="right">
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={powerConfig.techniques.includes('wifi_modem_sleep')}
+                        onChange={() => handleTechniqueToggle('wifi_modem_sleep')}
+                        disabled={powerLoading || !powerConfig.enabled}
+                      />
+                    }
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2">{TECHNIQUE_NAMES.wifi_modem_sleep}</Typography>
+                        <Chip label="Active" size="small" color="success" variant="outlined" />
+                      </Box>
+                    }
+                    sx={{ width: '100%' }}
+                  />
+                </Tooltip>
+              </Grid>
 
-              <Tooltip title={TECHNIQUE_DESCRIPTIONS.cpu_freq_scaling} arrow placement="right">
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={powerConfig.techniques.includes('cpu_freq_scaling')}
-                      onChange={() => handleTechniqueToggle('cpu_freq_scaling')}
-                      disabled={powerLoading || !powerConfig.enabled}
-                    />
-                  }
-                  label={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography>{TECHNIQUE_NAMES.cpu_freq_scaling}</Typography>
-                      <Chip label="Future" size="small" color="warning" variant="outlined" />
-                    </Box>
-                  }
-                />
-              </Tooltip>
+              <Grid item xs={12} sm={6}>
+                <Tooltip title={TECHNIQUE_DESCRIPTIONS.cpu_freq_scaling} arrow placement="right">
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={powerConfig.techniques.includes('cpu_freq_scaling')}
+                        onChange={() => handleTechniqueToggle('cpu_freq_scaling')}
+                        disabled={powerLoading || !powerConfig.enabled}
+                      />
+                    }
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2">{TECHNIQUE_NAMES.cpu_freq_scaling}</Typography>
+                        <Chip label="Future" size="small" color="warning" variant="outlined" />
+                      </Box>
+                    }
+                    sx={{ width: '100%' }}
+                  />
+                </Tooltip>
+              </Grid>
 
-              <Tooltip title={TECHNIQUE_DESCRIPTIONS.light_sleep} arrow placement="right">
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={powerConfig.techniques.includes('light_sleep')}
-                      onChange={() => handleTechniqueToggle('light_sleep')}
-                      disabled={powerLoading || !powerConfig.enabled}
-                    />
-                  }
-                  label={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography>{TECHNIQUE_NAMES.light_sleep}</Typography>
-                      <Chip label="Future" size="small" color="warning" variant="outlined" />
-                    </Box>
-                  }
-                />
-              </Tooltip>
+              <Grid item xs={12} sm={6}>
+                <Tooltip title={TECHNIQUE_DESCRIPTIONS.light_sleep} arrow placement="right">
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={powerConfig.techniques.includes('light_sleep')}
+                        onChange={() => handleTechniqueToggle('light_sleep')}
+                        disabled={powerLoading || !powerConfig.enabled}
+                      />
+                    }
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2">{TECHNIQUE_NAMES.light_sleep}</Typography>
+                        <Chip label="Future" size="small" color="warning" variant="outlined" />
+                      </Box>
+                    }
+                    sx={{ width: '100%' }}
+                  />
+                </Tooltip>
+              </Grid>
 
-              <Tooltip title={TECHNIQUE_DESCRIPTIONS.peripheral_gating} arrow placement="right">
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={powerConfig.techniques.includes('peripheral_gating')}
-                      onChange={() => handleTechniqueToggle('peripheral_gating')}
-                      disabled={powerLoading || !powerConfig.enabled}
-                    />
-                  }
-                  label={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography>{TECHNIQUE_NAMES.peripheral_gating}</Typography>
-                      <Chip label="Future" size="small" color="warning" variant="outlined" />
-                    </Box>
-                  }
-                />
-              </Tooltip>
-            </FormGroup>
-          </Grid>
-
-          <Grid item xs={12}>
-            <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
-              <Button
-                type="submit"
-                variant="contained"
-                disabled={loading}
-                startIcon={loading ? <CircularProgress size={20} /> : null}
-              >
-                {loading ? 'Applying...' : 'Apply Configuration'}
-              </Button>
-              <Button variant="outlined" onClick={handleReset} disabled={loading}>
-                Reset
-              </Button>
-            </Box>
+              <Grid item xs={12} sm={6}>
+                <Tooltip title={TECHNIQUE_DESCRIPTIONS.peripheral_gating} arrow placement="right">
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={powerConfig.techniques.includes('peripheral_gating')}
+                        onChange={() => handleTechniqueToggle('peripheral_gating')}
+                        disabled={powerLoading || !powerConfig.enabled}
+                      />
+                    }
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2">{TECHNIQUE_NAMES.peripheral_gating}</Typography>
+                        <Chip label="Future" size="small" color="warning" variant="outlined" />
+                      </Box>
+                    }
+                    sx={{ width: '100%' }}
+                  />
+                </Tooltip>
+              </Grid>
+            </Grid>
           </Grid>
         </Grid>
+        </Box>
+
+        {/* Action Buttons */}
+        <Box sx={{ display: 'flex', gap: 2, mt: 3, justifyContent: 'flex-end' }}>
+          <Button variant="outlined" onClick={handleReset} disabled={loading}>
+            Reset
+          </Button>
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={loading}
+            startIcon={loading ? <CircularProgress size={20} /> : null}
+          >
+            {loading ? 'Applying...' : 'Apply Configuration'}
+          </Button>
+        </Box>
       </Box>
     </Paper>
   );

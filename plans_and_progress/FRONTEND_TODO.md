@@ -4,6 +4,10 @@
 
 ---
 
+## 🚨 MILESTONE 5 FOCUS - See MILESTONE_5_TODO.md for detailed task list
+
+---
+
 ## Recent Fix (Nov 5, 2025) - Compression Bug ✅ COMPLETED
 
 ### Issue: Bit-Packing Decompression Mismatch
@@ -11,6 +15,48 @@
 - [x] ✅ Fixed bit unpacking: Changed from LSB-first to MSB-first to match ESP32's packing algorithm  
 - [x] ✅ Verified: Modbus values (Vac1=2384, Iac1=149, Pac=3596) now decompress correctly in Flask
 - [x] ✅ Added support for 0x70/0x71 temporal compression markers (for future use)
+
+---
+
+## 🔄 URGENT TASKS (From Milestone 5)
+
+### Backend Cleanup ✅ COMPLETE
+- [x] ✅ **Remove ALL MQTT code** - Deleted mqtt_utils.py, removed from routes and dependencies
+  - Removed `flask/utils/mqtt_utils.py`
+  - Removed MQTT publish calls from routes
+  - Removed MQTT config/dependencies from flask_server_modular.py
+  - Removed paho-mqtt from requirements.txt
+
+- [ ] 🔄 **Simplify Fault Injection**
+  - Align with Inverter SIM API (Malformed CRC, Truncated payloads, Buffer overflow, Random garbage)
+  - Remove local fault simulation endpoints
+  - Keep only: Network faults, Security faults, Inverter SIM API triggers
+
+### Frontend UI Fixes ✅ COMPLETE
+- [x] ✅ **Fix Tab Width Inconsistency**
+  - Set minWidth: 800px on main content container in App.jsx
+  - All tabs now have same width regardless of content
+
+- [x] ✅ **Fix Configuration Tab Layout**
+  - Redesigned ConfigForm.jsx with Box sections and proper organization
+  - Added emoji section headers (⏱️ Timing, 🗜️ Data Processing, 📊 Modbus, ⚡ Power)
+  - Improved grid layout for registers and power techniques
+  - Better button alignment (right-aligned with proper gap)
+  - Fixed heading positions and spacing
+
+- [x] ✅ **Fix Footer Positioning**
+  - Footer uses mt: 'auto' and main container has minHeight calc
+  - Footer stays at bottom consistently
+
+- [x] ✅ **Remove MQTT from Frontend**
+  - Removed mqtt_disconnect from FaultInjection.jsx
+  - Removed MQTT preset from faults.js
+  - Updated fault type comment to exclude MQTT
+
+### Fault Injection Page Redesign
+- [ ] 🔄 Add Inverter SIM fault triggers (Malformed CRC, Truncated, Overflow, Garbage)
+- [ ] 🔄 Remove deprecated local fault injection
+- [ ] 🔄 Show Inverter SIM fault history
 
 ---
 

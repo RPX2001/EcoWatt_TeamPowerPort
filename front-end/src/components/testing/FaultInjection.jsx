@@ -110,7 +110,6 @@ const FaultInjection = () => {
   // Local fault types (internal simulation)
   const localFaults = [
     { value: 'network_timeout', label: 'Network Timeout', description: 'Simulate network timeout' },
-    { value: 'mqtt_disconnect', label: 'MQTT Disconnect', description: 'Simulate MQTT connection loss' },
     { value: 'command_failure', label: 'Command Failure', description: 'Simulate command execution failure' },
     { value: 'ota_failure', label: 'OTA Failure', description: 'Simulate OTA update failure' },
     { value: 'memory_error', label: 'Memory Error', description: 'Simulate memory allocation error' }

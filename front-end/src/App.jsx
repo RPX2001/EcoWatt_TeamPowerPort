@@ -46,7 +46,7 @@ function App() {
         <BrowserRouter>
           <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
             <Navbar onMenuClick={handleMenuClick} />
-            <Box sx={{ display: 'flex', flexGrow: 1 }}>
+            <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 'calc(100vh - 64px)' }}>
               <Sidebar open={sidebarOpen} onClose={handleSidebarClose} />
               <Box
                 component="main"
@@ -54,6 +54,7 @@ function App() {
                   flexGrow: 1,
                   p: 3,
                   width: '100%',
+                  minWidth: '1200px', // Ensure consistent minimum width across all tabs
                   bgcolor: 'background.default',
                   marginLeft: sidebarOpen ? 0 : '-240px',
                   transition: 'margin-left 0.3s ease',

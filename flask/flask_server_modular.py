@@ -24,8 +24,7 @@ import threading
 # Import database
 from database import Database
 
-# Import MQTT utilities
-from utils.mqtt_utils import init_mqtt, mqtt_client, get_settings_state
+# Import logging utilities
 from utils.logger_utils import init_logging
 
 # Import all route blueprints
@@ -62,15 +61,6 @@ CORS(app, resources={
 # Configure logging
 init_logging()
 logger = logging.getLogger(__name__)
-
-# MQTT Configuration
-MQTT_BROKER = "broker.hivemq.com"
-MQTT_PORT = 1883
-MQTT_TOPIC = "esp32/ecowatt_data"
-MQTT_CLIENT_ID = f"flask_ecowatt_smart_server_{int(time.time())}"
-
-# Settings state (thread-safe, managed by mqtt_utils)
-settings_lock = threading.Lock()
 
 
 def register_blueprints():
@@ -128,9 +118,6 @@ def print_startup_banner():
     print("  ✓ Fault injection testing")
     print("  ✓ Diagnostics tracking")
     print("=" * 70)
-    print(f"MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
-    print(f"MQTT Topic: {MQTT_TOPIC}")
-    print("=" * 70)
     print("Available Endpoints:")
     print("  General:     GET  /              - API information")
     print("               GET  /health        - Health check")
@@ -178,19 +165,6 @@ register_blueprints()
 if __name__ == '__main__':
     # Print startup banner
     print_startup_banner()
-    
-    # Initialize MQTT client
-    mqtt_success = init_mqtt(
-        broker=MQTT_BROKER,
-        port=MQTT_PORT,
-        client_id=MQTT_CLIENT_ID,
-        data_topic=MQTT_TOPIC
-    )
-    
-    if mqtt_success:
-        logger.info("✓ MQTT client initialized successfully")
-    else:
-        logger.warning("⚠ MQTT client failed to initialize")
     
     # Start Flask server
     logger.info("Starting Flask server on 0.0.0.0:5001")

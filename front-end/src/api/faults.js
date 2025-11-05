@@ -34,7 +34,7 @@ export const injectInverterFault = (config) => {
 /**
  * Inject local fault (application-level)
  * @param {Object} config - Fault configuration
- * @param {string} config.fault_type - network|mqtt|command|ota
+ * @param {string} config.fault_type - network|command|ota
  * @param {string} config.target - Target component
  * @param {number} config.duration - Duration in seconds
  * @returns {Promise} API response
@@ -123,14 +123,6 @@ export const FAULT_PRESETS = {
     config: {
       fault_type: 'network',
       target: 'upload',
-      duration: 60
-    }
-  },
-  mqtt_disconnect: {
-    name: 'MQTT Disconnect',
-    config: {
-      fault_type: 'mqtt',
-      target: 'connection',
       duration: 60
     }
   },

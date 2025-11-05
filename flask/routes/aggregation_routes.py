@@ -16,7 +16,6 @@ from handlers import (
     reset_compression_statistics,
     handle_aggregated_data
 )
-from utils.mqtt_utils import publish_mqtt
 
 logger = logging.getLogger(__name__)
 
@@ -196,11 +195,7 @@ def receive_aggregated_data(device_id: str):
                         register_layout=register_layout  # Pass the actual registers that were polled
                     )
                     
-                    try:
-                        publish_mqtt(mqtt_topic, json.dumps(mqtt_payload))
-                        logger.info(f"Published {len(all_decompressed)} decompressed samples from {len(all_stats)} packets to MQTT")
-                    except Exception as mqtt_error:
-                        logger.warning(f"Failed to publish to MQTT: {mqtt_error}")
+                    logger.info(f"Processed {len(all_decompressed)} decompressed samples from {len(all_stats)} packets")
                     
                     return jsonify({
                         'success': True,
@@ -221,26 +216,7 @@ def receive_aggregated_data(device_id: str):
                 decompressed, stats = handle_compressed_data(compressed_data)
                 
                 if decompressed is not None and stats.get('success'):
-                    # Publish decompressed data to MQTT
-                    mqtt_topic = f"ecowatt/data/{device_id}"
-                    mqtt_payload = {
-                        'device_id': device_id,
-                        'timestamp': time.time(),
-                        'values': decompressed,
-                        'sample_count': len(decompressed),
-                        'compression_stats': {
-                            'method': stats.get('method', 'unknown'),
-                            'ratio': stats.get('ratio', 0),
-                            'original_size': stats.get('original_size', 0),
-                            'compressed_size': stats.get('compressed_size', 0)
-                        }
-                    }
-                    
-                    try:
-                        publish_mqtt(mqtt_topic, json.dumps(mqtt_payload))
-                        logger.info(f"Published {len(decompressed)} decompressed samples to MQTT")
-                    except Exception as mqtt_error:
-                        logger.warning(f"Failed to publish to MQTT: {mqtt_error}")
+                    logger.info(f"Processed {len(decompressed)} decompressed samples")
                     
                     return jsonify({
                         'success': True,
@@ -266,22 +242,7 @@ def receive_aggregated_data(device_id: str):
                     # Process the list of sample dictionaries
                     sample_count = len(aggregated_data)
                     
-                    # Publish aggregated data to MQTT
-                    mqtt_topic = f"ecowatt/data/{device_id}"
-                    mqtt_payload = {
-                        'device_id': device_id,
-                        'timestamp': time.time(),
-                        'samples': aggregated_data,
-                        'sample_count': sample_count,
-                        'type': 'aggregated'
-                    }
-                    
-                    try:
-                        publish_mqtt(mqtt_topic, json.dumps(mqtt_payload))
-                        logger.info(f"Published {sample_count} aggregated samples to MQTT topic: {mqtt_topic}")
-                    except Exception as mqtt_error:
-                        logger.warning(f"Failed to publish to MQTT: {mqtt_error}")
-                        # Don't fail the request if MQTT publish fails
+                    logger.info(f"Processed {sample_count} aggregated samples")
                     
                     return jsonify({
                         'success': True,
