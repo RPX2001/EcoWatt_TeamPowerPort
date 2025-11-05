@@ -199,6 +199,20 @@ export const clearRecoveryEvents = (deviceId = null) => {
 };
 
 /**
+ * Get fault injection history from database (Milestone 5)
+ * @param {string} [deviceId] - Optional device ID to filter
+ * @param {number} [limit=50] - Number of records to return
+ * @returns {Promise} API response with injection history
+ */
+export const getInjectionHistory = (deviceId = null, limit = 50) => {
+  const params = { limit };
+  if (deviceId) {
+    params.device_id = deviceId;
+  }
+  return apiClient.get('/fault/injection/history', { params });
+};
+
+/**
  * Simulate a recovery event (for testing)
  * @param {Object} event - Recovery event data
  * @param {string} event.device_id - Device ID
@@ -223,6 +237,7 @@ export default {
   getRecoveryEvents,
   getAllRecoveryEvents,
   clearRecoveryEvents,
+  getInjectionHistory,
   postRecoveryEvent,
   FAULT_PRESETS,
   MODBUS_EXCEPTION_CODES

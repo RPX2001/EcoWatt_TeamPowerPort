@@ -2,6 +2,21 @@
 #include "application/fault_recovery.h" // Milestone 5: Fault Recovery
 #include "application/data_uploader.h"  // For getDeviceID()
 #include <functional>  // For std::bind to reduce stack usage
+#include <time.h>
+
+// Helper to get current Unix timestamp (same as data_uploader)
+static unsigned long getCurrentTimestamp() {
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        time_t now = mktime(&timeinfo);
+        return (unsigned long)now;
+    }
+    time_t now = time(nullptr);
+    if (now > 1000000000) { // Sanity check
+        return (unsigned long)now;
+    }
+    return millis() / 1000; // Last resort
+}
 
 ProtocolAdapter adapter;
 
@@ -293,7 +308,7 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
     const char* deviceId = DataUploader::getDeviceID();
     strncpy(event.device_id, deviceId ? deviceId : "ESP32_UNKNOWN", sizeof(event.device_id));
     event.device_id[sizeof(event.device_id) - 1] = '\0';
-    event.timestamp = millis() / 1000; // Convert to seconds
+    event.timestamp = getCurrentTimestamp(); // Use proper Unix timestamp
     event.fault_type = FaultType::TIMEOUT;
     event.recovery_action = RecoveryAction::RETRY_READ;
     event.success = false;
@@ -329,7 +344,7 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
     const char* deviceId = DataUploader::getDeviceID();
     strncpy(event.device_id, deviceId ? deviceId : "ESP32_UNKNOWN", sizeof(event.device_id));
     event.device_id[sizeof(event.device_id) - 1] = '\0';
-    event.timestamp = millis() / 1000;
+    event.timestamp = getCurrentTimestamp(); // Use proper Unix timestamp
     event.fault_type = fault;
     event.recovery_action = RecoveryAction::RETRY_READ;
     event.success = recoverySuccess;

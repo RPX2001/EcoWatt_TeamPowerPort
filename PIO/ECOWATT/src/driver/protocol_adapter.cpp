@@ -2,6 +2,23 @@
 #include <ArduinoJson.h>
 #include <Arduino.h>
 #include "driver/protocol_adapter.h"
+#include "application/fault_recovery.h"
+#include "application/data_uploader.h"
+#include <time.h>
+
+// Helper to get current Unix timestamp (same as data_uploader)
+static unsigned long getCurrentTimestamp() {
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        time_t now = mktime(&timeinfo);
+        return (unsigned long)now;
+    }
+    time_t now = time(nullptr);
+    if (now > 1000000000) { // Sanity check
+        return (unsigned long)now;
+    }
+    return millis() / 1000; // Last resort
+}
 
 ProtocolAdapter::ProtocolAdapter() {}
 
@@ -69,6 +86,17 @@ bool ProtocolAdapter::readRegister(const char* frameHex, char* outFrameHex, size
   if (!state)
   {
     debug.log("Read operation failed. Attempting ONE retry...\n");
+    
+    // MILESTONE 5: Send recovery event for fault detection
+    FaultRecoveryEvent event;
+    const char* deviceId = DataUploader::getDeviceID();
+    strncpy(event.device_id, deviceId ? deviceId : "ESP32_UNKNOWN", sizeof(event.device_id));
+    event.device_id[sizeof(event.device_id) - 1] = '\0';
+    event.timestamp = getCurrentTimestamp(); // Use proper Unix timestamp
+    event.fault_type = FaultType::MODBUS_EXCEPTION; // Most likely cause of parseResponse failure
+    event.recovery_action = RecoveryAction::RETRY_READ;
+    event.retry_count = 1;
+    
     state = sendRequest(readURL, frameHex, responseJson, sizeof(responseJson));
     if (state)
     {
@@ -78,11 +106,18 @@ bool ProtocolAdapter::readRegister(const char* frameHex, char* outFrameHex, size
     if (!state)
     {
       debug.log("❌ Read retry failed. Packet DROPPED.\n");
+      event.success = false;
+      snprintf(event.details, sizeof(event.details), "Modbus read failed after 1 retry");
     }
     else
     {
       debug.log("✓ Read operation successful on retry\n");
+      event.success = true;
+      snprintf(event.details, sizeof(event.details), "Modbus read recovered after 1 retry");
     }
+    
+    // Send recovery event to Flask
+    sendRecoveryEvent(event);
   }
   
   return state;

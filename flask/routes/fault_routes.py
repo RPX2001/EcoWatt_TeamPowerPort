@@ -1,10 +1,10 @@
 """
 Fault Injection Routes
 Handles fault injection testing with dual backend support:
-1. Inverter SIM API (http://20.15.114.131:8080/api/inverter/error) - For Modbus/Inverter faults
+1. Inverter SIM API (http://20.15.114.131:8080/api/user/error-flag/add) - For Modbus/Inverter faults
 2. Flask Local Endpoint - For other fault types (network, MQTT, etc.)
 
-Based on: In21-EN4440-API Service Documentation Section 8: Error Emulation API
+Based on: In21-EN4440-API Service Documentation Section 7: Add Error Flag API
 """
 
 from flask import Blueprint, jsonify, request
@@ -12,6 +12,7 @@ import logging
 import requests
 import time
 from typing import Dict
+from database import Database
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +163,17 @@ def inject_inverter_sim_fault(data):
             fault_statistics['total_injected'] += 1
             fault_statistics['inverter_sim_faults'] += 1
             
+            # Save to database
+            Database.save_fault_injection(
+                device_id=None,  # Affects all ESP32s
+                fault_type=error_type,
+                backend='inverter_sim',
+                error_type=error_type,
+                exception_code=data.get('exceptionCode'),
+                delay_ms=data.get('delayMs'),
+                success=True
+            )
+            
             logger.info(f"[Fault] Inverter SIM error flag set: {error_type}")
             logger.info(f"[Fault] ESP32's next Modbus request will receive corrupted response")
             
@@ -173,6 +185,18 @@ def inject_inverter_sim_fault(data):
                 'note': 'ESP32 will receive corrupted response on next Modbus request'
             }), 200
         else:
+            # Save failed injection to database
+            Database.save_fault_injection(
+                device_id=None,
+                fault_type=error_type,
+                backend='inverter_sim',
+                error_type=error_type,
+                exception_code=data.get('exceptionCode'),
+                delay_ms=data.get('delayMs'),
+                success=False,
+                error_msg=f'API returned {response.status_code}: {response.text}'
+            )
+            
             logger.error(f"[Fault] Inverter SIM API error: {response.status_code}")
             logger.error(f"[Fault] Response: {response.text}")
             return jsonify({
@@ -422,7 +446,8 @@ def receive_recovery():
       "fault_type": "crc_error",           # crc_error, truncated, buffer_overflow, garbage
       "recovery_action": "retry_read",     # retry_read, reset_connection, discard_data
       "success": true,
-      "details": "CRC validation failed, retried successfully after 1 attempt"
+      "details": "CRC validation failed, retried successfully after 1 attempt",
+      "retry_count": 1                     # Optional: number of retry attempts
     }
     
     Response:
@@ -452,19 +477,31 @@ def receive_recovery():
         
         device_id = data['device_id']
         
-        # Initialize device recovery list if not exists
+        # Save to database (PERSISTENT STORAGE)
+        event_id = Database.save_recovery_event(
+            device_id=device_id,
+            timestamp=data['timestamp'],
+            fault_type=data['fault_type'],
+            recovery_action=data['recovery_action'],
+            success=data['success'],
+            details=data.get('details', ''),
+            retry_count=data.get('retry_count', 0)
+        )
+        
+        # Also keep in memory for backward compatibility
         if device_id not in recovery_events:
             recovery_events[device_id] = []
         
-        # Add recovery event
         recovery_event = {
+            'id': event_id,
             'device_id': device_id,
             'timestamp': data['timestamp'],
             'fault_type': data['fault_type'],
             'recovery_action': data['recovery_action'],
             'success': data['success'],
             'details': data.get('details', ''),
-            'received_at': int(time.time())  # Server timestamp
+            'retry_count': data.get('retry_count', 0),
+            'received_at': int(time.time())
         }
         
         recovery_events[device_id].append(recovery_event)
@@ -499,8 +536,6 @@ def get_recovery_history(device_id):
     
     Query Parameters:
     - limit: Maximum number of events to return (default: 50)
-    - offset: Number of events to skip (default: 0)
-    - fault_type: Filter by fault type (optional)
     
     Response:
     {
@@ -508,12 +543,14 @@ def get_recovery_history(device_id):
       "total_events": 10,
       "events": [
         {
+          "id": 1,
           "timestamp": 1698527500,
           "fault_type": "crc_error",
           "recovery_action": "retry_read",
           "success": true,
           "details": "...",
-          "received_at": 1698527501
+          "retry_count": 1,
+          "received_at": "2025-11-05T12:30:00"
         },
         ...
       ],
@@ -528,34 +565,22 @@ def get_recovery_history(device_id):
     try:
         # Get query parameters
         limit = request.args.get('limit', 50, type=int)
-        offset = request.args.get('offset', 0, type=int)
-        fault_type_filter = request.args.get('fault_type', None)
         
-        # Get events for device
-        device_events = recovery_events.get(device_id, [])
+        # Get events from database
+        events = Database.get_recovery_events(device_id=device_id, limit=limit)
         
-        # Filter by fault type if specified
-        if fault_type_filter:
-            device_events = [e for e in device_events if e['fault_type'] == fault_type_filter]
-        
-        # Calculate statistics
-        total = len(device_events)
-        successful = sum(1 for e in device_events if e['success'])
-        failed = total - successful
-        success_rate = (successful / total * 100) if total > 0 else 0.0
-        
-        # Apply pagination
-        paginated_events = device_events[offset:offset + limit]
+        # Get statistics from database
+        stats = Database.get_recovery_statistics(device_id=device_id)
         
         return jsonify({
             'device_id': device_id,
-            'total_events': total,
-            'events': paginated_events,
+            'total_events': stats['total'],
+            'events': events,
             'statistics': {
-                'total': total,
-                'successful': successful,
-                'failed': failed,
-                'success_rate': round(success_rate, 2)
+                'total': stats['total'],
+                'successful': stats['successful'],
+                'failed': stats['failed'],
+                'success_rate': round(stats['success_rate'], 2)
             }
         }), 200
         
@@ -573,60 +598,48 @@ def get_all_recovery_events():
     Get recovery events from all devices
     
     Query Parameters:
-    - limit: Maximum number of events per device (default: 10)
+    - limit: Maximum number of events to return (default: 100)
     
     Response:
     {
-      "devices": {
-        "ESP32_EcoWatt_Smart": {
-          "total_events": 10,
-          "recent_events": [...],
-          "statistics": {...}
+      "events": [
+        {
+          "id": 1,
+          "device_id": "ESP32_EcoWatt_Smart",
+          "timestamp": 1698527500,
+          "fault_type": "crc_error",
+          "recovery_action": "retry_read",
+          "success": 1,
+          "details": "...",
+          "retry_count": 1,
+          "received_at": "2025-11-05T12:30:00"
         },
         ...
-      },
+      ],
       "global_statistics": {
-        "total_recoveries": 20,
-        "successful_recoveries": 16,
-        "failed_recoveries": 4,
+        "total": 20,
+        "successful": 16,
+        "failed": 4,
         "success_rate": 80.0
       }
     }
     """
     try:
-        limit = request.args.get('limit', 10, type=int)
+        limit = request.args.get('limit', 100, type=int)
         
-        devices_data = {}
+        # Get all events from database
+        events = Database.get_recovery_events(device_id=None, limit=limit)
         
-        for device_id, events in recovery_events.items():
-            total = len(events)
-            successful = sum(1 for e in events if e['success'])
-            failed = total - successful
-            success_rate = (successful / total * 100) if total > 0 else 0.0
-            
-            devices_data[device_id] = {
-                'total_events': total,
-                'recent_events': events[-limit:],  # Last N events
-                'statistics': {
-                    'total': total,
-                    'successful': successful,
-                    'failed': failed,
-                    'success_rate': round(success_rate, 2)
-                }
-            }
-        
-        # Calculate global success rate
-        global_total = recovery_statistics['total_recoveries']
-        global_success = recovery_statistics['successful_recoveries']
-        global_success_rate = (global_success / global_total * 100) if global_total > 0 else 0.0
+        # Get global statistics
+        stats = Database.get_recovery_statistics(device_id=None)
         
         return jsonify({
-            'devices': devices_data,
+            'events': events,
             'global_statistics': {
-                'total_recoveries': global_total,
-                'successful_recoveries': global_success,
-                'failed_recoveries': recovery_statistics['failed_recoveries'],
-                'success_rate': round(global_success_rate, 2)
+                'total': stats['total'],
+                'successful': stats['successful'],
+                'failed': stats['failed'],
+                'success_rate': round(stats['success_rate'], 2)
             }
         }), 200
         
@@ -683,6 +696,37 @@ def clear_recovery_events():
         
     except Exception as e:
         logger.error(f"Error clearing recovery events: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@fault_bp.route('/fault/injection/history', methods=['GET'])
+def get_injection_history():
+    """
+    Get fault injection history from database
+    
+    Query Parameters:
+    - device_id: Filter by device (optional)
+    - limit: Number of records to return (default: 50)
+    """
+    try:
+        device_id = request.args.get('device_id')
+        limit = int(request.args.get('limit', 50))
+        
+        # Get injection history from database
+        injections = Database.get_fault_injection_history(device_id, limit)
+        
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'total_injections': len(injections),
+            'injections': injections
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting injection history: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

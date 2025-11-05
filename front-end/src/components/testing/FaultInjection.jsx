@@ -32,7 +32,10 @@ import {
   Grid,
   Card,
   CardContent,
-  LinearProgress
+  LinearProgress,
+  TablePagination,
+  IconButton,
+  Collapse
 } from '@mui/material';
 import {
   BugReport as FaultIcon,
@@ -41,18 +44,31 @@ import {
   Warning as WarningIcon,
   CheckCircle as SuccessIcon,
   Error as ErrorIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  Code as CodeIcon
 } from '@mui/icons-material';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { injectFault, clearFaults, getRecoveryEvents, clearRecoveryEvents } from '../../api/faults';
+import { injectFault, clearFaults, getRecoveryEvents, getAllRecoveryEvents, clearRecoveryEvents, getInjectionHistory } from '../../api/faults';
 import { getDevices } from '../../api/devices';
 
 const FaultInjection = () => {
   const [backend, setBackend] = useState('inverter_sim');
   const [faultType, setFaultType] = useState('EXCEPTION');
   const [deviceId, setDeviceId] = useState('');
-  const [faultHistory, setFaultHistory] = useState([]);
   const [selectedRecoveryDevice, setSelectedRecoveryDevice] = useState('');
+  
+  // Pagination for injection history
+  const [injectionPage, setInjectionPage] = useState(0);
+  const [injectionRowsPerPage, setInjectionRowsPerPage] = useState(10);
+  
+  // Pagination for recovery events
+  const [recoveryPage, setRecoveryPage] = useState(0);
+  const [recoveryRowsPerPage, setRecoveryRowsPerPage] = useState(10);
+  
+  // Expanded rows for JSON view
+  const [expandedRecoveryRows, setExpandedRecoveryRows] = useState(new Set());
 
   // Fetch devices
   const { data: devicesData } = useQuery({
@@ -62,6 +78,14 @@ const FaultInjection = () => {
   });
 
   const devices = devicesData?.data?.devices || [];
+
+  // Fetch injection history from database (auto-refresh every 5s)
+  const { data: injectionData, refetch: refetchInjections } = useQuery({
+    queryKey: ['injectionHistory'],
+    queryFn: () => getInjectionHistory(null, 100), // Fetch last 100 injections for pagination
+    refetchInterval: 5000, // Auto-refresh every 5 seconds
+    staleTime: 4000
+  });
 
   // Fetch recovery events for selected device (auto-refresh every 3s)
   const { data: recoveryData, refetch: refetchRecovery } = useQuery({
@@ -124,27 +148,13 @@ const FaultInjection = () => {
       
       return injectFault(payload);
     },
-    onSuccess: (response) => {
-      const newFault = {
-        timestamp: new Date().toISOString(),
-        backend,
-        type: faultType,
-        device: deviceId || 'All',
-        status: 'success',
-        message: response.data.message || 'Fault injected successfully'
-      };
-      setFaultHistory(prev => [newFault, ...prev].slice(0, 10));
+    onSuccess: () => {
+      // Refetch injection history from database
+      refetchInjections();
     },
-    onError: (error) => {
-      const newFault = {
-        timestamp: new Date().toISOString(),
-        backend,
-        type: faultType,
-        device: deviceId || 'All',
-        status: 'error',
-        message: error.response?.data?.error || 'Failed to inject fault'
-      };
-      setFaultHistory(prev => [newFault, ...prev].slice(0, 10));
+    onError: () => {
+      // Refetch to show failed injection in database
+      refetchInjections();
     }
   });
 
@@ -152,15 +162,7 @@ const FaultInjection = () => {
   const clearMutation = useMutation({
     mutationFn: () => clearFaults(backend),
     onSuccess: () => {
-      const newEntry = {
-        timestamp: new Date().toISOString(),
-        backend,
-        type: 'CLEAR',
-        device: 'All',
-        status: 'success',
-        message: 'Faults cleared successfully'
-      };
-      setFaultHistory(prev => [newEntry, ...prev].slice(0, 10));
+      refetchInjections();
     }
   });
 
@@ -180,12 +182,62 @@ const FaultInjection = () => {
     clearMutation.mutate();
   };
 
-  const handleClearHistory = () => {
-    setFaultHistory([]);
-  };
-
   const getCurrentFault = () => {
     return faultOptions.find(f => f.value === faultType);
+  };
+
+  // Pagination handlers for injection history
+  const handleInjectionPageChange = (event, newPage) => {
+    setInjectionPage(newPage);
+  };
+
+  const handleInjectionRowsPerPageChange = (event) => {
+    setInjectionRowsPerPage(parseInt(event.target.value, 10));
+    setInjectionPage(0);
+  };
+
+  // Pagination handlers for recovery events
+  const handleRecoveryPageChange = (event, newPage) => {
+    setRecoveryPage(newPage);
+  };
+
+  const handleRecoveryRowsPerPageChange = (event) => {
+    setRecoveryRowsPerPage(parseInt(event.target.value, 10));
+    setRecoveryPage(0);
+  };
+
+  // Paginated data
+  const injections = injectionData?.data?.injections || [];
+  const paginatedInjections = injections.slice(
+    injectionPage * injectionRowsPerPage,
+    injectionPage * injectionRowsPerPage + injectionRowsPerPage
+  );
+
+  const recoveryEvents = recoveryData?.data?.events || [];
+  const paginatedRecoveryEvents = recoveryEvents.slice(
+    recoveryPage * recoveryRowsPerPage,
+    recoveryPage * recoveryRowsPerPage + recoveryRowsPerPage
+  );
+  
+  // Get statistics (handles both 'statistics' for device-specific and 'global_statistics' for all devices)
+  const recoveryStats = recoveryData?.data?.statistics || recoveryData?.data?.global_statistics || {
+    total: 0,
+    successful: 0,
+    failed: 0,
+    success_rate: 0
+  };
+  
+  // Toggle row expansion for JSON view
+  const toggleRecoveryRowExpand = (index) => {
+    setExpandedRecoveryRows(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
   };
 
   return (
@@ -306,90 +358,101 @@ const FaultInjection = () => {
           </Button>
         </Stack>
 
-        {/* Fault History */}
-        {faultHistory.length > 0 && (
+        {/* Fault Injection History from Database */}
+        {injections.length > 0 && (
           <Box>
             <Divider sx={{ my: 3 }} />
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6">
-                Fault Injection History
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                Fault Injection History (Database)
               </Typography>
-              <Button
-                size="small"
-                onClick={handleClearHistory}
-                startIcon={<ClearIcon />}
-              >
-                Clear History
-              </Button>
+              <Alert severity="info">
+                Total: {injections.length} injections • Auto-refreshes every 5 seconds
+              </Alert>
             </Box>
 
             <List sx={{ bgcolor: 'grey.50', borderRadius: 1 }}>
-              {faultHistory.map((entry, index) => (
-                <React.Fragment key={index}>
+              {paginatedInjections.map((injection, index) => (
+                <React.Fragment key={injection.id}>
                   <ListItem>
                     <ListItemText
                       primary={
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Chip
-                            label={entry.status}
-                            color={entry.status === 'success' ? 'success' : 'error'}
+                            label={injection.success ? 'Success' : 'Failed'}
+                            color={injection.success ? 'success' : 'error'}
                             size="small"
                           />
                           <Typography variant="body2" fontWeight="bold">
-                            {entry.type}
+                            {injection.fault_type || injection.error_type}
                           </Typography>
                           <Typography variant="body2" color="text.secondary">
-                            on {entry.backend}
+                            on {injection.backend}
                           </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            • Device: {entry.device}
-                          </Typography>
+                          {injection.device_id && (
+                            <Typography variant="body2" color="text.secondary">
+                              • Device: {injection.device_id}
+                            </Typography>
+                          )}
+                          {injection.exception_code && (
+                            <Chip
+                              label={`Exception: 0x${injection.exception_code.toString(16).toUpperCase()}`}
+                              size="small"
+                              variant="outlined"
+                            />
+                          )}
+                          {injection.delay_ms && (
+                            <Chip
+                              label={`${injection.delay_ms}ms delay`}
+                              size="small"
+                              variant="outlined"
+                            />
+                          )}
                         </Box>
                       }
                       secondary={
                         <Box sx={{ mt: 0.5 }}>
-                          <Typography variant="body2">
-                            {entry.message}
-                          </Typography>
+                          {!injection.success && injection.error_msg && (
+                            <Typography variant="body2" color="error">
+                              Error: {injection.error_msg}
+                            </Typography>
+                          )}
                           <Typography variant="caption" color="text.secondary">
-                            {new Date(entry.timestamp).toLocaleString()}
+                            {new Date(injection.created_at).toLocaleString()}
                           </Typography>
                         </Box>
                       }
                     />
                   </ListItem>
-                  {index < faultHistory.length - 1 && <Divider />}
+                  {index < paginatedInjections.length - 1 && <Divider />}
                 </React.Fragment>
               ))}
             </List>
+
+            {/* Pagination Controls */}
+            <TablePagination
+              component="div"
+              count={injections.length}
+              page={injectionPage}
+              onPageChange={handleInjectionPageChange}
+              rowsPerPage={injectionRowsPerPage}
+              onRowsPerPageChange={handleInjectionRowsPerPageChange}
+              rowsPerPageOptions={[5, 10, 25, 50]}
+              labelRowsPerPage="Items per page:"
+            />
           </Box>
         )}
 
         {/* Fault Recovery Events Viewer (Milestone 5) */}
         <Box sx={{ mt: 4 }}>
           <Divider sx={{ mb: 3 }} />
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h6">
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="h6" gutterBottom>
               Fault Recovery Events (Milestone 5)
             </Typography>
-            <Stack direction="row" spacing={1}>
-              <Button
-                size="small"
-                onClick={() => refetchRecovery()}
-                startIcon={<RefreshIcon />}
-              >
-                Refresh
-              </Button>
-              <Button
-                size="small"
-                onClick={() => clearRecoveryMutation.mutate()}
-                disabled={clearRecoveryMutation.isPending}
-                startIcon={<ClearIcon />}
-                color="error"
-              >
-                Clear Events
-              </Button>
-            </Stack>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Auto-refreshes every 3 seconds
+            </Alert>
           </Box>
 
           {/* Device Selector for Recovery Events */}
@@ -419,7 +482,7 @@ const FaultInjection = () => {
                       Total Recoveries
                     </Typography>
                     <Typography variant="h4">
-                      {recoveryData.data.statistics?.total_recoveries || 0}
+                      {recoveryStats.total}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -431,7 +494,7 @@ const FaultInjection = () => {
                       Successful
                     </Typography>
                     <Typography variant="h4" color="success.main">
-                      {recoveryData.data.statistics?.successful_recoveries || 0}
+                      {recoveryStats.successful}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -443,12 +506,12 @@ const FaultInjection = () => {
                       Failed
                     </Typography>
                     <Typography variant="h4" color="error.main">
-                      {recoveryData.data.statistics?.failed_recoveries || 0}
+                      {recoveryStats.failed}
                     </Typography>
                   </CardContent>
                 </Card>
               </Grid>
-              {recoveryData.data.statistics?.success_rate !== undefined && (
+              {recoveryStats.success_rate !== undefined && (
                 <Grid item xs={12}>
                   <Card variant="outlined">
                     <CardContent>
@@ -458,12 +521,12 @@ const FaultInjection = () => {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         <LinearProgress
                           variant="determinate"
-                          value={recoveryData.data.statistics.success_rate}
+                          value={recoveryStats.success_rate}
                           sx={{ flexGrow: 1, height: 10, borderRadius: 1 }}
-                          color={recoveryData.data.statistics.success_rate >= 80 ? 'success' : 'warning'}
+                          color={recoveryStats.success_rate >= 80 ? 'success' : 'warning'}
                         />
                         <Typography variant="h6" fontWeight="bold">
-                          {recoveryData.data.statistics.success_rate.toFixed(1)}%
+                          {recoveryStats.success_rate.toFixed(1)}%
                         </Typography>
                       </Box>
                     </CardContent>
@@ -474,60 +537,128 @@ const FaultInjection = () => {
           )}
 
           {/* Recovery Events List */}
-          {recoveryData?.data?.events && recoveryData.data.events.length > 0 ? (
-            <List sx={{ bgcolor: 'grey.50', borderRadius: 1 }}>
-              {recoveryData.data.events.map((event, index) => (
-                <React.Fragment key={index}>
-                  <ListItem>
-                    <ListItemText
-                      primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                          {event.success ? (
-                            <SuccessIcon color="success" fontSize="small" />
-                          ) : (
-                            <ErrorIcon color="error" fontSize="small" />
-                          )}
-                          <Chip
-                            label={event.success ? 'Recovered' : 'Failed'}
-                            color={event.success ? 'success' : 'error'}
-                            size="small"
-                          />
-                          <Typography variant="body2" fontWeight="bold">
-                            {event.fault_type}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            → {event.recovery_action}
-                          </Typography>
-                          {event.retry_count > 0 && (
+          {recoveryEvents.length > 0 ? (
+            <Box>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Total: {recoveryEvents.length} recovery events
+              </Alert>
+              
+              <List sx={{ bgcolor: 'grey.50', borderRadius: 1 }}>
+                {paginatedRecoveryEvents.map((event, index) => (
+                  <React.Fragment key={index}>
+                    <ListItem>
+                      <ListItemText
+                        primary={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                            {event.success ? (
+                              <SuccessIcon color="success" fontSize="small" />
+                            ) : (
+                              <ErrorIcon color="error" fontSize="small" />
+                            )}
                             <Chip
-                              label={`${event.retry_count} ${event.retry_count === 1 ? 'retry' : 'retries'}`}
+                              label={event.success ? 'Recovered' : 'Failed'}
+                              color={event.success ? 'success' : 'error'}
                               size="small"
-                              variant="outlined"
                             />
-                          )}
-                        </Box>
-                      }
-                      secondary={
-                        <Box sx={{ mt: 0.5 }}>
-                          <Typography variant="body2">
-                            Device: <strong>{event.device_id}</strong>
-                          </Typography>
-                          {event.details && (
-                            <Typography variant="body2" sx={{ mt: 0.5 }}>
-                              {event.details}
+                            <Typography variant="body2" fontWeight="bold">
+                              {event.fault_type}
                             </Typography>
-                          )}
-                          <Typography variant="caption" color="text.secondary">
-                            {new Date(event.timestamp * 1000).toLocaleString()}
-                          </Typography>
-                        </Box>
-                      }
-                    />
-                  </ListItem>
-                  {index < recoveryData.data.events.length - 1 && <Divider />}
-                </React.Fragment>
-              ))}
-            </List>
+                            <Typography variant="body2" color="text.secondary">
+                              → {event.recovery_action}
+                            </Typography>
+                            {event.retry_count > 0 && (
+                              <Chip
+                                label={`${event.retry_count} ${event.retry_count === 1 ? 'retry' : 'retries'}`}
+                                size="small"
+                                variant="outlined"
+                              />
+                            )}
+                            <Box sx={{ flexGrow: 1 }} />
+                            <IconButton
+                              size="small"
+                              onClick={() => toggleRecoveryRowExpand(index)}
+                              sx={{ ml: 'auto' }}
+                            >
+                              {expandedRecoveryRows.has(index) ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                            </IconButton>
+                          </Box>
+                        }
+                        secondary={
+                          <Box sx={{ mt: 0.5 }}>
+                            <Typography variant="body2">
+                              Device: <strong>{event.device_id}</strong>
+                            </Typography>
+                            {event.details && (
+                              <Typography variant="body2" sx={{ mt: 0.5 }}>
+                                {event.details}
+                              </Typography>
+                            )}
+                            <Typography variant="caption" color="text.secondary">
+                              {new Date(event.timestamp * 1000).toLocaleString()}
+                            </Typography>
+                            
+                            {/* Expandable JSON View */}
+                            <Collapse in={expandedRecoveryRows.has(index)} timeout="auto" unmountOnExit>
+                              <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                  <CodeIcon fontSize="small" />
+                                  <Typography variant="subtitle2" fontWeight="bold">
+                                    Recovery Event JSON
+                                  </Typography>
+                                </Box>
+                                <Box sx={{ 
+                                  p: 1.5, 
+                                  bgcolor: 'background.paper', 
+                                  borderRadius: 1,
+                                  border: '1px solid',
+                                  borderColor: 'divider'
+                                }}>
+                                  <Typography 
+                                    variant="body2" 
+                                    component="pre"
+                                    sx={{ 
+                                      fontFamily: 'monospace',
+                                      fontSize: '0.75rem',
+                                      margin: 0,
+                                      whiteSpace: 'pre-wrap',
+                                      wordBreak: 'break-word'
+                                    }}
+                                  >
+                                    {JSON.stringify({
+                                      device_id: event.device_id,
+                                      timestamp: event.timestamp,
+                                      fault_type: event.fault_type,
+                                      recovery_action: event.recovery_action,
+                                      success: event.success,
+                                      details: event.details,
+                                      retry_count: event.retry_count,
+                                      received_at: event.received_at
+                                    }, null, 2)}
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            </Collapse>
+                          </Box>
+                        }
+                      />
+                    </ListItem>
+                    {index < paginatedRecoveryEvents.length - 1 && <Divider />}
+                  </React.Fragment>
+                ))}
+              </List>
+
+              {/* Pagination Controls */}
+              <TablePagination
+                component="div"
+                count={recoveryEvents.length}
+                page={recoveryPage}
+                onPageChange={handleRecoveryPageChange}
+                rowsPerPage={recoveryRowsPerPage}
+                onRowsPerPageChange={handleRecoveryRowsPerPageChange}
+                rowsPerPageOptions={[5, 10, 25, 50]}
+                labelRowsPerPage="Items per page:"
+              />
+            </Box>
           ) : (
             <Alert severity="info">
               No recovery events yet. Inject faults to see recovery behavior.

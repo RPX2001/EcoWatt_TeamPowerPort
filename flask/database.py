@@ -192,6 +192,41 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_timestamp_power ON power_reports(device_id, timestamp)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_created_at_power ON power_reports(created_at)')
         
+        # Fault injection history table - stores fault injection requests
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS fault_injections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id TEXT,
+                fault_type TEXT NOT NULL,
+                backend TEXT NOT NULL,
+                error_type TEXT,
+                exception_code INTEGER,
+                delay_ms INTEGER,
+                success INTEGER NOT NULL,
+                error_msg TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_fault_inj ON fault_injections(device_id, created_at)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_fault_type ON fault_injections(fault_type)')
+        
+        # Fault recovery events table - stores ESP32 recovery events
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS fault_recovery_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                fault_type TEXT NOT NULL,
+                recovery_action TEXT NOT NULL,
+                success INTEGER NOT NULL,
+                details TEXT,
+                retry_count INTEGER,
+                received_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_recovery ON fault_recovery_events(device_id, received_at)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_recovery_success ON fault_recovery_events(success)')
+        
         conn.commit()
         logger.info("[Database] Schema initialized successfully")
         
@@ -1023,6 +1058,182 @@ class Database:
             stats['database_size_mb'] = DB_PATH.stat().st_size / (1024 * 1024)
         
         return stats
+
+    # ============================================================
+    # Fault Injection & Recovery (Milestone 5)
+    # ============================================================
+    
+    @staticmethod
+    def save_fault_injection(device_id: Optional[str], fault_type: str, backend: str, 
+                            error_type: Optional[str] = None, exception_code: Optional[int] = None,
+                            delay_ms: Optional[int] = None, success: bool = True, 
+                            error_msg: Optional[str] = None) -> int:
+        """
+        Save fault injection event to database
+        
+        Args:
+            device_id: Target device ID (None for all devices)
+            fault_type: Type of fault injected
+            backend: Backend used (inverter_sim, local)
+            error_type: Inverter SIM error type (CRC_ERROR, CORRUPT, etc.)
+            exception_code: Modbus exception code (if applicable)
+            delay_ms: Delay in milliseconds (if applicable)
+            success: Whether injection was successful
+            error_msg: Error message if failed
+            
+        Returns:
+            ID of inserted record
+        """
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO fault_injections 
+            (device_id, fault_type, backend, error_type, exception_code, delay_ms, success, error_msg)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (device_id, fault_type, backend, error_type, exception_code, delay_ms, 
+              1 if success else 0, error_msg))
+        
+        conn.commit()
+        logger.info(f"[Database] Saved fault injection: {fault_type} ({backend})")
+        return cursor.lastrowid
+    
+    @staticmethod
+    def get_fault_injection_history(device_id: Optional[str] = None, limit: int = 100) -> List[Dict]:
+        """
+        Get fault injection history
+        
+        Args:
+            device_id: Filter by device ID (None for all)
+            limit: Maximum number of records to return
+            
+        Returns:
+            List of fault injection records
+        """
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        if device_id:
+            cursor.execute('''
+                SELECT * FROM fault_injections 
+                WHERE device_id = ? OR device_id IS NULL
+                ORDER BY created_at DESC 
+                LIMIT ?
+            ''', (device_id, limit))
+        else:
+            cursor.execute('''
+                SELECT * FROM fault_injections 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            ''', (limit,))
+        
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    
+    @staticmethod
+    def save_recovery_event(device_id: str, timestamp: int, fault_type: str, 
+                           recovery_action: str, success: bool, details: str = '',
+                           retry_count: int = 0) -> int:
+        """
+        Save fault recovery event from ESP32
+        
+        Args:
+            device_id: Device that experienced the fault
+            timestamp: ESP32 timestamp when fault occurred
+            fault_type: Type of fault detected
+            recovery_action: Action taken to recover
+            success: Whether recovery was successful
+            details: Additional details
+            retry_count: Number of retry attempts
+            
+        Returns:
+            ID of inserted record
+        """
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO fault_recovery_events 
+            (device_id, timestamp, fault_type, recovery_action, success, details, retry_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (device_id, timestamp, fault_type, recovery_action, 
+              1 if success else 0, details, retry_count))
+        
+        conn.commit()
+        logger.info(f"[Database] Saved recovery event: {device_id} - {fault_type} - Success: {success}")
+        return cursor.lastrowid
+    
+    @staticmethod
+    def get_recovery_events(device_id: Optional[str] = None, limit: int = 100) -> List[Dict]:
+        """
+        Get fault recovery event history
+        
+        Args:
+            device_id: Filter by device ID (None for all)
+            limit: Maximum number of records to return
+            
+        Returns:
+            List of recovery event records
+        """
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        if device_id:
+            cursor.execute('''
+                SELECT * FROM fault_recovery_events 
+                WHERE device_id = ?
+                ORDER BY received_at DESC 
+                LIMIT ?
+            ''', (device_id, limit))
+        else:
+            cursor.execute('''
+                SELECT * FROM fault_recovery_events 
+                ORDER BY received_at DESC 
+                LIMIT ?
+            ''', (limit,))
+        
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    
+    @staticmethod
+    def get_recovery_statistics(device_id: Optional[str] = None) -> Dict:
+        """
+        Get recovery statistics
+        
+        Args:
+            device_id: Filter by device ID (None for all)
+            
+        Returns:
+            Dictionary with statistics
+        """
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        if device_id:
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(success) as successful,
+                    COUNT(*) - SUM(success) as failed
+                FROM fault_recovery_events
+                WHERE device_id = ?
+            ''', (device_id,))
+        else:
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(success) as successful,
+                    COUNT(*) - SUM(success) as failed
+                FROM fault_recovery_events
+            ''')
+        
+        row = cursor.fetchone()
+        return {
+            'total': row['total'] or 0,
+            'successful': row['successful'] or 0,
+            'failed': row['failed'] or 0,
+            'success_rate': (row['successful'] / row['total'] * 100) if row['total'] > 0 else 0
+        }
 
 
 # Initialize database on module import

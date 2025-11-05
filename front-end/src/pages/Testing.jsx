@@ -58,11 +58,6 @@ const Testing = () => {
           Comprehensive testing tools for fault injection, security validation, and system diagnostics
         </Typography>
 
-        <Alert severity="warning" sx={{ my: 3 }}>
-          <strong>Warning:</strong> These testing tools may affect system behavior and should be used in development/testing environments only.
-          Do not use in production without proper authorization.
-        </Alert>
-
         <Paper sx={{ mt: 3 }}>
           <Tabs
             value={activeTab}

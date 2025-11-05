@@ -10,6 +10,30 @@
 #include <WiFi.h>
 #include <cstring>
 #include <cctype>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <time.h>
+
+// ============================================
+// Helper Functions
+// ============================================
+
+// Get current Unix timestamp in seconds (same as data_uploader)
+static unsigned long getCurrentTimestamp() {
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        // Convert tm struct to Unix timestamp in SECONDS
+        time_t now = mktime(&timeinfo);
+        return (unsigned long)now;
+    }
+    // Fallback: Use time(nullptr) which works if NTP is synced
+    time_t now = time(nullptr);
+    if (now > 1000000000) { // Sanity check (after year 2001)
+        return (unsigned long)now;
+    }
+    // Last resort: millis/1000 (better than nothing)
+    return millis() / 1000;
+}
 
 // ============================================
 // Global State
@@ -255,7 +279,9 @@ bool executeRecovery(FaultType fault, std::function<bool()> retryFunction, uint8
         debug.log("[FaultRecovery] Retry attempt %u/%u after %lu ms\n", 
                   retryCount, MAX_RECOVERY_RETRIES, delayMs);
         
-        delay(delayMs);
+        // Use vTaskDelay instead of delay() to be FreeRTOS-aware
+        // This allows other tasks to run during the retry backoff
+        vTaskDelay(pdMS_TO_TICKS(delayMs));
         
         if (retryFunction()) {
             debug.log("[FaultRecovery] ✅ Recovery successful after %u retries\n", retryCount);
@@ -288,6 +314,7 @@ bool sendRecoveryEvent(const FaultRecoveryEvent& event) {
     doc["recovery_action"] = getRecoveryActionName(event.recovery_action);
     doc["success"] = event.success;
     doc["details"] = event.details;
+    doc["retry_count"] = event.retry_count;
     
     String jsonStr;
     serializeJson(doc, jsonStr);
