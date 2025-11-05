@@ -814,6 +814,10 @@ class Database:
         if total_updates > 0:
             success_rate = round((successful_updates / total_updates) * 100, 2)
         
+        # Log for debugging
+        from utils.logger_utils import logger
+        logger.debug(f"OTA Statistics: total={total_updates}, successful={successful_updates}, failed={failed_updates}, active={active_sessions}")
+        
         return {
             'total_updates_initiated': total_updates,
             'successful_updates': successful_updates,

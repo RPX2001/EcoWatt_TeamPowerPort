@@ -207,9 +207,9 @@ def initiate_ota_session(device_id: str, firmware_version: str) -> Tuple[bool, O
                 device_id=device_id,
                 from_version=from_version,
                 to_version=firmware_version,
-                status='initiated',
                 firmware_size=manifest.get('total_size', 0),
-                chunks_total=manifest.get('total_chunks', 0)
+                chunks_total=manifest.get('total_chunks', 0),
+                status='initiated'
             )
             
             # Update in-memory stats (for backwards compatibility)

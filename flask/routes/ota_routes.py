@@ -200,13 +200,40 @@ def cancel_update(device_id: str):
 
 @ota_bp.route('/ota/status/<device_id>', methods=['GET'])
 def get_update_status(device_id: str):
-    """Get OTA session status for device"""
+    """Get OTA session status for device (combines in-memory session + database history)"""
     try:
         from database import Database
         from routes.device_routes import devices_registry
         from routes.config_routes import device_configs, get_default_config
         
-        status = get_ota_status(device_id)
+        # First try to get active session status (in-memory)
+        session_status = get_ota_status(device_id)
+        
+        # If no active session, get last OTA update from database
+        if 'error' in session_status or not session_status:
+            # Query database for last OTA update
+            last_update = Database.get_latest_ota_update(device_id)
+            if last_update:
+                status = {
+                    'status': last_update.get('status', 'idle'),
+                    'from_version': last_update.get('from_version'),
+                    'to_version': last_update.get('to_version'),
+                    'initiated_at': last_update.get('initiated_at'),
+                    'download_completed_at': last_update.get('download_completed_at'),
+                    'install_completed_at': last_update.get('install_completed_at'),
+                    'download_status': last_update.get('download_status'),
+                    'install_status': last_update.get('install_status'),
+                    'chunks_downloaded': last_update.get('chunks_downloaded'),
+                    'chunks_total': last_update.get('chunks_total'),
+                    'error_msg': last_update.get('error_msg'),
+                    'last_activity': last_update.get('install_completed_at') or last_update.get('download_completed_at') or last_update.get('initiated_at')
+                }
+            else:
+                # No OTA updates in history
+                status = {'status': 'idle', 'message': 'No OTA updates'}
+        else:
+            # Use active session status
+            status = session_status
         
         # Get current firmware version from device registry or database
         device = Database.get_device(device_id)
