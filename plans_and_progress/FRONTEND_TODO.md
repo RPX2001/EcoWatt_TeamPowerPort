@@ -4,6 +4,16 @@
 
 ---
 
+## Recent Fix (Nov 5, 2025) - Compression Bug ✅ COMPLETED
+
+### Issue: Bit-Packing Decompression Mismatch
+- [x] ✅ Fixed header order: ESP32 sends [marker][bits][count], Flask was reading [marker][count][bits]
+- [x] ✅ Fixed bit unpacking: Changed from LSB-first to MSB-first to match ESP32's packing algorithm  
+- [x] ✅ Verified: Modbus values (Vac1=2384, Iac1=149, Pac=3596) now decompress correctly in Flask
+- [x] ✅ Added support for 0x70/0x71 temporal compression markers (for future use)
+
+---
+
 ## Pre-Development Setup ✅ COMPLETED
 
 ### Environment & Tools

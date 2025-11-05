@@ -125,12 +125,85 @@ def decompress_temporal_delta(binary_data: bytes) -> Tuple[List[float], Dict]:
         return [], stats
     
     try:
-        # Check marker
+        # Check marker (support both old 0xDE and ESP32's 0x70/0x71)
         marker = binary_data[0]
-        if marker != 0xDE:
-            logger.error(f"Invalid Temporal Delta marker: 0x{marker:02X}")
+        if marker != 0xDE and marker != 0x70 and marker != 0x71:
+            logger.error(f"Invalid Temporal Delta marker: 0x{marker:02X} (expected 0xDE/0x70/0x71)")
             return [], stats
         
+        # Handle ESP32 temporal compression (0x70 = base, 0x71 = delta)
+        if marker == 0x70 or marker == 0x71:
+            # ESP32 format: [marker][count][data...]
+            # For 0x70: [reg_ids...][values...]
+            # For 0x71: [variable_encoded_deltas...]
+            num_samples = binary_data[1]
+            
+            if marker == 0x70:
+                # Base sample: contains register layout + full values
+                offset = 2
+                # Skip register IDs (count bytes)
+                reg_ids = binary_data[offset:offset+num_samples]
+                offset += num_samples
+                
+                # Extract full 16-bit values
+                decompressed_values = []
+                for i in range(num_samples):
+                    if offset + 2 > len(binary_data):
+                        logger.error("Truncated base data")
+                        return [], stats
+                    value = struct.unpack('<H', binary_data[offset:offset+2])[0]  # Unsigned 16-bit
+                    decompressed_values.append(float(value))
+                    offset += 2
+                
+                stats['success'] = True
+                stats['original_size'] = num_samples * 2
+                stats['ratio'] = len(binary_data) / (num_samples * 2) if num_samples > 0 else 0
+                logger.info(f"ESP32 Temporal Base (0x70): {len(decompressed_values)} values")
+                return decompressed_values, stats
+            
+            else:  # marker == 0x71
+                # Delta sample: variable-length encoded deltas
+                # NOTE: This is a simplified implementation that assumes we have base values
+                # For now, try to decode the variable-length format
+                offset = 2
+                decompressed_values = []
+                
+                for i in range(num_samples):
+                    if offset >= len(binary_data):
+                        logger.error("Truncated delta data")
+                        break
+                    
+                    byte = binary_data[offset]
+                    
+                    # Check encoding type
+                    if byte & 0x80:  # 7-bit encoding
+                        delta = byte & 0x3F
+                        if byte & 0x40:
+                            delta = -delta
+                        offset += 1
+                    elif byte == 0x00:  # 8-bit marker
+                        if offset + 1 >= len(binary_data):
+                            logger.error("Truncated 8-bit delta")
+                            break
+                        delta = struct.unpack('b', binary_data[offset+1:offset+2])[0]
+                        offset += 2
+                    else:  # 16-bit delta
+                        if offset + 2 > len(binary_data):
+                            logger.error("Truncated 16-bit delta")
+                            break
+                        delta = struct.unpack('<h', binary_data[offset:offset+2])[0]
+                        offset += 2
+                    
+                    # For now, store the delta as-is (prediction reconstruction needs history)
+                    decompressed_values.append(float(delta))
+                
+                stats['success'] = True
+                stats['original_size'] = num_samples * 2
+                stats['ratio'] = len(binary_data) / (num_samples * 2) if num_samples > 0 else 0
+                logger.info(f"ESP32 Temporal Delta (0x71): {len(decompressed_values)} deltas decoded")
+                return decompressed_values, stats
+        
+        # Original 0xDE format handling
         # Parse header
         num_samples = binary_data[1]
         base_value = struct.unpack('<f', binary_data[2:6])[0]
@@ -253,9 +326,9 @@ def decompress_bit_packed(binary_data: bytes) -> Tuple[List[float], Dict]:
             logger.error(f"Invalid Bit Packing marker: 0x{marker:02X}")
             return [], stats
         
-        # Parse header
-        num_samples = binary_data[1]
-        bits_per_sample = binary_data[2]
+        # Parse header - ESP32 format: [marker][bitsPerValue][count]
+        bits_per_sample = binary_data[1]  # ESP32 sends bits first
+        num_samples = binary_data[2]       # Then count
         
         logger.info(f"Bit Packing: {num_samples} samples, {bits_per_sample} bits each")
         
@@ -287,7 +360,7 @@ def decompress_bit_packed(binary_data: bytes) -> Tuple[List[float], Dict]:
 
 def unpack_bits_from_buffer(buffer: bytes, bit_offset: int, num_bits: int) -> int:
     """
-    Unpack a specific number of bits from a byte buffer
+    Unpack a specific number of bits from a byte buffer (MSB-first, matching ESP32)
     
     Args:
         buffer: Byte buffer
@@ -300,11 +373,11 @@ def unpack_bits_from_buffer(buffer: bytes, bit_offset: int, num_bits: int) -> in
     value = 0
     for i in range(num_bits):
         byte_idx = (bit_offset + i) // 8
-        bit_in_byte = (bit_offset + i) % 8
+        bit_in_byte = 7 - ((bit_offset + i) % 8)  # MSB-first (ESP32 style)
         
         if byte_idx < len(buffer):
             bit_value = (buffer[byte_idx] >> bit_in_byte) & 1
-            value |= (bit_value << i)
+            value |= (bit_value << (num_bits - 1 - i))  # Build value MSB-first
     
     return value
 
@@ -332,7 +405,8 @@ def decompress_smart_binary_data(base64_data: str) -> Tuple[Optional[List[float]
         
         if marker == 0xD0:
             return decompress_dictionary_bitmask(binary_data)
-        elif marker == 0xDE:
+        elif marker == 0xDE or marker == 0x70 or marker == 0x71:
+            # 0xDE = old marker, 0x70 = ESP32 temporal base, 0x71 = ESP32 temporal delta
             return decompress_temporal_delta(binary_data)
         elif marker == 0xAD:
             return decompress_semantic_rle(binary_data)

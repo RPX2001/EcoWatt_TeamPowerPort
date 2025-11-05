@@ -304,12 +304,6 @@ const Dashboard = () => {
             </>
           )}
 
-          {/* Show offline message if no latest data but we have historical data */}
-          {!latestData && !loading && historicalData.length > 0 && (
-            <Alert severity="info" sx={{ mb: 3 }}>
-              Device is currently offline. Showing {historicalData.length} historical data points from database (last 24 hours).
-            </Alert>
-          )}
           
           {/* Show message if device is offline and no data available */}
           {!latestData && !loading && historicalData.length === 0 && (
