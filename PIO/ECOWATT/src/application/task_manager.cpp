@@ -64,6 +64,7 @@ SemaphoreHandle_t TaskManager::nvsAccessMutex = NULL;
 SemaphoreHandle_t TaskManager::wifiClientMutex = NULL;
 SemaphoreHandle_t TaskManager::dataPipelineMutex = NULL;
 SemaphoreHandle_t TaskManager::batchReadySemaphore = NULL;
+SemaphoreHandle_t TaskManager::configReloadSemaphore = NULL;
 
 // Configuration
 uint32_t TaskManager::pollFrequency = DEFAULT_POLL_FREQUENCY_US / 1000;        // Convert to ms
@@ -148,6 +149,14 @@ bool TaskManager::init(uint32_t pollFreqMs, uint32_t uploadFreqMs,
     batchReadySemaphore = xSemaphoreCreateBinary();
     if (!batchReadySemaphore) {
         LOG_ERROR(LOG_TAG_BOOT, "Failed to create batch ready semaphore");
+        return false;
+    }
+    
+    // Create counting semaphore for config reload signaling (max count = 10, starts at 0)
+    // This allows upload task to signal all tasks (up to 10) to reload config
+    configReloadSemaphore = xSemaphoreCreateCounting(10, 0);
+    if (!configReloadSemaphore) {
+        LOG_ERROR(LOG_TAG_BOOT, "Failed to create config reload semaphore");
         return false;
     }
     
@@ -323,10 +332,10 @@ void TaskManager::sensorPollTask(void* parameter) {
     esp_task_wdt_add(NULL);
     
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(pollFrequency);
+    TickType_t xFrequency = pdMS_TO_TICKS(pollFrequency);  // NOT const - can update
     const uint32_t deadlineUs = 2000000;  // 2s deadline (Modbus takes ~1.8s)
     
-    // Get register configuration from NVS
+    // Get initial register configuration from NVS
     xSemaphoreTake(nvsAccessMutex, portMAX_DELAY);
     size_t registerCount = nvs::getReadRegCount();
     const RegID* registers = nvs::getReadRegs();
@@ -337,8 +346,38 @@ void TaskManager::sensorPollTask(void* parameter) {
     LOG_INFO(LOG_TAG_DATA, "Deadline: %lu us", deadlineUs);
     
     while (1) {
-        // Wait for exact period (NO drift, NO jitter)
+        // ALWAYS wait for the full interval before starting next cycle
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        
+        // Check if configuration reload is needed (signaled by upload task after successful upload)
+        if (xSemaphoreTake(configReloadSemaphore, 0) == pdTRUE) {
+            LOG_INFO(LOG_TAG_DATA, "Config reload signal received - updating configuration");
+            
+            // Reload poll frequency from static variable (updated by ConfigManager)
+            TickType_t newFrequency = pdMS_TO_TICKS(pollFrequency);
+            if (newFrequency != xFrequency) {
+                xFrequency = newFrequency;
+                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
+                LOG_INFO(LOG_TAG_DATA, "Poll frequency updated to %lu ms", pollFrequency);
+            }
+            
+            // Reload register configuration from NVS (register list is stored in NVS)
+            xSemaphoreTake(nvsAccessMutex, portMAX_DELAY);
+            size_t newRegisterCount = nvs::getReadRegCount();
+            const RegID* newRegisters = nvs::getReadRegs();
+            
+            // Check if configuration changed
+            if (newRegisterCount != registerCount || 
+                memcmp(registers, newRegisters, registerCount * sizeof(RegID)) != 0) {
+                
+                registerCount = newRegisterCount;
+                registers = newRegisters;
+                
+                LOG_INFO(LOG_TAG_DATA, "Register configuration updated - now monitoring %zu registers", registerCount);
+            }
+            xSemaphoreGive(nvsAccessMutex);
+            // Semaphore consumed - do not give back (counting semaphore will be given 6 times by upload task)
+        }
         
         uint32_t startTime = micros();
         
@@ -578,15 +617,27 @@ void TaskManager::uploadTask(void* parameter) {
     esp_task_wdt_add(NULL);
     
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(uploadFrequency);
+    TickType_t xFrequency = pdMS_TO_TICKS(uploadFrequency);  // NOT const - can update
     const uint32_t deadlineUs = 5000000;  // 5s deadline per upload
     
     LOG_INFO(LOG_TAG_UPLOAD, "Upload frequency: %lu ms", uploadFrequency);
     LOG_INFO(LOG_TAG_UPLOAD, "Deadline: %lu us", deadlineUs);
     
     while (1) {
-        // Wait for exact upload interval
+        // ALWAYS wait for the full interval before starting next cycle
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        
+        // Check if configuration reload is needed (signaled by THIS task after successful upload)
+        if (xSemaphoreTake(configReloadSemaphore, 0) == pdTRUE) {
+            // Reload upload frequency from static variable (updated by ConfigManager)
+            TickType_t newFrequency = pdMS_TO_TICKS(uploadFrequency);
+            if (newFrequency != xFrequency) {
+                xFrequency = newFrequency;
+                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
+                LOG_INFO(LOG_TAG_UPLOAD, "Upload frequency updated to %lu ms", uploadFrequency);
+            }
+            // Semaphore consumed - do not give back
+        }
         
         uint32_t startTime = micros();
         
@@ -665,6 +716,19 @@ void TaskManager::uploadTask(void* parameter) {
                 
                 if (uploadSuccess) {
                     LOG_SUCCESS(LOG_TAG_UPLOAD, "Successfully uploaded %zu packets", queuedCount);
+                    
+                    // Signal all tasks to reload configuration (after successful upload)
+                    // Give semaphore 6 times (once for each task that needs to reload config):
+                    // 1. Sensor Poll Task (registers + poll freq)
+                    // 2. Upload Task (upload freq)
+                    // 3. Command Task (command freq)
+                    // 4. Config Task (config freq)
+                    // 5. Power Report Task (power report freq)
+                    // 6. OTA Task (OTA freq)
+                    for (int i = 0; i < 6; i++) {
+                        xSemaphoreGive(configReloadSemaphore);
+                    }
+                    LOG_DEBUG(LOG_TAG_UPLOAD, "Config reload signal sent to all 6 tasks");
                 } else {
                     LOG_ERROR(LOG_TAG_UPLOAD, "Upload failed for %zu packets", queuedCount);
                 }
@@ -715,11 +779,16 @@ void TaskManager::commandTask(void* parameter) {
         // This prevents rapid retries even if previous cycle missed deadline
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
-        // Update frequency if changed (NVS update)
-        TickType_t newFrequency = pdMS_TO_TICKS(commandFrequency);
-        if (newFrequency != xFrequency) {
-            xFrequency = newFrequency;
-            xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
+        // Check if configuration reload is needed (signaled by upload task after successful upload)
+        if (xSemaphoreTake(configReloadSemaphore, 0) == pdTRUE) {
+            // Reload command frequency from static variable (updated by ConfigManager)
+            TickType_t newFrequency = pdMS_TO_TICKS(commandFrequency);
+            if (newFrequency != xFrequency) {
+                xFrequency = newFrequency;
+                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
+                LOG_INFO(LOG_TAG_COMMAND, "Command frequency updated to %lu ms", commandFrequency);
+            }
+            // Semaphore consumed - do not give back
         }
         
         uint32_t startTime = micros();
@@ -785,11 +854,16 @@ void TaskManager::configTask(void* parameter) {
         // ALWAYS wait for the full interval before starting next cycle
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
-        // Update frequency if changed (allows runtime reconfiguration)
-        TickType_t newFrequency = pdMS_TO_TICKS(configFrequency);
-        if (newFrequency != xFrequency) {
-            xFrequency = newFrequency;
-            xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
+        // Check if configuration reload is needed (signaled by upload task after successful upload)
+        if (xSemaphoreTake(configReloadSemaphore, 0) == pdTRUE) {
+            // Reload config check frequency from static variable (updated by ConfigManager)
+            TickType_t newFrequency = pdMS_TO_TICKS(configFrequency);
+            if (newFrequency != xFrequency) {
+                xFrequency = newFrequency;
+                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
+                LOG_INFO(LOG_TAG_CONFIG, "Config check frequency updated to %lu ms", configFrequency);
+            }
+            // Semaphore consumed - do not give back
         }
         
         uint32_t startTime = micros();
@@ -851,8 +925,17 @@ void TaskManager::powerReportTask(void* parameter) {
         // Wait for power report interval
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
-        // Update frequency if changed
-        xFrequency = pdMS_TO_TICKS(powerReportFrequency);
+        // Check if configuration reload is needed (signaled by upload task after successful upload)
+        if (xSemaphoreTake(configReloadSemaphore, 0) == pdTRUE) {
+            // Reload power report frequency from static variable (updated by ConfigManager)
+            TickType_t newFrequency = pdMS_TO_TICKS(powerReportFrequency);
+            if (newFrequency != xFrequency) {
+                xFrequency = newFrequency;
+                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
+                LOG_INFO(LOG_TAG_POWER, "Power report frequency updated to %lu ms", powerReportFrequency);
+            }
+            // Semaphore consumed - do not give back
+        }
         
         uint32_t startTime = micros();
         
@@ -962,8 +1045,17 @@ void TaskManager::otaTask(void* parameter) {
         // Wait for OTA check interval
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
-        // Update frequency if changed (allows runtime reconfiguration)
-        xFrequency = pdMS_TO_TICKS(otaFrequency);
+        // Check if configuration reload is needed (signaled by upload task after successful upload)
+        if (xSemaphoreTake(configReloadSemaphore, 0) == pdTRUE) {
+            // Reload OTA frequency from static variable (updated by ConfigManager)
+            TickType_t newFrequency = pdMS_TO_TICKS(otaFrequency);
+            if (newFrequency != xFrequency) {
+                xFrequency = newFrequency;
+                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
+                LOG_INFO(LOG_TAG_FOTA, "OTA check frequency updated to %lu ms", otaFrequency);
+            }
+            // Semaphore consumed - do not give back
+        }
         
         uint32_t startTime = micros();
         

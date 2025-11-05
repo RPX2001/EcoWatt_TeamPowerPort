@@ -115,6 +115,10 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                         
                         if (new_poll_freq != currentConfig.pollFrequency) {
                             nvs::changePollFreq(new_poll_freq);
+                            // Update TaskManager static variable (in milliseconds)
+                            TaskManager::updatePollFrequency(sampling_interval * 1000);
+                            // Update currentConfig to track the change
+                            currentConfig.pollFrequency = new_poll_freq;
                             *pollChanged = true;
                             anyChanges = true;
                             LOG_INFO(LOG_TAG_CONFIG, "Poll frequency will update to %u s (%llu μs)", 
@@ -129,6 +133,10 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                         
                         if (new_upload_freq != currentConfig.uploadFrequency) {
                             nvs::changeUploadFreq(new_upload_freq);
+                            // Update TaskManager static variable (in milliseconds)
+                            TaskManager::updateUploadFrequency(upload_interval * 1000);
+                            // Update currentConfig to track the change
+                            currentConfig.uploadFrequency = new_upload_freq;
                             *uploadChanged = true;
                             anyChanges = true;
                             LOG_INFO(LOG_TAG_CONFIG, "Upload frequency will update to %u s (%llu μs)", 

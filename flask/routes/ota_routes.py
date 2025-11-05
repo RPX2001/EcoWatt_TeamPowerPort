@@ -7,6 +7,7 @@ from flask import Blueprint, request, jsonify
 import logging
 import time
 
+from database import Database
 from handlers import (
     check_for_update,
     initiate_ota_session,
@@ -673,6 +674,31 @@ def ota_progress_report(device_id):
                 ota_sessions[device_id]['progress'] = progress
                 ota_sessions[device_id]['message'] = message
                 ota_sessions[device_id]['last_activity'] = time.time()
+        
+        # Map phase to database status and update database
+        status_mapping = {
+            'downloading': 'downloading',
+            'download_complete': 'downloaded',
+            'verifying': 'verifying',
+            'verification_success': 'verified',
+            'verification_failed': 'failed',
+            'installing': 'installing',
+            'rollback': 'rollback'
+        }
+        
+        db_status = status_mapping.get(phase, phase)
+        
+        # Update database status based on phase
+        if phase in ['downloading', 'download_complete']:
+            # Calculate chunks downloaded from progress percentage
+            if device_id in ota_sessions:
+                total_chunks = ota_sessions[device_id].get('total_chunks', 0)
+                chunks_downloaded = int((progress / 100.0) * total_chunks) if total_chunks > 0 else None
+                Database.update_ota_download_status(device_id, db_status, chunks_downloaded, None if phase != 'verification_failed' else message)
+        elif phase in ['verification_failed', 'rollback']:
+            Database.update_ota_status(device_id, 'failed', message)
+        elif phase in ['installing', 'verification_success']:
+            Database.update_ota_status(device_id, db_status, None)
         
         logger.info(f"[OTA Progress] {device_id}: {phase} - {progress}% - {message}")
         

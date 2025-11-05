@@ -36,7 +36,7 @@
 OTAManager* otaManager = nullptr;
 Arduino_Wifi Wifi;
 
-#define FIRMWARE_VERSION "1.3.0"
+#define FIRMWARE_VERSION "1.2.0"
 
 // ============================================
 // Helper Functions

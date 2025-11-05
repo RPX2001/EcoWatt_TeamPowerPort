@@ -234,6 +234,7 @@ private:
     static SemaphoreHandle_t wifiClientMutex;
     static SemaphoreHandle_t dataPipelineMutex;
     static SemaphoreHandle_t batchReadySemaphore;  // Signals when compression batch is ready for upload
+    static SemaphoreHandle_t configReloadSemaphore;  // Signals all tasks to reload config after successful upload
     
     // Configuration
     static uint32_t pollFrequency;

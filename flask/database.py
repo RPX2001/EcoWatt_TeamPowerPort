@@ -683,13 +683,16 @@ class Database:
         conn = Database.get_connection()
         cursor = conn.cursor()
         
+        # Map ESP32 status to database status
+        db_status = 'completed' if status == 'success' else 'failed'
+        
         cursor.execute('''
             UPDATE ota_updates 
             SET status = ?, install_status = ?, error_msg = ?, install_completed_at = CURRENT_TIMESTAMP
             WHERE device_id = ? AND to_version = ?
             ORDER BY initiated_at DESC
             LIMIT 1
-        ''', (status, status, error_msg, device_id, to_version))
+        ''', (db_status, status, error_msg, device_id, to_version))
         
         conn.commit()
         return cursor.rowcount > 0
