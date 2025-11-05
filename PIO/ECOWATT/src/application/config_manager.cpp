@@ -451,10 +451,24 @@ void ConfigManager::sendConfigAcknowledgment(const char* status, const char* mes
     powerMgmt["energy_poll_freq"] = static_cast<uint32_t>(freq_ms);
     
     String payload;
-    serializeJson(doc, payload);
+    serializeJsonPretty(doc, payload);
     
     LOG_DEBUG(LOG_TAG_CONFIG, "Sending acknowledgment:");
-    LOG_DEBUG(LOG_TAG_CONFIG, "  %s", payload.c_str());
+    // Print each line of the JSON with proper indentation
+    int startPos = 0;
+    int endPos = payload.indexOf('\n');
+    while (endPos != -1) {
+        LOG_DEBUG(LOG_TAG_CONFIG, "  %s", payload.substring(startPos, endPos).c_str());
+        startPos = endPos + 1;
+        endPos = payload.indexOf('\n', startPos);
+    }
+    if (startPos < payload.length()) {
+        LOG_DEBUG(LOG_TAG_CONFIG, "  %s", payload.substring(startPos).c_str());
+    }
+    
+    // Re-serialize compact for actual transmission
+    payload = "";
+    serializeJson(doc, payload);
     
     int httpCode = http.POST(payload);
     

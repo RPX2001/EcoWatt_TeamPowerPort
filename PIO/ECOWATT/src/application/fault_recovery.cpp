@@ -318,7 +318,7 @@ bool sendRecoveryEvent(const FaultRecoveryEvent& event) {
     doc["retry_count"] = event.retry_count;
     
     String jsonStr;
-    serializeJson(doc, jsonStr);
+    serializeJsonPretty(doc, jsonStr);
     
     // Use Flask server URL from credentials.h
     char url[256];
@@ -328,8 +328,23 @@ bool sendRecoveryEvent(const FaultRecoveryEvent& event) {
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
     
-    LOG_DEBUG(LOG_TAG_FAULT, "Sending recovery event to %s", url);
-    LOG_DEBUG(LOG_TAG_FAULT, "Payload: %s", jsonStr.c_str());
+    LOG_INFO(LOG_TAG_FAULT, "Sending recovery event to %s", url);
+    LOG_INFO(LOG_TAG_FAULT, "Payload:");
+    // Print each line of the JSON with proper indentation
+    int startPos = 0;
+    int endPos = jsonStr.indexOf('\n');
+    while (endPos != -1) {
+        LOG_INFO(LOG_TAG_FAULT, "  %s", jsonStr.substring(startPos, endPos).c_str());
+        startPos = endPos + 1;
+        endPos = jsonStr.indexOf('\n', startPos);
+    }
+    if (startPos < jsonStr.length()) {
+        LOG_INFO(LOG_TAG_FAULT, "  %s", jsonStr.substring(startPos).c_str());
+    }
+    
+    // Re-serialize compact for actual transmission
+    jsonStr = "";
+    serializeJson(doc, jsonStr);
     
     int httpCode = http.POST(jsonStr);
     

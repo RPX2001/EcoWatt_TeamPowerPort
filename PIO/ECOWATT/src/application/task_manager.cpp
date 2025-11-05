@@ -678,7 +678,13 @@ void TaskManager::uploadTask(void* parameter) {
         
         // Record statistics
         recordTaskExecution(stats_upload, executionTime);
-        checkDeadline("Upload", executionTime, deadlineUs, stats_upload);
+        
+        // Check deadline but don't retry immediately if missed
+        if (executionTime > deadlineUs) {
+            stats_upload.deadlineMisses++;
+            LOG_WARN(LOG_TAG_UPLOAD, "Deadline miss (%lu us > %lu us) - will retry at next interval",
+                     executionTime, deadlineUs);
+        }
         
         stats_upload.stackHighWater = uxTaskGetStackHighWaterMark(NULL);
         
@@ -705,11 +711,16 @@ void TaskManager::commandTask(void* parameter) {
     LOG_INFO(LOG_TAG_COMMAND, "Deadline: %lu us", deadlineUs);
     
     while (1) {
-        // Wait for command check interval
+        // ALWAYS wait for the full interval before starting next cycle
+        // This prevents rapid retries even if previous cycle missed deadline
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
         // Update frequency if changed (NVS update)
-        xFrequency = pdMS_TO_TICKS(commandFrequency);
+        TickType_t newFrequency = pdMS_TO_TICKS(commandFrequency);
+        if (newFrequency != xFrequency) {
+            xFrequency = newFrequency;
+            xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
+        }
         
         uint32_t startTime = micros();
         
@@ -725,15 +736,21 @@ void TaskManager::commandTask(void* parameter) {
             xSemaphoreGive(wifiClientMutex);
             
         } else {
-            // Silently skip - mutex contention is normal, will retry next interval
-            // print("[Commands] ERROR: Failed to acquire WiFi mutex\n");
+            // Failed to acquire mutex - skip this cycle and try again next interval
+            LOG_DEBUG(LOG_TAG_COMMAND, "Skipped (mutex busy)");
         }
         
         uint32_t executionTime = micros() - startTime;
         
         // Record statistics
         recordTaskExecution(stats_command, executionTime);
-        checkDeadline("Commands", executionTime, deadlineUs, stats_command);
+        
+        // Check deadline but don't retry immediately if missed
+        if (executionTime > deadlineUs) {
+            stats_command.deadlineMisses++;
+            LOG_WARN(LOG_TAG_COMMAND, "Deadline miss (%lu us > %lu us) - will retry at next interval",
+                     executionTime, deadlineUs);
+        }
         
         stats_command.stackHighWater = uxTaskGetStackHighWaterMark(NULL);
         
@@ -765,16 +782,20 @@ void TaskManager::configTask(void* parameter) {
     LOG_INFO(LOG_TAG_CONFIG, "Deadline: %lu us", deadlineUs);
     
     while (1) {
-        // Wait for config check interval
+        // ALWAYS wait for the full interval before starting next cycle
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
         // Update frequency if changed (allows runtime reconfiguration)
-        xFrequency = pdMS_TO_TICKS(configFrequency);
+        TickType_t newFrequency = pdMS_TO_TICKS(configFrequency);
+        if (newFrequency != xFrequency) {
+            xFrequency = newFrequency;
+            xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
+        }
         
         uint32_t startTime = micros();
         
-            // Acquire WiFi mutex for HTTP request (timeout from system_config.h)
-            if (xSemaphoreTake(wifiClientMutex, pdMS_TO_TICKS(WIFI_MUTEX_TIMEOUT_CONFIG_MS)) == pdTRUE) {
+        // Acquire WiFi mutex for HTTP request (timeout from system_config.h)
+        if (xSemaphoreTake(wifiClientMutex, pdMS_TO_TICKS(WIFI_MUTEX_TIMEOUT_CONFIG_MS)) == pdTRUE) {
             
             // Fetch config from server using actual ConfigManager API
             ConfigManager::checkForChanges(&registers_uptodate, &pollFreq_uptodate, &uploadFreq_uptodate);
@@ -782,15 +803,21 @@ void TaskManager::configTask(void* parameter) {
             xSemaphoreGive(wifiClientMutex);
             
         } else {
-            // Silently skip - mutex contention is normal, will retry next interval
-            // print("[Config] ERROR: Failed to acquire WiFi mutex\n");
+            // Failed to acquire mutex - skip this cycle
+            LOG_DEBUG(LOG_TAG_CONFIG, "Skipped (mutex busy)");
         }
         
         uint32_t executionTime = micros() - startTime;
         
         // Record statistics
         recordTaskExecution(stats_config, executionTime);
-        checkDeadline("Config", executionTime, deadlineUs, stats_config);
+        
+        // Check deadline but don't retry immediately if missed
+        if (executionTime > deadlineUs) {
+            stats_config.deadlineMisses++;
+            LOG_WARN(LOG_TAG_CONFIG, "Deadline miss (%lu us > %lu us) - will retry at next interval",
+                     executionTime, deadlineUs);
+        }
         
         stats_config.stackHighWater = uxTaskGetStackHighWaterMark(NULL);
         

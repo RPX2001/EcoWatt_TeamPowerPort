@@ -172,7 +172,7 @@ bool CommandExecutor::executeCommand(const char* commandId, const char* action,
     } else if (strcmp(action, "reset_peripheral_stats") == 0) {
         success = executeResetPeripheralStatsCommand();
     } else {
-        LOG_DEBUG(LOG_TAG_COMMAND, " Unknown M4 action: %s\n", action);
+        LOG_DEBUG(LOG_TAG_COMMAND, " Unknown M4 action: %s", action);
         success = false;
     }
     
@@ -196,7 +196,7 @@ bool CommandExecutor::executePowerCommand(JsonObject& m4Command) {
     if (powerPercentage < 0) powerPercentage = 0;
     if (powerPercentage > 100) powerPercentage = 100;
     
-    LOG_DEBUG(LOG_TAG_COMMAND, " Setting power to %d W (%d%%)\n", powerValue, powerPercentage);
+    LOG_DEBUG(LOG_TAG_COMMAND, " Setting power to %d W (%d%%)", powerValue, powerPercentage);
     
     bool result = setPower(powerPercentage);
     
@@ -216,7 +216,7 @@ bool CommandExecutor::executePowerPercentageCommand(JsonObject& m4Command) {
     if (percentage < 0) percentage = 0;
     if (percentage > 100) percentage = 100;
     
-    LOG_DEBUG(LOG_TAG_COMMAND, " Setting power percentage to %d%%\n", percentage);
+    LOG_DEBUG(LOG_TAG_COMMAND, " Setting power percentage to %d%%", percentage);
     
     bool result = setPower(percentage);
     
@@ -240,12 +240,12 @@ bool CommandExecutor::executeWriteRegisterCommand(JsonObject& m4Command) {
         // Try to parse target_register as number
         regAddress = atoi(targetRegister);
         if (regAddress == 0 && strcmp(targetRegister, "0") != 0) {
-            LOG_DEBUG(LOG_TAG_COMMAND, " Invalid register address: %s\n", targetRegister);
+            LOG_DEBUG(LOG_TAG_COMMAND, " Invalid register address: %s", targetRegister);
             return false;
         }
     }
     
-    LOG_DEBUG(LOG_TAG_COMMAND, " Writing register %d (%s) with value %d\n", 
+    LOG_DEBUG(LOG_TAG_COMMAND, " Writing register %d (%s) with value %d", 
           regAddress, strlen(targetRegister) > 0 ? targetRegister : "unnamed", value);
     
     // Build Modbus write frame using existing acquisition function
@@ -341,11 +341,25 @@ void CommandExecutor::sendCommandResult(const char* commandId, bool success) {
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
     commandResult["executed_at"] = timestamp;
 
+    // Pretty print for logging
+    String prettyResult;
+    serializeJsonPretty(resultDoc, prettyResult);
+    
+    LOG_DEBUG(LOG_TAG_COMMAND, "M4 result payload:");
+    int startPos = 0;
+    int endPos = prettyResult.indexOf('\n');
+    while (endPos != -1) {
+        LOG_DEBUG(LOG_TAG_COMMAND, "  %s", prettyResult.substring(startPos, endPos).c_str());
+        startPos = endPos + 1;
+        endPos = prettyResult.indexOf('\n', startPos);
+    }
+    if (startPos < prettyResult.length()) {
+        LOG_DEBUG(LOG_TAG_COMMAND, "  %s", prettyResult.substring(startPos).c_str());
+    }
+    
+    // Compact for actual transmission
     char resultBody[256];
     serializeJson(resultDoc, resultBody, sizeof(resultBody));
-
-    LOG_DEBUG(LOG_TAG_COMMAND, "M4 result payload:");
-    LOG_DEBUG(LOG_TAG_COMMAND, "  %s", resultBody);
 
     int httpResponseCode = http.POST((uint8_t*)resultBody, strlen(resultBody));
 
@@ -380,7 +394,7 @@ void CommandExecutor::printStats() {
     
     if (commandsExecuted > 0) {
         float successRate = (commandsSuccessful * 100.0f) / commandsExecuted;
-        LOG_INFO(LOG_TAG_COMMAND, "  Success Rate:        %.2f%%\n", successRate);
+        LOG_INFO(LOG_TAG_COMMAND, "  Success Rate:        %.2f\n", successRate);
     }
     
     LOG_INFO(LOG_TAG_COMMAND, "==================================================");;

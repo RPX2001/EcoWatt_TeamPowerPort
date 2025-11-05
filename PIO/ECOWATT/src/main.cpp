@@ -36,7 +36,7 @@
 OTAManager* otaManager = nullptr;
 Arduino_Wifi Wifi;
 
-#define FIRMWARE_VERSION "1.0.4"
+#define FIRMWARE_VERSION "1.3.0"
 
 // ============================================
 // Helper Functions
@@ -111,7 +111,29 @@ bool registerDeviceWithServer() {
         return true;
     } else if (httpCode > 0) {
         String response = http.getString();
-        LOG_WARN(LOG_TAG_BOOT, "Registration response (%d): %s", httpCode, response.c_str());
+        
+        // Try to parse and pretty-print if JSON
+        StaticJsonDocument<512> responseDoc;
+        DeserializationError err = deserializeJson(responseDoc, response);
+        
+        if (!err) {
+            String prettyResponse;
+            serializeJsonPretty(responseDoc, prettyResponse);
+            LOG_WARN(LOG_TAG_BOOT, "Registration response (%d):", httpCode);
+            int startPos = 0;
+            int endPos = prettyResponse.indexOf('\n');
+            while (endPos != -1) {
+                LOG_WARN(LOG_TAG_BOOT, "  %s", prettyResponse.substring(startPos, endPos).c_str());
+                startPos = endPos + 1;
+                endPos = prettyResponse.indexOf('\n', startPos);
+            }
+            if (startPos < prettyResponse.length()) {
+                LOG_WARN(LOG_TAG_BOOT, "  %s", prettyResponse.substring(startPos).c_str());
+            }
+        } else {
+            LOG_WARN(LOG_TAG_BOOT, "Registration response (%d): %s", httpCode, response.c_str());
+        }
+        
         http.end();
         return false;
     } else {

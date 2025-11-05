@@ -170,7 +170,9 @@ def poll_commands_route(device_id):
             except Exception as e:
                 logger.warning(f"[!] [Command] Failed to mark command {cmd['command_id']} as dispatched: {e}")
 
-        logger.info(f"[Command] Device {device_id} polled, {len(commands)} commands returned")
+        # Only log when commands are actually returned (reduces log spam)
+        if len(commands) > 0:
+            logger.info(f"[Command] Device {device_id} polled, {len(commands)} commands returned")
 
         response = jsonify({
             'success': True,

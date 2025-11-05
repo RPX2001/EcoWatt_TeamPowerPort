@@ -631,15 +631,15 @@ class Database:
     
     @staticmethod
     def save_ota_update(device_id: str, from_version: str, to_version: str, 
-                       firmware_size: int = None, chunks_total: int = None) -> int:
+                       firmware_size: int = None, chunks_total: int = None, status: str = 'initiated') -> int:
         """Save new OTA update record"""
         conn = Database.get_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
             INSERT INTO ota_updates (device_id, from_version, to_version, firmware_size, chunks_total, status)
-            VALUES (?, ?, ?, ?, ?, 'initiated')
-        ''', (device_id, from_version, to_version, firmware_size, chunks_total))
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (device_id, from_version, to_version, firmware_size, chunks_total, status))
         
         conn.commit()
         return cursor.lastrowid

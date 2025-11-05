@@ -960,14 +960,60 @@ bool OTAManager::httpPost(const String& endpoint, const String& payload, String&
     http.addHeader("Content-Type", "application/json");
     http.setTimeout(30000); // 30 seconds HTTP timeout (in milliseconds)
     
+    // Parse and pretty-print the payload if it's JSON
+    StaticJsonDocument<512> payloadDoc;
+    DeserializationError err = deserializeJson(payloadDoc, payload);
+    
     LOG_DEBUG(LOG_TAG_FOTA, "POST %s", endpoint.c_str());
-    LOG_DEBUG(LOG_TAG_FOTA, "Payload: %s", payload.c_str());
+    
+    if (!err) {
+        // Valid JSON - print it pretty
+        String prettyPayload;
+        serializeJsonPretty(payloadDoc, prettyPayload);
+        LOG_DEBUG(LOG_TAG_FOTA, "Payload:");
+        int startPos = 0;
+        int endPos = prettyPayload.indexOf('\n');
+        while (endPos != -1) {
+            LOG_DEBUG(LOG_TAG_FOTA, "  %s", prettyPayload.substring(startPos, endPos).c_str());
+            startPos = endPos + 1;
+            endPos = prettyPayload.indexOf('\n', startPos);
+        }
+        if (startPos < prettyPayload.length()) {
+            LOG_DEBUG(LOG_TAG_FOTA, "  %s", prettyPayload.substring(startPos).c_str());
+        }
+    } else {
+        // Not JSON or invalid - print as-is
+        LOG_DEBUG(LOG_TAG_FOTA, "Payload: %s", payload.c_str());
+    }
     
     int httpCode = http.POST(payload);
     
     if (httpCode > 0) {
         response = http.getString();
-        LOG_DEBUG(LOG_TAG_FOTA, "Response (%d): %s", httpCode, response.c_str());
+        
+        // Parse and pretty-print the response if it's JSON
+        StaticJsonDocument<512> responseDoc;
+        DeserializationError respErr = deserializeJson(responseDoc, response);
+        
+        if (!respErr) {
+            // Valid JSON - print it pretty
+            String prettyResponse;
+            serializeJsonPretty(responseDoc, prettyResponse);
+            LOG_DEBUG(LOG_TAG_FOTA, "Response (%d):", httpCode);
+            int startPos = 0;
+            int endPos = prettyResponse.indexOf('\n');
+            while (endPos != -1) {
+                LOG_DEBUG(LOG_TAG_FOTA, "  %s", prettyResponse.substring(startPos, endPos).c_str());
+                startPos = endPos + 1;
+                endPos = prettyResponse.indexOf('\n', startPos);
+            }
+            if (startPos < prettyResponse.length()) {
+                LOG_DEBUG(LOG_TAG_FOTA, "  %s", prettyResponse.substring(startPos).c_str());
+            }
+        } else {
+            // Not JSON - print as-is
+            LOG_DEBUG(LOG_TAG_FOTA, "Response (%d): %s", httpCode, response.c_str());
+        }
         
         // Accept both 200 OK and 201 Created as success
         if (httpCode == 200 || httpCode == 201) {
@@ -1033,7 +1079,30 @@ bool OTAManager::httpGet(const String& endpoint, String& response)
     
     if (httpCode > 0) {
         response = http.getString();
-        LOG_DEBUG(LOG_TAG_FOTA, "Response (%d): %s", httpCode, response.c_str());
+        
+        // Parse and pretty-print the response if it's JSON
+        StaticJsonDocument<1024> responseDoc;
+        DeserializationError respErr = deserializeJson(responseDoc, response);
+        
+        if (!respErr) {
+            // Valid JSON - print it pretty
+            String prettyResponse;
+            serializeJsonPretty(responseDoc, prettyResponse);
+            LOG_DEBUG(LOG_TAG_FOTA, "Response (%d):", httpCode);
+            int startPos = 0;
+            int endPos = prettyResponse.indexOf('\n');
+            while (endPos != -1) {
+                LOG_DEBUG(LOG_TAG_FOTA, "  %s", prettyResponse.substring(startPos, endPos).c_str());
+                startPos = endPos + 1;
+                endPos = prettyResponse.indexOf('\n', startPos);
+            }
+            if (startPos < prettyResponse.length()) {
+                LOG_DEBUG(LOG_TAG_FOTA, "  %s", prettyResponse.substring(startPos).c_str());
+            }
+        } else {
+            // Not JSON - print as-is
+            LOG_DEBUG(LOG_TAG_FOTA, "Response (%d): %s", httpCode, response.c_str());
+        }
         
         if (httpCode == 200) {
             http.end();
