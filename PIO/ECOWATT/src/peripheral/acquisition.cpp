@@ -1,6 +1,7 @@
 #include "peripheral/acquisition.h"
 #include "application/fault_recovery.h" // Milestone 5: Fault Recovery
 #include "application/data_uploader.h"  // For getDeviceID()
+#include <functional>  // For std::bind to reduce stack usage
 
 ProtocolAdapter adapter;
 
@@ -212,6 +213,31 @@ bool setPower(uint16_t powerValue)
 
 
 /**
+ * @fn static bool retryModbusRead(const char* frame, char* responseFrame, size_t responseSize, uint8_t expectedByteCount)
+ * 
+ * @brief Helper function to retry Modbus read and validate response
+ */
+static bool retryModbusRead(const char* frame, char* responseFrame, size_t responseSize, uint8_t expectedByteCount) {
+  static char retryResponse[256]; // Static to reduce stack usage
+  
+  bool retryOk = adapter.readRegister(frame, retryResponse, sizeof(retryResponse));
+  
+  if (!retryOk) return false;
+  
+  // Check if retry response is fault-free
+  FaultType retryFault = detectFault(retryResponse, expectedByteCount, sizeof(retryResponse));
+  
+  if (retryFault == FaultType::NONE) {
+    // Success! Copy response to output buffer
+    strncpy(responseFrame, retryResponse, responseSize);
+    responseFrame[responseSize - 1] = '\0';
+    return true;
+  }
+  
+  return false; // Still faulty
+}
+
+/**
  * @fn DecodedValues readRequest(const RegID* regs, size_t regCount)
  * 
  * @brief Read specified registers from the inverter with fault detection and recovery (Milestone 5).
@@ -289,31 +315,14 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
   if (fault != FaultType::NONE) {
     debug.log("[FAULT DETECTED] Type: %s\n", getFaultTypeName(fault));
     
-    // Execute recovery with retries
+    // Execute recovery with retries (use std::bind to avoid lambda overhead)
     uint8_t retryCount = 0;
     bool recoverySuccess = false;
     
-    // Define retry function
-    auto retryReadFunc = [&]() -> bool {
-      char retryResponse[256];
-      bool retryOk = adapter.readRegister(frame, retryResponse, sizeof(retryResponse));
-      
-      if (!retryOk) return false;
-      
-      // Check if retry response is fault-free
-      FaultType retryFault = detectFault(retryResponse, expectedByteCount, sizeof(retryResponse));
-      
-      if (retryFault == FaultType::NONE) {
-        // Success! Copy response to main buffer
-        strncpy(responseFrame, retryResponse, sizeof(responseFrame));
-        responseFrame[sizeof(responseFrame) - 1] = '\0';
-        return true;
-      }
-      
-      return false; // Still faulty
-    };
+    // Use function pointer with std::bind to reduce stack usage
+    std::function<bool()> retryFunc = std::bind(retryModbusRead, frame, responseFrame, sizeof(responseFrame), expectedByteCount);
     
-    recoverySuccess = executeRecovery(fault, retryReadFunc, retryCount);
+    recoverySuccess = executeRecovery(fault, retryFunc, retryCount);
     
     // Report recovery event
     FaultRecoveryEvent event;

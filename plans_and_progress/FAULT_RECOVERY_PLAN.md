@@ -1,14 +1,57 @@
 # Fault Injection and Recovery Implementation Plan
 
+## 🚨 CRITICAL API DISCOVERY (Fixed Jan 5, 2025)
+
+### The Two Inverter SIM Error APIs
+
+**WRONG API** (We were using this):
+- Endpoint: `POST /api/inverter/error` (Section 8: Error Emulation API)
+- Purpose: Returns a corrupted frame **immediately** to the caller
+- Use Case: Testing your API client in isolation
+- Problem: **Does NOT affect ESP32's Modbus requests!**
+
+**CORRECT API** (Now using):
+- Endpoint: `POST /api/user/error-flag/add` (Section 7: Add Error Flag API)
+- Purpose: Sets a flag so **NEXT ESP32 request** receives corrupted response
+- Use Case: End-to-end fault injection testing
+- Behavior: ESP32's next `/api/inverter/read` call will get corrupted data
+
+**Why This Matters**:
+```
+Flask calls /api/inverter/error → Gets corrupted frame → ❌ ESP32 unaffected
+Flask calls /api/user/error-flag/add → Sets flag → ✅ ESP32's next read corrupted
+```
+
+**API Payload Change**:
+```json
+// OLD (Section 8 - Error Emulation)
+{
+  "slaveAddress": 1,
+  "functionCode": 3,
+  "errorType": "CRC_ERROR"
+}
+
+// NEW (Section 7 - Error Flag)
+{
+  "errorType": "CRC_ERROR",
+  "exceptionCode": 0,  // Only for EXCEPTION type
+  "delayMs": 0         // Only for DELAY type
+}
+```
+
+**No need for slaveAddress/functionCode** - the flag affects whatever the ESP32 requests next!
+
+---
+
 ## Current Status Analysis
 
 ### What's Already Implemented
 
 #### Flask Backend (Partial)
 - **fault_handler.py**: Basic fault injection logic for Modbus responses (CRC corruption, truncation, garbage, timeout, exception)
-- **fault_routes.py**: Dual backend routing (Inverter SIM API + Local faults)
+- **fault_routes.py**: Dual backend routing (Inverter SIM API + Local faults) - **NOW USING CORRECT API**
 - **fault_injector.py**: Core fault injection utilities
-- **Inverter SIM Integration**: Routes to external API at `http://20.15.114.131:8080/api/inverter/error`
+- **Inverter SIM Integration**: Routes to external API at `http://20.15.114.131:8080/api/user/error-flag/add`
 
 #### Front-end (Basic UI)
 - **FaultInjection.jsx**: UI component with fault type selection, device selection, fault history
@@ -302,28 +345,33 @@ clear-faults:
 6. ✅ **Integrated fault recovery into acquisition.cpp** (Enhanced readRequest() with fault detection and recovery logic)
 7. ✅ **Added fault recovery initialization** (Added to system_initializer.cpp boot sequence)
 8. ✅ **Created PIO justfile commands** (test-m5, test-fault-recovery for ESP32 testing)
+9. ✅ **ESP32 firmware compiled successfully** (Uses device ID from DataUploader::getDeviceID() and server URL from FLASK_SERVER_URL)
+10. ✅ **Enhanced front-end UI** (FaultInjection.jsx)
+    - Added recovery events API functions (getRecoveryEvents, getAllRecoveryEvents, clearRecoveryEvents)
+    - Auto-refresh every 3 seconds
+    - Device selector for viewing specific device recovery events
+    - Statistics dashboard (total, successful, failed, success rate %)
+    - Recovery events list with success/failure icons
+    - Color-coded alerts (green for success, red for failure)
 
-### In Progress 🔨
-9. **Test ESP32 fault recovery compilation** - NEXT
-   - Build firmware with `just build` from PIO/ECOWATT directory
-   - Verify no compilation errors
-   - Flash to device and monitor serial output
+### Ready for Testing 🧪
+11. **Test end-to-end fault recovery** - NEXT
+   - Start Flask server with `just server` from flask directory
+   - Build and flash ESP32 with `just flash` from PIO/ECOWATT directory
+   - Monitor ESP32 serial output with `just monitor`
+   - Open front-end Testing tab
+   - Inject faults and verify recovery events appear
 
 ### Pending Tasks ⏳
-10. **Enhance front-end UI** (FaultInjection.jsx)
-   - Add recovery events viewer with auto-refresh
-   - Display events as MUI Alerts (success/error)
-   - Show statistics dashboard
-   
-11. **Test each fault type end-to-end**
+12. **Test each fault type end-to-end**
    - UI inject → Inverter SIM corrupts → ESP32 detects → ESP32 recovers → Flask stores → UI displays
-   - Verify all 4 fault types: CRC_ERROR, TRUNCATE, GARBAGE, BUFFER_OVERFLOW
+   - Verify all 4 fault types: CRC_ERROR, TRUNCATE (CORRUPT), GARBAGE (CORRUPT), BUFFER_OVERFLOW
 
-12. **Documentation updates**
+13. **Documentation updates**
    - Update API Service Documentation with recovery endpoints
    - Add testing procedures to README
 
-13. **Prepare demonstration video**
+14. **Prepare demonstration video**
    - Show fault injection through UI
    - Show recovery events appearing in real-time
    - Highlight statistics dashboard

@@ -90,15 +90,18 @@ queue-command device_id="ESP32_EcoWatt_Smart" command="set_power_percentage" val
     @echo "✅ Command queued: {{command}}={{value}}"
 
 # ============================================================
-# Fault Injection & Recovery Testing (Milestone 5)
+# Milestone 5: Fault Injection & Recovery Testing
 # ============================================================
+
+# Inverter SIM API Key (required for Error Flag API)
+export INVERTER_API_KEY := "NjhhZWIwNDU1ZDdmMzg3MzNiMTQ5YTFmOjY4YWViMDQ1NWQ3ZjM4NzMzYjE0OWExNQ=="
 
 # Inject CRC error fault (Inverter SIM)
 test-fault-crc:
     @echo "🔧 Injecting CRC_ERROR fault..."
     @curl -X POST http://localhost:5000/fault/inject \
       -H "Content-Type: application/json" \
-      -d '{"slaveAddress": 1, "functionCode": 3, "errorType": "CRC_ERROR"}' \
+      -d '{"errorType": "CRC_ERROR"}' \
       2>/dev/null | jq '.'
 
 # Inject truncated payload fault (Inverter SIM)
@@ -106,7 +109,7 @@ test-fault-truncate:
     @echo "🔧 Injecting CORRUPT (truncate) fault..."
     @curl -X POST http://localhost:5000/fault/inject \
       -H "Content-Type: application/json" \
-      -d '{"slaveAddress": 1, "functionCode": 3, "errorType": "CORRUPT"}' \
+      -d '{"errorType": "CORRUPT"}' \
       2>/dev/null | jq '.'
 
 # Inject garbage data fault (Inverter SIM)
@@ -114,7 +117,7 @@ test-fault-garbage:
     @echo "🔧 Injecting CORRUPT (garbage) fault..."
     @curl -X POST http://localhost:5000/fault/inject \
       -H "Content-Type: application/json" \
-      -d '{"slaveAddress": 1, "functionCode": 3, "errorType": "CORRUPT"}' \
+      -d '{"errorType": "CORRUPT"}' \
       2>/dev/null | jq '.'
 
 # Inject exception fault (Inverter SIM)
@@ -122,7 +125,7 @@ test-fault-exception code="1":
     @echo "🔧 Injecting EXCEPTION fault (code {{code}})..."
     @curl -X POST http://localhost:5000/fault/inject \
       -H "Content-Type: application/json" \
-      -d '{"slaveAddress": 1, "functionCode": 3, "errorType": "EXCEPTION", "exceptionCode": {{code}}}' \
+      -d '{"errorType": "EXCEPTION", "exceptionCode": {{code}}}' \
       2>/dev/null | jq '.'
 
 # Inject packet drop fault (Inverter SIM)
@@ -130,7 +133,7 @@ test-fault-drop:
     @echo "🔧 Injecting PACKET_DROP fault..."
     @curl -X POST http://localhost:5000/fault/inject \
       -H "Content-Type: application/json" \
-      -d '{"slaveAddress": 1, "functionCode": 3, "errorType": "PACKET_DROP"}' \
+      -d '{"errorType": "PACKET_DROP"}' \
       2>/dev/null | jq '.'
 
 # Inject delay fault (Inverter SIM)
@@ -138,7 +141,7 @@ test-fault-delay ms="5000":
     @echo "🔧 Injecting DELAY fault ({{ms}}ms)..."
     @curl -X POST http://localhost:5000/fault/inject \
       -H "Content-Type: application/json" \
-      -d '{"slaveAddress": 1, "functionCode": 3, "errorType": "DELAY", "delayMs": {{ms}}}' \
+      -d '{"errorType": "DELAY", "delayMs": {{ms}}}' \
       2>/dev/null | jq '.'
 
 # View recovery events for a device

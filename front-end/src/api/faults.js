@@ -167,6 +167,52 @@ export const MODBUS_EXCEPTION_CODES = {
   0x0B: 'Gateway Target Device Failed to Respond'
 };
 
+/**
+ * Get recovery events for a specific device (Milestone 5)
+ * @param {string} deviceId - Device ID
+ * @param {Object} [params] - Query parameters
+ * @param {number} [params.limit] - Max events to return
+ * @param {number} [params.offset] - Pagination offset
+ * @param {string} [params.fault_type] - Filter by fault type
+ * @returns {Promise} API response with recovery events
+ */
+export const getRecoveryEvents = (deviceId, params = {}) => {
+  return apiClient.get(`/fault/recovery/${deviceId}`, { params });
+};
+
+/**
+ * Get all recovery events across all devices (Milestone 5)
+ * @returns {Promise} API response with all recovery events and statistics
+ */
+export const getAllRecoveryEvents = () => {
+  return apiClient.get('/fault/recovery/all');
+};
+
+/**
+ * Clear recovery events for a device or all devices (Milestone 5)
+ * @param {string} [deviceId] - Optional device ID to clear (omit to clear all)
+ * @returns {Promise} API response
+ */
+export const clearRecoveryEvents = (deviceId = null) => {
+  const data = deviceId ? { device_id: deviceId } : {};
+  return apiClient.post('/fault/recovery/clear', data);
+};
+
+/**
+ * Simulate a recovery event (for testing)
+ * @param {Object} event - Recovery event data
+ * @param {string} event.device_id - Device ID
+ * @param {number} event.timestamp - Unix timestamp
+ * @param {string} event.fault_type - Fault type
+ * @param {string} event.recovery_action - Recovery action taken
+ * @param {boolean} event.success - Recovery success status
+ * @param {string} [event.details] - Additional details
+ * @returns {Promise} API response
+ */
+export const postRecoveryEvent = (event) => {
+  return apiClient.post('/fault/recovery', event);
+};
+
 export default {
   injectFault,
   injectInverterFault,
@@ -174,6 +220,10 @@ export default {
   getFaultStatus,
   clearFaults,
   getFaultTypes,
+  getRecoveryEvents,
+  getAllRecoveryEvents,
+  clearRecoveryEvents,
+  postRecoveryEvent,
   FAULT_PRESETS,
   MODBUS_EXCEPTION_CODES
 };

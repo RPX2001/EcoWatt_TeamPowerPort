@@ -31,16 +31,20 @@ import {
   ListItemText,
   Grid,
   Card,
-  CardContent
+  CardContent,
+  LinearProgress
 } from '@mui/material';
 import {
   BugReport as FaultIcon,
   PlayArrow as InjectIcon,
   Clear as ClearIcon,
-  Warning as WarningIcon
+  Warning as WarningIcon,
+  CheckCircle as SuccessIcon,
+  Error as ErrorIcon,
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { injectFault, clearFaults } from '../../api/faults';
+import { injectFault, clearFaults, getRecoveryEvents, clearRecoveryEvents } from '../../api/faults';
 import { getDevices } from '../../api/devices';
 
 const FaultInjection = () => {
@@ -48,6 +52,7 @@ const FaultInjection = () => {
   const [faultType, setFaultType] = useState('EXCEPTION');
   const [deviceId, setDeviceId] = useState('');
   const [faultHistory, setFaultHistory] = useState([]);
+  const [selectedRecoveryDevice, setSelectedRecoveryDevice] = useState('');
 
   // Fetch devices
   const { data: devicesData } = useQuery({
@@ -57,6 +62,17 @@ const FaultInjection = () => {
   });
 
   const devices = devicesData?.data?.devices || [];
+
+  // Fetch recovery events for selected device (auto-refresh every 3s)
+  const { data: recoveryData, refetch: refetchRecovery } = useQuery({
+    queryKey: ['recoveryEvents', selectedRecoveryDevice],
+    queryFn: () => selectedRecoveryDevice 
+      ? getRecoveryEvents(selectedRecoveryDevice) 
+      : getAllRecoveryEvents(),
+    enabled: !!selectedRecoveryDevice || selectedRecoveryDevice === '',
+    refetchInterval: 3000, // Auto-refresh every 3 seconds
+    staleTime: 2000
+  });
 
   // Inverter SIM fault types (from external API)
   const inverterSimFaults = [
@@ -80,7 +96,34 @@ const FaultInjection = () => {
 
   // Inject fault mutation
   const injectMutation = useMutation({
-    mutationFn: () => injectFault(backend, faultType, deviceId),
+    mutationFn: () => {
+      // Build payload based on backend type
+      let payload;
+      
+      if (backend === 'inverter_sim') {
+        payload = {
+          slaveAddress: 1,
+          functionCode: 3,
+          errorType: faultType
+        };
+        
+        // Add optional fields based on fault type
+        if (faultType === 'EXCEPTION') {
+          payload.exceptionCode = 2; // Illegal Data Address
+        } else if (faultType === 'DELAY') {
+          payload.delayMs = 2000; // 2 second delay
+        }
+      } else {
+        // Local fault
+        payload = {
+          fault_type: faultType,
+          target: 'test',
+          duration: 60
+        };
+      }
+      
+      return injectFault(payload);
+    },
     onSuccess: (response) => {
       const newFault = {
         timestamp: new Date().toISOString(),
@@ -118,6 +161,14 @@ const FaultInjection = () => {
         message: 'Faults cleared successfully'
       };
       setFaultHistory(prev => [newEntry, ...prev].slice(0, 10));
+    }
+  });
+
+  // Clear recovery events mutation
+  const clearRecoveryMutation = useMutation({
+    mutationFn: () => clearRecoveryEvents(selectedRecoveryDevice || null),
+    onSuccess: () => {
+      refetchRecovery();
     }
   });
 
@@ -313,6 +364,176 @@ const FaultInjection = () => {
             </List>
           </Box>
         )}
+
+        {/* Fault Recovery Events Viewer (Milestone 5) */}
+        <Box sx={{ mt: 4 }}>
+          <Divider sx={{ mb: 3 }} />
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6">
+              Fault Recovery Events (Milestone 5)
+            </Typography>
+            <Stack direction="row" spacing={1}>
+              <Button
+                size="small"
+                onClick={() => refetchRecovery()}
+                startIcon={<RefreshIcon />}
+              >
+                Refresh
+              </Button>
+              <Button
+                size="small"
+                onClick={() => clearRecoveryMutation.mutate()}
+                disabled={clearRecoveryMutation.isPending}
+                startIcon={<ClearIcon />}
+                color="error"
+              >
+                Clear Events
+              </Button>
+            </Stack>
+          </Box>
+
+          {/* Device Selector for Recovery Events */}
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel>View Recovery Events For</InputLabel>
+            <Select
+              value={selectedRecoveryDevice}
+              label="View Recovery Events For"
+              onChange={(e) => setSelectedRecoveryDevice(e.target.value)}
+            >
+              <MenuItem value="">All Devices (Global Statistics)</MenuItem>
+              {devices.map((device) => (
+                <MenuItem key={device.device_id} value={device.device_id}>
+                  {device.device_name || device.device_id}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* Statistics Cards */}
+          {recoveryData?.data && (
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+              <Grid item xs={12} sm={4}>
+                <Card variant="outlined">
+                  <CardContent>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      Total Recoveries
+                    </Typography>
+                    <Typography variant="h4">
+                      {recoveryData.data.statistics?.total_recoveries || 0}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <Card variant="outlined" sx={{ bgcolor: 'success.50' }}>
+                  <CardContent>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      Successful
+                    </Typography>
+                    <Typography variant="h4" color="success.main">
+                      {recoveryData.data.statistics?.successful_recoveries || 0}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <Card variant="outlined" sx={{ bgcolor: 'error.50' }}>
+                  <CardContent>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      Failed
+                    </Typography>
+                    <Typography variant="h4" color="error.main">
+                      {recoveryData.data.statistics?.failed_recoveries || 0}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              {recoveryData.data.statistics?.success_rate !== undefined && (
+                <Grid item xs={12}>
+                  <Card variant="outlined">
+                    <CardContent>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                        Success Rate
+                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <LinearProgress
+                          variant="determinate"
+                          value={recoveryData.data.statistics.success_rate}
+                          sx={{ flexGrow: 1, height: 10, borderRadius: 1 }}
+                          color={recoveryData.data.statistics.success_rate >= 80 ? 'success' : 'warning'}
+                        />
+                        <Typography variant="h6" fontWeight="bold">
+                          {recoveryData.data.statistics.success_rate.toFixed(1)}%
+                        </Typography>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              )}
+            </Grid>
+          )}
+
+          {/* Recovery Events List */}
+          {recoveryData?.data?.events && recoveryData.data.events.length > 0 ? (
+            <List sx={{ bgcolor: 'grey.50', borderRadius: 1 }}>
+              {recoveryData.data.events.map((event, index) => (
+                <React.Fragment key={index}>
+                  <ListItem>
+                    <ListItemText
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                          {event.success ? (
+                            <SuccessIcon color="success" fontSize="small" />
+                          ) : (
+                            <ErrorIcon color="error" fontSize="small" />
+                          )}
+                          <Chip
+                            label={event.success ? 'Recovered' : 'Failed'}
+                            color={event.success ? 'success' : 'error'}
+                            size="small"
+                          />
+                          <Typography variant="body2" fontWeight="bold">
+                            {event.fault_type}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            → {event.recovery_action}
+                          </Typography>
+                          {event.retry_count > 0 && (
+                            <Chip
+                              label={`${event.retry_count} ${event.retry_count === 1 ? 'retry' : 'retries'}`}
+                              size="small"
+                              variant="outlined"
+                            />
+                          )}
+                        </Box>
+                      }
+                      secondary={
+                        <Box sx={{ mt: 0.5 }}>
+                          <Typography variant="body2">
+                            Device: <strong>{event.device_id}</strong>
+                          </Typography>
+                          {event.details && (
+                            <Typography variant="body2" sx={{ mt: 0.5 }}>
+                              {event.details}
+                            </Typography>
+                          )}
+                          <Typography variant="caption" color="text.secondary">
+                            {new Date(event.timestamp * 1000).toLocaleString()}
+                          </Typography>
+                        </Box>
+                      }
+                    />
+                  </ListItem>
+                  {index < recoveryData.data.events.length - 1 && <Divider />}
+                </React.Fragment>
+              ))}
+            </List>
+          ) : (
+            <Alert severity="info">
+              No recovery events yet. Inject faults to see recovery behavior.
+            </Alert>
+          )}
+        </Box>
 
         {/* Available Fault Types Reference */}
         <Box sx={{ mt: 4 }}>

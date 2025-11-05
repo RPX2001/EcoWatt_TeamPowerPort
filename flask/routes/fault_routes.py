@@ -18,8 +18,15 @@ logger = logging.getLogger(__name__)
 # Create blueprint
 fault_bp = Blueprint('fault', __name__)
 
-# Inverter SIM API configuration
+# Inverter SIM API Configuration
+# Section 7: Add Error Flag API - Sets flag for NEXT ESP32 request to receive error
+INVERTER_SIM_ERROR_FLAG_API = "http://20.15.114.131:8080/api/user/error-flag/add"
+# Section 8: Error Emulation API - Returns error frame immediately (testing only)
 INVERTER_SIM_ERROR_API = "http://20.15.114.131:8080/api/inverter/error"
+
+# Inverter SIM API Key (from EN4440 API Service Keys spreadsheet)
+# This is the API key for the Error Flag API (Section 7)
+INVERTER_API_KEY = "NjhhZWIwNDU1ZDdmMzg3MzNiMTQ5YTFmOjY4YWViMDQ1NWQ3ZjM4NzMzYjE0OWExNQ=="
 
 # Local fault tracking (for non-Inverter faults)
 active_faults: Dict[str, dict] = {}
@@ -86,9 +93,12 @@ def inject_fault():
 
 def inject_inverter_sim_fault(data):
     """
-    Inject fault using Inverter SIM API
+    Inject fault using Inverter SIM Error Flag API
     
-    API Endpoint: http://20.15.114.131:8080/api/inverter/error
+    API Endpoint: http://20.15.114.131:8080/api/user/error-flag/add
+    
+    This API sets a flag so that the NEXT request from ESP32 to Inverter SIM
+    (e.g., /api/inverter/read) will receive a corrupted/error response.
     
     Error Types:
     - EXCEPTION: Modbus exception with exception code
@@ -99,8 +109,6 @@ def inject_inverter_sim_fault(data):
     """
     try:
         # Validate required fields
-        slave_address = data.get('slaveAddress', data.get('slaveId', 1))
-        function_code = data.get('functionCode', 3)
         error_type = data.get('errorType', '').upper()
         
         if not error_type:
@@ -109,10 +117,10 @@ def inject_inverter_sim_fault(data):
                 'error': 'errorType is required'
             }), 400
         
-        # Build request for Inverter SIM API
+        # Build request for Inverter SIM Error Flag API
+        # NOTE: This API does NOT need slaveAddress or functionCode
+        # It sets a flag that affects the NEXT ESP32 request
         inverter_request = {
-            'slaveAddress': slave_address,
-            'functionCode': function_code,
             'errorType': error_type,
             'exceptionCode': data.get('exceptionCode', 0),
             'delayMs': data.get('delayMs', 0)
@@ -131,35 +139,42 @@ def inject_inverter_sim_fault(data):
                 'error': 'delayMs is required for DELAY error type'
             }), 400
         
-        # Call Inverter SIM Error API
-        logger.info(f"[Fault] Calling Inverter SIM API: {INVERTER_SIM_ERROR_API}")
+        # Call Inverter SIM Error Flag API
+        logger.info(f"[Fault] Calling Inverter SIM Error Flag API: {INVERTER_SIM_ERROR_FLAG_API}")
         logger.info(f"[Fault] Request: {inverter_request}")
+        logger.info(f"[Fault] This will affect the NEXT request from ESP32")
+        
+        # Add Authorization header (required for Error Flag API)
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': INVERTER_API_KEY
+        }
         
         response = requests.post(
-            INVERTER_SIM_ERROR_API,
+            INVERTER_SIM_ERROR_FLAG_API,
             json=inverter_request,
+            headers=headers,
             timeout=10
         )
         
         if response.status_code == 200:
-            result = response.json()
-            
             # Update statistics
             fault_statistics['total_injected'] += 1
             fault_statistics['inverter_sim_faults'] += 1
             
-            logger.info(f"[Fault] Inverter SIM fault injected: {error_type}")
+            logger.info(f"[Fault] Inverter SIM error flag set: {error_type}")
+            logger.info(f"[Fault] ESP32's next Modbus request will receive corrupted response")
             
             return jsonify({
                 'success': True,
-                'message': f'Fault injected via Inverter SIM API: {error_type}',
+                'message': f'Error flag set for Inverter SIM: {error_type}',
                 'error_type': error_type,
                 'backend': 'inverter_sim',
-                'inverter_response': result,
-                'note': 'Fault will affect next Modbus communication'
+                'note': 'ESP32 will receive corrupted response on next Modbus request'
             }), 200
         else:
             logger.error(f"[Fault] Inverter SIM API error: {response.status_code}")
+            logger.error(f"[Fault] Response: {response.text}")
             return jsonify({
                 'success': False,
                 'error': f'Inverter SIM API returned status {response.status_code}',
