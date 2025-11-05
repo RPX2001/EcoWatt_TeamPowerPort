@@ -4,10 +4,9 @@
  */
 
 #include "application/diagnostics.h"
+#include "peripheral/logger.h"
 #include <ArduinoJson.h>
 #include <time.h>
-// Include print.h after ArduinoJson to avoid macro conflicts
-#include "peripheral/print.h"
 
 // Helper function to get current Unix timestamp in seconds
 static unsigned long getCurrentTimestamp() {
@@ -34,7 +33,7 @@ uint32_t Diagnostics::securityViolations = 0;
 uint32_t Diagnostics::startTime = 0;
 
 void Diagnostics::init() {
-    print("Diagnostics: Initializing...\n");
+    LOG_INFO(LOG_TAG_DIAG, "Initializing...");;
     
     // Load persistent counters from NVS
     loadCounters();
@@ -45,7 +44,7 @@ void Diagnostics::init() {
     // Log initialization event
     logEvent(EVENT_INFO, "Diagnostics system initialized", 0);
     
-    print("Diagnostics: Initialized. Uptime: %u seconds\n", getUptime());
+    LOG_INFO(LOG_TAG_DIAG, "Initialized. Uptime: %u seconds\n", getUptime());
 }
 
 void Diagnostics::logEvent(EventType type, const char* message, uint16_t errorCode) {
@@ -58,13 +57,13 @@ void Diagnostics::logEvent(EventType type, const char* message, uint16_t errorCo
     
     eventLog.push(event);
     
-    // Print event to serial for debugging
+    // Log event
     const char* typeStr[] = {"INFO", "WARNING", "ERROR", "FAULT"};
-    print("[%s] %s", typeStr[type], message);
     if (errorCode != 0) {
-        print(" (code: %u)", errorCode);
+        LOG_INFO(LOG_TAG_DIAG, "[%s] %s (code: %u)", typeStr[type], message, errorCode);
+    } else {
+        LOG_INFO(LOG_TAG_DIAG, "[%s] %s", typeStr[type], message);
     }
-    print("\n");
 }
 
 void Diagnostics::incrementReadErrors() {
@@ -229,6 +228,6 @@ void Diagnostics::loadCounters() {
     securityViolations = prefs.getUInt("sec_viol", 0);
     prefs.end();
     
-    print("Diagnostics: Loaded counters - Errors: R=%u W=%u T=%u CRC=%u\n",
+    LOG_INFO(LOG_TAG_DIAG, "Loaded counters - Errors: R=%u W=%u T=%u CRC=%u\n",
           readErrors, writeErrors, timeouts, crcErrors);
 }

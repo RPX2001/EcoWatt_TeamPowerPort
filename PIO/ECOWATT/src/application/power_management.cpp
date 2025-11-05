@@ -8,7 +8,7 @@
 
 #include "application/power_management.h"
 #include "application/nvs.h"
-#include "peripheral/formatted_print.h"
+#include "peripheral/logger.h"
 #include <WiFi.h>
 
 // Static member initialization
@@ -31,7 +31,7 @@ bool PowerManagement::powerManagementEnabled = false;
  * - Peripheral Gating (POWER_TECH_PERIPHERAL_GATING): UART on/off
  */
 void PowerManagement::init() {
-    PRINT_SECTION("POWER MANAGEMENT INITIALIZATION");
+    LOG_SECTION("POWER MANAGEMENT INITIALIZATION");
     
     // Initialize NVS namespace first (ensures it exists)
     nvs::initPowerNamespace();
@@ -40,34 +40,31 @@ void PowerManagement::init() {
     powerManagementEnabled = nvs::getPowerEnabled();
     enabledTechniques = nvs::getPowerTechniques();
     
-    PRINT_INFO("Power management configuration:");
-    PRINT_INFO("  Milestone 5 Techniques Supported:");
-    PRINT_INFO("    1. WiFi Modem Sleep (WIFI_PS_MAX_MODEM)");
-    PRINT_INFO("    2. Dynamic Clock Scaling (240/160/80 MHz)");
-    PRINT_INFO("    3. Light CPU Idle (delay() with idle states)");
-    PRINT_INFO("    4. Peripheral Gating (UART power control)");
+    LOG_INFO(LOG_TAG_POWER, "Milestone 5 techniques supported:");
+    LOG_DEBUG(LOG_TAG_POWER, "  1. WiFi Modem Sleep (WIFI_PS_MAX_MODEM)");
+    LOG_DEBUG(LOG_TAG_POWER, "  2. Dynamic Clock Scaling (240/160/80 MHz)");
+    LOG_DEBUG(LOG_TAG_POWER, "  3. Light CPU Idle (delay with idle states)");
+    LOG_DEBUG(LOG_TAG_POWER, "  4. Peripheral Gating (UART power control)");
     
     // Print loaded configuration
-    Serial.printf("  Loaded from NVS:\n");
-    Serial.printf("    Enabled: %s\n", powerManagementEnabled ? "YES" : "NO");
-    Serial.printf("    Techniques bitmask: 0x%02X\n", enabledTechniques);
+    LOG_INFO(LOG_TAG_POWER, "Configuration: %s | Techniques: 0x%02X", 
+             powerManagementEnabled ? "ENABLED" : "DISABLED", enabledTechniques);
     
     // List enabled techniques
-    PRINT_INFO("  Enabled techniques:");
     if (enabledTechniques == POWER_TECH_NONE) {
-        PRINT_INFO("    - NONE (full performance)");
+        LOG_INFO(LOG_TAG_POWER, "Mode: Full performance (no techniques)");
     } else {
         if (enabledTechniques & POWER_TECH_WIFI_MODEM_SLEEP) {
-            PRINT_INFO("    - WiFi Modem Sleep");
+            LOG_DEBUG(LOG_TAG_POWER, "Technique: WiFi Modem Sleep");
         }
         if (enabledTechniques & POWER_TECH_CPU_FREQ_SCALING) {
-            PRINT_INFO("    - CPU Frequency Scaling");
+            LOG_DEBUG(LOG_TAG_POWER, "Technique: CPU Frequency Scaling");
         }
         if (enabledTechniques & POWER_TECH_LIGHT_SLEEP) {
-            PRINT_INFO("    - Light CPU Idle");
+            LOG_DEBUG(LOG_TAG_POWER, "Technique: Light CPU Idle");
         }
         if (enabledTechniques & POWER_TECH_PERIPHERAL_GATING) {
-            PRINT_INFO("    - Peripheral Gating");
+            LOG_DEBUG(LOG_TAG_POWER, "Technique: Peripheral Gating");
         }
     }
     
@@ -75,7 +72,7 @@ void PowerManagement::init() {
         // Apply the enabled techniques
         applyTechniques();
     } else {
-        PRINT_INFO("  Power management DISABLED - all at full power");
+        LOG_INFO(LOG_TAG_POWER, "Power management disabled - full power mode");
         WiFi.setSleep(false);  // WIFI_PS_NONE
     }
     
@@ -89,7 +86,7 @@ void PowerManagement::init() {
     
     lastUpdateTime = millis();
     
-    PRINT_SUCCESS("Power management initialized");
+    LOG_SUCCESS(LOG_TAG_POWER, "Power management initialized");
 }
 
 /**
@@ -274,51 +271,36 @@ PowerStats PowerManagement::getStats() {
 void PowerManagement::printStats() {
     PowerStats s = getStats();
     
-    PRINT_SECTION("POWER MANAGEMENT STATISTICS");
+    LOG_SECTION("POWER MANAGEMENT STATISTICS");
     
     // Time distribution
-    PRINT_INFO("Time Distribution:");
-    Serial.printf("  High Performance: %u ms (%.1f%%)\n", 
-                  s.high_perf_time_ms, 
-                  (s.high_perf_time_ms * 100.0f) / s.total_time_ms);
-    Serial.printf("  Normal Mode:      %u ms (%.1f%%)\n", 
-                  s.normal_time_ms, 
-                  (s.normal_time_ms * 100.0f) / s.total_time_ms);
-    Serial.printf("  Low Power Mode:   %u ms (%.1f%%)\n", 
-                  s.low_power_time_ms, 
-                  (s.low_power_time_ms * 100.0f) / s.total_time_ms);
-    Serial.printf("  Sleep Mode:       %u ms (%.1f%%)\n", 
-                  s.sleep_time_ms, 
-                  (s.sleep_time_ms * 100.0f) / s.total_time_ms);
-    Serial.printf("  Total Uptime:     %u ms (%.1f s)\n\n", 
-                  s.total_time_ms, s.total_time_ms / 1000.0f);
+    LOG_INFO(LOG_TAG_POWER, "Time Distribution:");
+    LOG_DEBUG(LOG_TAG_POWER, "  High Performance: %u ms (%.1f%%)", 
+              s.high_perf_time_ms, (s.high_perf_time_ms * 100.0f) / s.total_time_ms);
+    LOG_DEBUG(LOG_TAG_POWER, "  Normal Mode: %u ms (%.1f%%)", 
+              s.normal_time_ms, (s.normal_time_ms * 100.0f) / s.total_time_ms);
+    LOG_DEBUG(LOG_TAG_POWER, "  Low Power: %u ms (%.1f%%)", 
+              s.low_power_time_ms, (s.low_power_time_ms * 100.0f) / s.total_time_ms);
+    LOG_DEBUG(LOG_TAG_POWER, "  Sleep: %u ms (%.1f%%)", 
+              s.sleep_time_ms, (s.sleep_time_ms * 100.0f) / s.total_time_ms);
+    LOG_INFO(LOG_TAG_POWER, "Total Uptime: %u ms (%.1f s)", s.total_time_ms, s.total_time_ms / 1000.0f);
     
     // Operation statistics
-    PRINT_INFO("Operations:");
-    Serial.printf("  Sleep Cycles:     %u\n", s.sleep_cycles);
-    Serial.printf("  Frequency Changes: %u\n\n", s.freq_changes);
+    LOG_INFO(LOG_TAG_POWER, "Sleep Cycles: %u | Freq Changes: %u", s.sleep_cycles, s.freq_changes);
     
     // Power consumption
-    PRINT_INFO("Power Consumption:");
-    Serial.printf("  Average Current:  %.2f mA\n", s.avg_current_ma);
-    Serial.printf("  Energy Saved:     %.2f mAh\n", s.energy_saved_mah);
+    LOG_INFO(LOG_TAG_POWER, "Avg Current: %.2f mA | Energy Saved: %.2f mAh", s.avg_current_ma, s.energy_saved_mah);
     
     if (s.energy_saved_mah > 0) {
         float savings_percent = (s.energy_saved_mah / 
             ((s.total_time_ms / 3600000.0f) * 200.0f)) * 100.0f;
-        Serial.printf("  Power Savings:    %.1f%%\n", savings_percent);
-        PRINT_SUCCESS("Power management is saving energy!");
-    } else {
-        PRINT_INFO("No significant power savings yet");
+        LOG_SUCCESS(LOG_TAG_POWER, "Power savings: %.1f%%", savings_percent);
     }
     
     // Current CPU state
-    PRINT_INFO("Current State:");
-    Serial.printf("  CPU Frequency:    %u MHz\n", getCurrentFrequency());
-    
     const char* modeStr[] = {"High Performance", "Normal", "Low Power", "Sleep"};
-    Serial.printf("  Power Mode:       %s\n", modeStr[currentMode]);
-    Serial.printf("  Auto Management:  %s\n", autoPowerManagement ? "Enabled" : "Disabled");
+    LOG_INFO(LOG_TAG_POWER, "CPU: %u MHz | Mode: %s | Auto: %s", 
+             getCurrentFrequency(), modeStr[currentMode], autoPowerManagement ? "ON" : "OFF");
 }
 
 /**
@@ -367,9 +349,9 @@ void PowerManagement::enableAutoPowerManagement(bool enable) {
     autoPowerManagement = enable;
     
     if (enable) {
-        PRINT_SUCCESS("Automatic power management enabled");
+        LOG_SUCCESS(LOG_TAG_POWER, "Automatic power management enabled");
     } else {
-        PRINT_INFO("Automatic power management disabled");
+        LOG_INFO(LOG_TAG_POWER, "Automatic power management disabled");
         // Return to high performance mode
         setCPUFrequency(POWER_HIGH_PERFORMANCE);
     }
@@ -392,11 +374,11 @@ void PowerManagement::enable(bool enabled) {
     nvs::setPowerEnabled(enabled);
     
     if (enabled) {
-        PRINT_SUCCESS("Power management ENABLED");
+        LOG_SUCCESS(LOG_TAG_POWER, "Power management ENABLED");
         // Apply currently enabled techniques
         applyTechniques();
     } else {
-        PRINT_INFO("Power management DISABLED");
+        LOG_INFO(LOG_TAG_POWER, "Power management DISABLED");
         // Disable all power saving
         WiFi.setSleep(false);  // WIFI_PS_NONE
         setCPUFrequency(POWER_HIGH_PERFORMANCE);
@@ -419,24 +401,23 @@ void PowerManagement::setTechniques(PowerTechniqueFlags techniques) {
     // Save to NVS
     nvs::setPowerTechniques(techniques);
     
-    Serial.printf("Power techniques set to: 0x%02X\n", techniques);
+    LOG_INFO(LOG_TAG_POWER, "Power techniques: 0x%02X", techniques);
     
     // List what was enabled
-    PRINT_INFO("  Enabled techniques:");
     if (techniques == POWER_TECH_NONE) {
-        PRINT_INFO("    - NONE");
+        LOG_DEBUG(LOG_TAG_POWER, "  - NONE");
     } else {
         if (techniques & POWER_TECH_WIFI_MODEM_SLEEP) {
-            PRINT_INFO("    - WiFi Modem Sleep");
+            LOG_DEBUG(LOG_TAG_POWER, "  - WiFi Modem Sleep");
         }
         if (techniques & POWER_TECH_CPU_FREQ_SCALING) {
-            PRINT_INFO("    - CPU Frequency Scaling");
+            LOG_DEBUG(LOG_TAG_POWER, "  - CPU Frequency Scaling");
         }
         if (techniques & POWER_TECH_LIGHT_SLEEP) {
-            PRINT_INFO("    - Light Sleep");
+            LOG_DEBUG(LOG_TAG_POWER, "  - Light Sleep");
         }
         if (techniques & POWER_TECH_PERIPHERAL_GATING) {
-            PRINT_INFO("    - Peripheral Gating");
+            LOG_DEBUG(LOG_TAG_POWER, "  - Peripheral Gating");
         }
     }
     
@@ -445,7 +426,7 @@ void PowerManagement::setTechniques(PowerTechniqueFlags techniques) {
         applyTechniques();
     }
     
-    PRINT_SUCCESS("Power techniques updated");
+    LOG_SUCCESS(LOG_TAG_POWER, "Power techniques updated");
 }
 
 /**
@@ -482,47 +463,37 @@ bool PowerManagement::isTechniqueEnabled(PowerTechnique technique) {
  * @brief Apply currently enabled techniques
  */
 void PowerManagement::applyTechniques() {
-    PRINT_INFO("Applying power management techniques...");
+    LOG_INFO(LOG_TAG_POWER, "Applying power management techniques");
     
     // 1. WiFi Modem Sleep (POWER_TECH_WIFI_MODEM_SLEEP = 0x01)
-    // Allows WiFi to sleep between DTIM beacons, significant power savings
     if (enabledTechniques & POWER_TECH_WIFI_MODEM_SLEEP) {
-        PRINT_INFO("  \u2705 WiFi modem sleep enabled (WIFI_PS_MAX_MODEM)");
-        WiFi.setSleep(WIFI_PS_MAX_MODEM);  // Max power save
+        LOG_INFO(LOG_TAG_POWER, "WiFi modem sleep: ENABLED (WIFI_PS_MAX_MODEM)");
+        WiFi.setSleep(WIFI_PS_MAX_MODEM);
     } else {
-        PRINT_INFO("  \u274c WiFi modem sleep disabled");
+        LOG_DEBUG(LOG_TAG_POWER, "WiFi modem sleep: disabled");
         WiFi.setSleep(WIFI_PS_NONE);
     }
     
     // 2. CPU Frequency Scaling (POWER_TECH_CPU_FREQ_SCALING = 0x02)
-    // Dynamically scale between 240MHz (WiFi), 160MHz (normal), 80MHz (idle)
     if (enabledTechniques & POWER_TECH_CPU_FREQ_SCALING) {
-        PRINT_INFO("  \u2705 CPU frequency scaling enabled (240/160/80 MHz)");
-        PRINT_INFO("      240 MHz: WiFi operations (HIGH_PERFORMANCE mode)");
-        PRINT_INFO("      160 MHz: Modbus/processing (NORMAL mode)");
-        PRINT_INFO("       80 MHz: Idle/waiting (LOW_POWER mode)");
+        LOG_INFO(LOG_TAG_POWER, "CPU frequency scaling: ENABLED (240/160/80 MHz)");
     } else {
-        PRINT_INFO("  \u274c CPU frequency scaling disabled (fixed 240 MHz)");
+        LOG_DEBUG(LOG_TAG_POWER, "CPU frequency scaling: disabled (fixed 240 MHz)");
     }
     
     // 3. Light Sleep (POWER_TECH_LIGHT_SLEEP = 0x04)
-    // Uses delay() for Light CPU Idle - allows CPU to enter idle states
     if (enabledTechniques & POWER_TECH_LIGHT_SLEEP) {
-        PRINT_INFO("  \u2705 Light CPU Idle enabled (delay() with CPU idle states)");
-        PRINT_INFO("      Uses delay() instead of esp_light_sleep_start()");
-        PRINT_INFO("      Avoids watchdog conflicts, maintains WiFi connection");
+        LOG_INFO(LOG_TAG_POWER, "Light CPU Idle: ENABLED (delay with idle states)");
     } else {
-        PRINT_INFO("  \u274c Light CPU Idle disabled");
+        LOG_DEBUG(LOG_TAG_POWER, "Light CPU Idle: disabled");
     }
     
     // 4. Peripheral Gating (POWER_TECH_PERIPHERAL_GATING = 0x08)
-    // UART power gating controlled by PeripheralPower class
     if (enabledTechniques & POWER_TECH_PERIPHERAL_GATING) {
-        PRINT_INFO("  \u2705 Peripheral gating enabled");
-        PRINT_INFO("      UART powered only during Modbus polls");
+        LOG_INFO(LOG_TAG_POWER, "Peripheral gating: ENABLED");
     } else {
-        PRINT_INFO("  \u274c Peripheral gating disabled");
+        LOG_DEBUG(LOG_TAG_POWER, "Peripheral gating: disabled");
     }
     
-    PRINT_SUCCESS("Techniques applied successfully");
+    LOG_SUCCESS(LOG_TAG_POWER, "Techniques applied successfully");
 }

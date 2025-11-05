@@ -19,6 +19,7 @@ from handlers import (
     disable_ota_fault_injection,
     get_ota_fault_status
 )
+from utils.logger_utils import log_success
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ def check_update(device_id: str):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error checking update for {device_id}: {e}")
+        logger.error(f"✗ Error checking update for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -83,7 +84,7 @@ def initiate_update(device_id: str):
             }), 400
         
     except Exception as e:
-        logger.error(f"Error initiating OTA for {device_id}: {e}")
+        logger.error(f"✗ Error initiating OTA for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -128,7 +129,7 @@ def get_firmware_chunk(device_id: str):
             }), 400
         
     except Exception as e:
-        logger.error(f"Error getting firmware chunk for {device_id}: {e}")
+        logger.error(f"✗ Error getting firmware chunk for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -163,7 +164,7 @@ def complete_update(device_id: str):
             }), 400
         
     except Exception as e:
-        logger.error(f"Error completing OTA for {device_id}: {e}")
+        logger.error(f"✗ Error completing OTA for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -189,7 +190,7 @@ def cancel_update(device_id: str):
             }), 400
         
     except Exception as e:
-        logger.error(f"Error cancelling OTA for {device_id}: {e}")
+        logger.error(f"✗ Error cancelling OTA for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -231,7 +232,7 @@ def get_update_status(device_id: str):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting OTA status for {device_id}: {e}")
+        logger.error(f"✗ Error getting OTA status for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -250,7 +251,7 @@ def get_all_ota_status():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting all OTA status: {e}")
+        logger.error(f"✗ Error getting all OTA status: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -278,7 +279,7 @@ def get_ota_statistics():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting OTA stats: {e}")
+        logger.error(f"✗ Error getting OTA stats: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -324,7 +325,7 @@ def enable_fault_injection():
             }), 400
             
     except Exception as e:
-        logger.error(f"Error enabling fault injection: {e}")
+        logger.error(f"✗ Error enabling fault injection: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -343,7 +344,7 @@ def disable_fault_injection():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error disabling fault injection: {e}")
+        logger.error(f"✗ Error disabling fault injection: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -362,7 +363,7 @@ def get_fault_injection_status():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting fault injection status: {e}")
+        logger.error(f"✗ Error getting fault injection status: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -485,7 +486,7 @@ def upload_firmware():
             raise e
         
     except Exception as e:
-        logger.error(f"Error uploading firmware: {e}")
+        logger.error(f"✗ Error uploading firmware: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({
@@ -542,7 +543,7 @@ def list_firmwares():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error listing firmwares: {e}")
+        logger.error(f"✗ Error listing firmwares: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -579,7 +580,7 @@ def get_firmware_manifest_endpoint(version):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting firmware manifest for {version}: {e}")
+        logger.error(f"✗ Error getting firmware manifest for {version}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -623,7 +624,7 @@ def delete_firmware_endpoint(version):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error deleting firmware {version}: {e}")
+        logger.error(f"✗ Error deleting firmware {version}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -682,7 +683,7 @@ def ota_progress_report(device_id):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error recording OTA progress for {device_id}: {e}")
+        logger.error(f"✗ Error recording OTA progress for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -741,7 +742,7 @@ def ota_complete(device_id):
         )
         
         if not db_success:
-            logger.warning(f"[OTA] No OTA record found in database for {device_id} version {version} (session still cleaned up)")
+            logger.warning(f"[!] [OTA] No OTA record found in database for {device_id} version {version} (session still cleaned up)")
         
         # Also update device firmware version in database if successful
         if is_success:
@@ -757,7 +758,7 @@ def ota_complete(device_id):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error recording OTA completion for {device_id}: {e}")
+        logger.error(f"✗ Error recording OTA completion for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

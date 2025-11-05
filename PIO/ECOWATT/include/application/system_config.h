@@ -182,14 +182,8 @@
 // ============================================
 
 // Log Levels
-#define LOG_LEVEL_NONE                  0
-#define LOG_LEVEL_ERROR                 1
-#define LOG_LEVEL_WARN                  2
-#define LOG_LEVEL_INFO                  3
-#define LOG_LEVEL_DEBUG                 4
-#define LOG_LEVEL_VERBOSE               5
-
-#define DEFAULT_LOG_LEVEL               LOG_LEVEL_INFO
+// LOG_LEVEL macros removed - use logger.h LogLevel enum instead
+// (LOGLEVEL_NONE, LOGLEVEL_ERROR, LOGLEVEL_WARN, LOGLEVEL_INFO, LOGLEVEL_DEBUG)
 
 // ============================================
 // HEALTH MONITORING

@@ -4,7 +4,7 @@
  */
 
 #include "application/aggregation.h"
-#include "peripheral/print.h"
+#include "peripheral/logger.h"
 #include <vector>
 
 // Initialize static members
@@ -13,28 +13,28 @@ uint16_t Aggregation::aggregationWindow = AGGREGATION_WINDOW;
 uint16_t Aggregation::payloadThreshold = AGGREGATION_THRESHOLD;
 
 void Aggregation::init() {
-    print("Aggregation: Initializing...\n");
-    print("Aggregation: Mode=%d, Window=%u, Threshold=%u bytes\n",
+    LOG_INFO(LOG_TAG_DATA, "Initializing...");;
+    LOG_INFO(LOG_TAG_DATA, "Mode=%d, Window=%u, Threshold=%u bytes\n",
           currentMode, aggregationWindow, payloadThreshold);
 }
 
 void Aggregation::setMode(AggregationMode mode) {
     currentMode = mode;
-    print("Aggregation: Mode set to %d\n", mode);
+    LOG_INFO(LOG_TAG_DATA, "Mode set to %d\n", mode);
 }
 
 void Aggregation::setWindow(uint16_t window) {
     if (window > 0 && window <= 20) {
         aggregationWindow = window;
-        print("Aggregation: Window set to %u samples\n", window);
+        LOG_INFO(LOG_TAG_DATA, "Window set to %u samples\n", window);
     } else {
-        print("Aggregation: Invalid window %u (must be 1-20)\n", window);
+        LOG_INFO(LOG_TAG_DATA, "Invalid window %u (must be 1-20)\n", window);
     }
 }
 
 void Aggregation::setThreshold(uint16_t threshold) {
     payloadThreshold = threshold;
-    print("Aggregation: Threshold set to %u bytes\n", threshold);
+    LOG_INFO(LOG_TAG_DATA, "Threshold set to %u bytes\n", threshold);
 }
 
 AggregatedSample Aggregation::aggregateSamples(
@@ -47,7 +47,7 @@ AggregatedSample Aggregation::aggregateSamples(
     AggregatedSample result;
     
     if (sampleCount == 0 || registerCount == 0) {
-        print("Aggregation: Invalid parameters (samples=%zu, regs=%zu)\n",
+        LOG_INFO(LOG_TAG_DATA, "Invalid parameters (samples=%zu, regs=%zu)\n",
               sampleCount, registerCount);
         return result;
     }
@@ -95,9 +95,9 @@ AggregatedSample Aggregation::aggregateSamples(
         result.avg[r] = (uint16_t)(sum / sampleCount);
     }
     
-    print("Aggregation: Aggregated %zu samples, %zu registers\n",
+    LOG_INFO(LOG_TAG_DATA, "Aggregated %zu samples, %zu registers\n",
           sampleCount, registerCount);
-    print("Aggregation: Time span: %u ms to %u ms\n",
+    LOG_INFO(LOG_TAG_DATA, "Time span: %u ms to %u ms\n",
           result.timestampStart, result.timestampEnd);
     
     return result;
@@ -111,7 +111,7 @@ bool Aggregation::shouldUseAggregation(size_t payloadSize) {
     bool shouldUse = (payloadSize > payloadThreshold);
     
     if (shouldUse) {
-        print("Aggregation: Payload %zu bytes > threshold %u, using aggregation\n",
+        LOG_INFO(LOG_TAG_DATA, "Payload %zu bytes > threshold %u, using aggregation\n",
               payloadSize, payloadThreshold);
     }
     
@@ -182,7 +182,7 @@ std::vector<uint8_t> Aggregation::serializeAggregated(
         }
     }
     
-    print("Aggregation: Serialized to %zu bytes\n", data.size());
+    LOG_INFO(LOG_TAG_DATA, "Serialized to %zu bytes\n", data.size());
     return data;
 }
 
@@ -192,7 +192,7 @@ AggregatedSample Aggregation::deserializeAggregated(
     AggregatedSample sample;
     
     if (data.size() < 12) {
-        print("Aggregation: Invalid serialized data (too small)\n");
+        LOG_INFO(LOG_TAG_DATA, "Invalid serialized data (too small)");;
         return sample;
     }
     
@@ -200,7 +200,7 @@ AggregatedSample Aggregation::deserializeAggregated(
     
     // Check marker
     if (data[offset++] != 0xAA) {
-        print("Aggregation: Invalid aggregation marker\n");
+        LOG_INFO(LOG_TAG_DATA, "Invalid aggregation marker");;
         return sample;
     }
     
@@ -247,7 +247,7 @@ AggregatedSample Aggregation::deserializeAggregated(
         }
     }
     
-    print("Aggregation: Deserialized %zu bytes\n", offset);
+    LOG_INFO(LOG_TAG_DATA, "Deserialized %zu bytes\n", offset);
     return sample;
 }
 
@@ -262,7 +262,7 @@ float Aggregation::getReductionRatio(
     
     float ratio = (float)aggregatedSize / (float)originalSize;
     
-    print("Aggregation: Reduction ratio: %.2f (%zu bytes -> %zu bytes)\n",
+    LOG_INFO(LOG_TAG_DATA, "Reduction ratio: %.2f (%zu bytes -> %zu bytes)\n",
           ratio, originalSize, aggregatedSize);
     
     return ratio;

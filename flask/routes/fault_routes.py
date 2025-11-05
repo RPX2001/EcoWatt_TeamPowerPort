@@ -13,6 +13,7 @@ import requests
 import time
 from typing import Dict
 from database import Database
+from utils.logger_utils import log_success
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ def inject_fault():
             return inject_local_fault(data)
         
     except Exception as e:
-        logger.error(f"Error injecting fault: {e}")
+        logger.error(f"✗ Error injecting fault: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -487,7 +488,7 @@ def get_fault_status():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting fault status: {e}")
+        logger.error(f"✗ Error getting fault status: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -529,7 +530,7 @@ def clear_faults():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error clearing faults: {e}")
+        logger.error(f"✗ Error clearing faults: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -646,7 +647,7 @@ def get_available_fault_types():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting fault types: {e}")
+        logger.error(f"✗ Error getting fault types: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -671,7 +672,7 @@ def get_fault_history():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting fault history: {e}")
+        logger.error(f"✗ Error getting fault history: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -783,7 +784,7 @@ def receive_recovery():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error receiving recovery event: {e}", exc_info=True)
+        logger.error(f"✗ Error receiving recovery event: {e}", exc_info=True)
         return jsonify({
             'success': False,
             'error': str(e)
@@ -846,7 +847,7 @@ def get_recovery_history(device_id):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting recovery history: {e}")
+        logger.error(f"✗ Error getting recovery history: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -905,7 +906,7 @@ def get_all_recovery_events():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting all recovery events: {e}")
+        logger.error(f"✗ Error getting all recovery events: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -956,7 +957,7 @@ def clear_recovery_events():
             }), 200
         
     except Exception as e:
-        logger.error(f"Error clearing recovery events: {e}")
+        logger.error(f"✗ Error clearing recovery events: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -987,7 +988,7 @@ def get_injection_history():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting injection history: {e}")
+        logger.error(f"✗ Error getting injection history: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

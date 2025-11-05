@@ -34,11 +34,11 @@ public:
     static bool initializeAll();
 
     /**
-     * @brief Initialize WiFi connection
+     * @brief Sync NTP time (WiFi must already be connected)
      * 
-     * @return true if WiFi connected successfully
+     * @return true if NTP sync successful
      */
-    static bool initWiFi();
+    static bool syncNTPTime();
 
     /**
      * @brief Initialize Power Management

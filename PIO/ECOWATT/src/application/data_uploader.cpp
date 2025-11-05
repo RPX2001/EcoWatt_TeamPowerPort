@@ -7,8 +7,7 @@
  */
 
 #include "application/data_uploader.h"
-#include "peripheral/print.h"
-#include "peripheral/formatted_print.h"
+#include "peripheral/logger.h"
 #include "peripheral/acquisition.h"
 #include "application/security.h"
 #include <HTTPClient.h>
@@ -50,25 +49,25 @@ void DataUploader::init(const char* serverURL, const char* devID) {
     uploadFailures = 0;
     totalBytesUploaded = 0;
     
-    print("[DataUploader] Initialized\n");
-    print("[DataUploader] Server: %s\n", uploadURL);
-    print("[DataUploader] Device: %s\n", deviceID);
+    LOG_INFO(LOG_TAG_UPLOAD, "Data uploader initialized");
+    LOG_DEBUG(LOG_TAG_UPLOAD, "Server: %s", uploadURL);
+    LOG_DEBUG(LOG_TAG_UPLOAD, "Device: %s", deviceID);
 }
 
 bool DataUploader::addToQueue(const SmartCompressedData& data) {
     if (ringBuffer.size() >= 20) {  // Buffer capacity is 20
-        print("[DataUploader] WARNING: Buffer is full, cannot add data\n");
+        LOG_WARN(LOG_TAG_UPLOAD, "Buffer full (%zu/20), cannot add data", ringBuffer.size());
         return false;
     }
     
     ringBuffer.push(data);
-    print("[DataUploader] Added to queue (size: %zu/%d)\n", ringBuffer.size(), 20);
+    LOG_DEBUG(LOG_TAG_BUFFER, "Added to queue (size: %zu/20)", ringBuffer.size());
     return true;
 }
 
 bool DataUploader::uploadPendingData() {
     if (WiFi.status() != WL_CONNECTED) {
-        print("[DataUploader] WiFi not connected, skipping upload\n");
+        LOG_DEBUG(LOG_TAG_UPLOAD, "WiFi not connected, skipping upload");
         return false;
     }
 
@@ -78,19 +77,19 @@ bool DataUploader::uploadPendingData() {
         return true;
     }
     
-    PRINT_SECTION("DATA UPLOAD CYCLE");
+    LOG_SECTION("DATA UPLOAD CYCLE");
     
     // Drain all data from buffer
     auto allData = ringBuffer.drain_all();
     
-    print("  [INFO] Preparing %zu compressed batches for upload\n", allData.size());
+    LOG_INFO(LOG_TAG_UPLOAD, "Preparing %zu compressed batches", allData.size());
     
     // Check available heap before attempting upload
     size_t freeHeap = ESP.getFreeHeap();
-    print("  [INFO] Free heap: %zu bytes\n", freeHeap);
+    LOG_DEBUG(LOG_TAG_UPLOAD, "Free heap: %zu bytes", freeHeap);
     
     if (freeHeap < 20000) {  // Require at least 20KB free heap
-        PRINT_ERROR("Insufficient heap memory (%zu bytes). Skipping upload.", freeHeap);
+        LOG_ERROR(LOG_TAG_UPLOAD, "Insufficient heap memory (%zu bytes)", freeHeap);
         // Don't restore data - will retry next cycle when memory is available
         return false;
     }
@@ -100,8 +99,8 @@ bool DataUploader::uploadPendingData() {
     for (uint8_t attempt = 0; attempt <= maxRetryAttempts; attempt++) {
         if (attempt > 0) {
             unsigned long backoffDelay = calculateBackoffDelay(attempt);
-            PRINT_WARNING("Retry attempt %u/%u after %lu ms backoff...", 
-                         attempt, maxRetryAttempts, backoffDelay);
+            LOG_WARN(LOG_TAG_UPLOAD, "Retry %u/%u after %lu ms backoff", 
+                     attempt, maxRetryAttempts, backoffDelay);
             vTaskDelay(pdMS_TO_TICKS(backoffDelay));  // FreeRTOS-aware delay
         }
         
@@ -113,19 +112,19 @@ bool DataUploader::uploadPendingData() {
         } else {
             currentRetryCount = attempt + 1;
             if (attempt < maxRetryAttempts) {
-                PRINT_ERROR("Upload attempt %u failed, will retry...", attempt + 1);
+                LOG_ERROR(LOG_TAG_UPLOAD, "Attempt %u failed, retrying", attempt + 1);
             }
         }
     }
     
     if (!success) {
-        PRINT_ERROR("Upload failed after %u attempts", maxRetryAttempts + 1);
-        PRINT_WARNING("Restoring %zu packets to buffer for next cycle", allData.size());
+        LOG_ERROR(LOG_TAG_UPLOAD, "Upload failed after %u attempts", maxRetryAttempts + 1);
+        LOG_WARN(LOG_TAG_UPLOAD, "Restoring %zu packets to buffer", allData.size());
         
         // Restore data to buffer for next upload cycle
         for (const auto& entry : allData) {
             if (ringBuffer.size() >= 20) {
-                PRINT_ERROR("Buffer full! Data packet lost!");
+                LOG_ERROR(LOG_TAG_BUFFER, "Buffer full! Data packet lost!");
                 break;
             }
             ringBuffer.push(entry);
@@ -138,7 +137,7 @@ bool DataUploader::uploadPendingData() {
 
 bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData) {
     
-    print("  [INFO] Sending %zu packets to server\n", allData.size());
+    LOG_INFO(LOG_TAG_UPLOAD, "Sending %zu packets to server", allData.size());
     
     // Create WiFiClient with extended connection timeout
     WiFiClient client;
@@ -158,7 +157,7 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     // Allocate JSON document on HEAP to prevent stack overflow
     DynamicJsonDocument* doc = new DynamicJsonDocument(6144);
     if (!doc) {
-        PRINT_ERROR("Failed to allocate JSON document");
+        LOG_ERROR(LOG_TAG_UPLOAD, "Failed to allocate JSON document");
         http.end();
         uploadFailures++;
         return false;
@@ -237,9 +236,9 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     float savingsPercent = (totalOriginalBytes > 0) ? 
         (1.0f - (float)totalCompressedBytes / (float)totalOriginalBytes) * 100.0f : 0.0f;
     
-    print("  [INFO] Compression: %zu bytes -> %zu bytes (%.1f%% savings)\n", 
+    LOG_INFO(LOG_TAG_COMPRESS, "Compression: %zu → %zu bytes (%.1f%% savings)", 
           totalOriginalBytes, totalCompressedBytes, savingsPercent);
-    print("  [INFO] Sending %zu packets\n", allData.size());
+    LOG_DEBUG(LOG_TAG_UPLOAD, "Sending %zu packets", allData.size());
     
     // INDUSTRY STANDARD APPROACH:
     // Send the JSON with compressed data embedded (base64 encoded)
@@ -248,7 +247,7 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     // Allocate JSON string buffer on HEAP to prevent stack overflow
     char* jsonString = new char[4096];
     if (!jsonString) {
-        PRINT_ERROR("Failed to allocate JSON string buffer");
+        LOG_ERROR(LOG_TAG_UPLOAD, "Failed to allocate JSON string buffer");
         delete doc;
         http.end();
         uploadFailures++;
@@ -261,19 +260,18 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     delete doc;
     
     if (jsonLen == 0 || jsonLen >= 4095) {
-        PRINT_ERROR("JSON serialization failed or buffer too small (needed: %zu, have: 4096)", 
-                    jsonLen);
+        LOG_ERROR(LOG_TAG_UPLOAD, "JSON serialization failed (size: %zu/4096)", jsonLen);
         delete[] jsonString;
         http.end();
         uploadFailures++;
         return false;
     }
     
-    print("  [INFO] JSON payload size: %zu bytes\n", jsonLen);
+    LOG_DEBUG(LOG_TAG_UPLOAD, "JSON payload: %zu bytes", jsonLen);
     
     // Apply Security Layer to the JSON string
     // The security layer will handle Base64 encoding for transport
-    PRINT_PROGRESS("Securing payload with HMAC...");
+    LOG_DEBUG(LOG_TAG_SECURITY, "Securing payload with HMAC");
     
     // Feed watchdog before security operation
     yield();
@@ -281,7 +279,7 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     // Allocate buffer for secured payload (base64 encoding increases size by ~1.37x + JSON overhead)
     char* securedPayload = new char[8192];  // Large enough for 4096 JSON + base64 + security wrapper
     if (!securedPayload) {
-        PRINT_ERROR("Failed to allocate memory for secured payload");
+        LOG_ERROR(LOG_TAG_SECURITY, "Failed to allocate memory for secured payload");
         delete[] jsonString;  // Clean up jsonString
         http.end();
         uploadFailures++;
@@ -292,7 +290,7 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     // The JSON contains base64-encoded compressed data in "compressed_data" field
     // The server will decode the JSON, then extract and decompress the binary data
     if (!SecurityLayer::securePayload(jsonString, securedPayload, 8192, false)) {
-        PRINT_ERROR("Payload security failed");
+        LOG_ERROR(LOG_TAG_SECURITY, "Payload security failed");
         delete[] jsonString;  // Clean up jsonString
         delete[] securedPayload;
         http.end();
@@ -303,8 +301,8 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     // JSON string no longer needed after securing
     delete[] jsonString;
     
-    PRINT_SUCCESS("Payload secured successfully");
-    PRINT_PROGRESS("Uploading to server...");
+    LOG_SUCCESS(LOG_TAG_SECURITY, "Payload secured");
+    LOG_INFO(LOG_TAG_UPLOAD, "Uploading to server");
     
     // Feed watchdog before HTTP POST
     yield();
@@ -313,15 +311,15 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     
     bool success = false;
     if (httpResponseCode == 200) {
-        PRINT_SUCCESS("Upload successful! (HTTP 200)");
+        LOG_SUCCESS(LOG_TAG_UPLOAD, "Upload successful (HTTP 200)");
         uploadCount++;
         totalBytesUploaded += strlen(securedPayload);
         success = true;
     } else {
-        PRINT_ERROR("Upload failed - HTTP %d", httpResponseCode);
+        LOG_ERROR(LOG_TAG_UPLOAD, "Upload failed (HTTP %d)", httpResponseCode);
         if (httpResponseCode > 0) {
             String errorResponse = http.getString();
-            PRINT_DATA("Error Response", "%s", errorResponse.c_str());
+            LOG_DEBUG(LOG_TAG_UPLOAD, "Response: %s", errorResponse.c_str());
         }
         uploadFailures++;
     }
@@ -386,7 +384,7 @@ bool DataUploader::isQueueEmpty() {
 
 void DataUploader::clearQueue() {
     ringBuffer.clear();
-    print("[DataUploader] Queue cleared\n");
+    LOG_INFO(LOG_TAG_BUFFER, "Queue cleared");
 }
 
 void DataUploader::getUploadStats(unsigned long& totalUploads, unsigned long& totalFailed, 
@@ -400,29 +398,27 @@ void DataUploader::resetStats() {
     uploadCount = 0;
     uploadFailures = 0;
     totalBytesUploaded = 0;
-    print("[DataUploader] Statistics reset\n");
+    LOG_INFO(LOG_TAG_STATS, "Upload statistics reset");
 }
 
 void DataUploader::printStats() {
-    print("\n========== DATA UPLOADER STATISTICS ==========\n");
-    print("  Successful Uploads:  %lu\n", uploadCount);
-    print("  Failed Uploads:      %lu\n", uploadFailures);
-    print("  Total Bytes Sent:    %zu\n", totalBytesUploaded);
+    LOG_SECTION("DATA UPLOADER STATISTICS");
+    LOG_INFO(LOG_TAG_STATS, "Successful: %lu | Failed: %lu", uploadCount, uploadFailures);
+    LOG_INFO(LOG_TAG_STATS, "Bytes sent: %zu", totalBytesUploaded);
     
     unsigned long total = uploadCount + uploadFailures;
     if (total > 0) {
         float successRate = (uploadCount * 100.0f) / total;
-        print("  Success Rate:        %.2f%%\n", successRate);
+        LOG_INFO(LOG_TAG_STATS, "Success rate: %.2f%%", successRate);
     }
     
-    print("  Current Queue Size:  %zu/20\n", ringBuffer.size());
-    print("==============================================\n\n");
+    LOG_INFO(LOG_TAG_BUFFER, "Queue: %zu/20", ringBuffer.size());
 }
 
 void DataUploader::setUploadURL(const char* url) {
     strncpy(uploadURL, url, sizeof(uploadURL) - 1);
     uploadURL[sizeof(uploadURL) - 1] = '\0';
-    print("[DataUploader] Upload URL updated: %s\n", uploadURL);
+    LOG_INFO(LOG_TAG_UPLOAD, "URL updated: %s", uploadURL);
 }
 
 const char* DataUploader::getDeviceID() {
@@ -439,7 +435,7 @@ unsigned long DataUploader::calculateBackoffDelay(uint8_t attempt) {
 
 void DataUploader::setMaxRetries(uint8_t maxRetries) {
     maxRetryAttempts = maxRetries;
-    print("[DataUploader] Max retry attempts set to %u\n", maxRetries);
+    LOG_INFO(LOG_TAG_UPLOAD, "Max retry attempts: %u", maxRetries);
 }
 
 uint8_t DataUploader::getMaxRetries() {

@@ -7,8 +7,7 @@
  */
 
 #include "application/statistics_manager.h"
-#include "peripheral/print.h"
-#include "peripheral/formatted_print.h"
+#include "peripheral/logger.h"
 #include <string.h>
 
 // Initialize static members
@@ -27,24 +26,24 @@ void StatisticsManager::init() {
     strcpy(stats.currentOptimalMethod, "DICTIONARY");
     
     initialized = true;
-    print("[StatisticsManager] Initialized\n");
+    LOG_INFO(LOG_TAG_STATS, "Initialized");;
 }
 
 bool StatisticsManager::updateCompressionStats(const char* method, float academicRatio, 
                                                unsigned long timeUs) {
     if (!initialized) {
-        print("[StatisticsManager] WARNING: Not initialized, initializing now\n");
+        LOG_INFO(LOG_TAG_STATS, "WARNING: Not initialized, initializing now");;
         init();
     }
     
     // Bounds checking to prevent invalid data
     if (academicRatio < 0.0f || academicRatio > 10.0f) {
-        print("[StatisticsManager] WARNING: Invalid academic ratio: %.3f, skipping update\n", academicRatio);
+        LOG_INFO(LOG_TAG_STATS, "WARNING: Invalid academic ratio: %.3f, skipping update\n", academicRatio);
         return false;
     }
     
     if (timeUs == 0 || timeUs > 10000000UL) { // 10 seconds max
-        print("[StatisticsManager] WARNING: Invalid compression time: %lu μs, skipping update\n", timeUs);
+        LOG_INFO(LOG_TAG_STATS, "WARNING: Invalid compression time: %lu μs, skipping update\n", timeUs);
         return false;
     }
     
@@ -128,75 +127,75 @@ void StatisticsManager::recordCompressionFailure() {
 
 void StatisticsManager::printPerformanceReport() {
     if (!initialized) {
-        print("[StatisticsManager] Not initialized\n");
+        LOG_INFO(LOG_TAG_STATS, "Not initialized");;
         return;
     }
     
-    print("\n");
-    print("========================================\n");
-    print("  COMPRESSION PERFORMANCE STATISTICS\n");
-    print("========================================\n");
+    LOG_INFO(LOG_TAG_STATS, "");;
+    LOG_INFO(LOG_TAG_STATS, "========================================");;
+    LOG_INFO(LOG_TAG_STATS, "  COMPRESSION PERFORMANCE STATISTICS");;
+    LOG_INFO(LOG_TAG_STATS, "========================================");;
     
     // Overall Statistics
-    print("\n📊 OVERALL METRICS:\n");
-    print("  Total Compressions:  %lu\n", stats.totalSmartCompressions);
-    print("  Total Time:          %lu μs (%.2f ms)\n", 
+    LOG_INFO(LOG_TAG_STATS, "\n📊 OVERALL METRICS:");;
+    LOG_INFO(LOG_TAG_STATS, "  Total Compressions:  %lu\n", stats.totalSmartCompressions);
+    LOG_INFO(LOG_TAG_STATS, "  Total Time:          %lu μs (%.2f ms)\n", 
           stats.totalCompressionTime, stats.totalCompressionTime / 1000.0f);
     
     if (stats.totalSmartCompressions > 0) {
         unsigned long avgTime = stats.totalCompressionTime / stats.totalSmartCompressions;
-        print("  Average Time:        %lu μs (%.2f ms)\n", avgTime, avgTime / 1000.0f);
-        print("  Average Ratio:       %.4f (%.1f%% savings)\n", 
+        LOG_INFO(LOG_TAG_STATS, "  Average Time:        %lu μs (%.2f ms)\n", avgTime, avgTime / 1000.0f);
+        LOG_INFO(LOG_TAG_STATS, "  Average Ratio:       %.4f (%.1f%% savings)\n", 
               stats.averageAcademicRatio, (1.0f - stats.averageAcademicRatio) * 100);
     }
     
     // Best/Worst Performance
-    print("\n🏆 PERFORMANCE RANGE:\n");
-    print("  Best Ratio:          %.4f (Method: %s)\n", 
+    LOG_INFO(LOG_TAG_STATS, "\n🏆 PERFORMANCE RANGE:");;
+    LOG_INFO(LOG_TAG_STATS, "  Best Ratio:          %.4f (Method: %s)\n", 
           stats.bestAcademicRatio, stats.currentOptimalMethod);
-    print("  Worst Ratio:         %.4f\n", stats.worstAcademicRatio);
-    print("  Fastest Time:        %lu μs\n", 
+    LOG_INFO(LOG_TAG_STATS, "  Worst Ratio:         %.4f\n", stats.worstAcademicRatio);
+    LOG_INFO(LOG_TAG_STATS, "  Fastest Time:        %lu μs\n", 
           stats.fastestCompressionTime == ULONG_MAX ? 0 : stats.fastestCompressionTime);
-    print("  Slowest Time:        %lu μs\n", stats.slowestCompressionTime);
+    LOG_INFO(LOG_TAG_STATS, "  Slowest Time:        %lu μs\n", stats.slowestCompressionTime);
     
     // Quality Distribution
-    print("\n📈 QUALITY DISTRIBUTION:\n");
-    print("  Excellent (≤50%%):    %lu compressions\n", stats.excellentCompressionCount);
-    print("  Good (≤67%%):         %lu compressions\n", stats.goodCompressionCount);
-    print("  Fair (≤91%%):         %lu compressions\n", stats.fairCompressionCount);
-    print("  Poor (>91%%):         %lu compressions\n", stats.poorCompressionCount);
+    LOG_INFO(LOG_TAG_STATS, "\n📈 QUALITY DISTRIBUTION:");;
+    LOG_INFO(LOG_TAG_STATS, "  Excellent (≤50%%):    %lu compressions\n", stats.excellentCompressionCount);
+    LOG_INFO(LOG_TAG_STATS, "  Good (≤67%%):         %lu compressions\n", stats.goodCompressionCount);
+    LOG_INFO(LOG_TAG_STATS, "  Fair (≤91%%):         %lu compressions\n", stats.fairCompressionCount);
+    LOG_INFO(LOG_TAG_STATS, "  Poor (>91%%):         %lu compressions\n", stats.poorCompressionCount);
     
     // Method Usage
-    print("\n🔧 METHOD USAGE:\n");
-    print("  Dictionary:          %lu times\n", stats.dictionaryUsed);
-    print("  Temporal/Delta:      %lu times\n", stats.temporalUsed);
-    print("  Semantic:            %lu times\n", stats.semanticUsed);
-    print("  Bitpack/RLE:         %lu times\n", stats.bitpackUsed);
+    LOG_INFO(LOG_TAG_STATS, "\n🔧 METHOD USAGE:");;
+    LOG_INFO(LOG_TAG_STATS, "  Dictionary:          %lu times\n", stats.dictionaryUsed);
+    LOG_INFO(LOG_TAG_STATS, "  Temporal/Delta:      %lu times\n", stats.temporalUsed);
+    LOG_INFO(LOG_TAG_STATS, "  Semantic:            %lu times\n", stats.semanticUsed);
+    LOG_INFO(LOG_TAG_STATS, "  Bitpack/RLE:         %lu times\n", stats.bitpackUsed);
     
     // Success Rate
-    print("\n✅ RELIABILITY:\n");
-    print("  Lossless Successes:  %lu\n", stats.losslessSuccesses);
-    print("  Failures:            %lu\n", stats.compressionFailures);
+    LOG_INFO(LOG_TAG_STATS, "\n✅ RELIABILITY:");;
+    LOG_INFO(LOG_TAG_STATS, "  Lossless Successes:  %lu\n", stats.losslessSuccesses);
+    LOG_INFO(LOG_TAG_STATS, "  Failures:            %lu\n", stats.compressionFailures);
     
     unsigned long total = stats.losslessSuccesses + stats.compressionFailures;
     if (total > 0) {
         float successRate = (stats.losslessSuccesses * 100.0f) / total;
-        print("  Success Rate:        %.2f%%\n", successRate);
+        LOG_INFO(LOG_TAG_STATS, "  Success Rate:        %.2f%%\n", successRate);
     }
     
-    print("========================================\n\n");
+    LOG_INFO(LOG_TAG_STATS, "========================================");;;
 }
 
 void StatisticsManager::printCompactSummary() {
     if (!initialized || stats.totalSmartCompressions == 0) {
-        print("[Stats] No compressions yet\n");
+        LOG_INFO(LOG_TAG_STATS, "[Stats] No compressions yet");;
         return;
     }
     
     unsigned long avgTime = stats.totalCompressionTime / stats.totalSmartCompressions;
     float savings = (1.0f - stats.averageAcademicRatio) * 100;
     
-    print("[Stats] Compressions: %lu | Avg: %.1f%% savings in %lu μs | Best: %s (%.1f%% savings)\n",
+    LOG_INFO(LOG_TAG_STATS, "[Stats] Compressions: %lu | Avg: %.1f%% savings in %lu μs | Best: %s (%.1f%% savings)\n",
           stats.totalSmartCompressions, savings, avgTime, 
           stats.currentOptimalMethod, (1.0f - stats.bestAcademicRatio) * 100);
 }
@@ -209,7 +208,7 @@ const SmartPerformanceStats& StatisticsManager::getStats() {
 }
 
 void StatisticsManager::reset() {
-    print("[StatisticsManager] Resetting all statistics\n");
+    LOG_INFO(LOG_TAG_STATS, "Resetting all statistics");;
     init(); // Re-initialize to reset values
 }
 

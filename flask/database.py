@@ -12,6 +12,7 @@ from pathlib import Path
 import threading
 from typing import Dict, List, Optional, Any
 import pytz
+from utils.logger_utils import log_success
 
 # Logger
 logger = logging.getLogger(__name__)
@@ -228,14 +229,14 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_recovery_success ON fault_recovery_events(success)')
         
         conn.commit()
-        logger.info("[Database] Schema initialized successfully")
+        log_success(logger, "Database schema initialized successfully")
         
         # Run initial cleanup (only if retention period is set)
         if RETENTION_DAYS is not None:
             Database.cleanup_old_data()
-            logger.info(f"[Database] Auto-cleanup enabled with {RETENTION_DAYS}-day retention")
+            logger.info(f"Auto-cleanup enabled with {RETENTION_DAYS}-day retention")
         else:
-            logger.info("[Database] Data retention: UNLIMITED - data will be kept forever")
+            logger.info("Data retention: UNLIMITED - data will be kept forever")
     
     # ============================================
     # SENSOR DATA OPERATIONS
@@ -977,7 +978,7 @@ class Database:
         Can be called manually via API endpoint if needed
         """
         if RETENTION_DAYS is None:
-            logger.info("[Database] Cleanup skipped - unlimited retention is enabled")
+            logger.info("Cleanup skipped - unlimited retention is enabled")
             return {
                 'sensor_data': 0,
                 'commands': 0,

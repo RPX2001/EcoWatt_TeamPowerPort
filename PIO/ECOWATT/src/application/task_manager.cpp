@@ -7,9 +7,10 @@
  */
 
 #include "application/task_manager.h"
+#include "peripheral/logger.h"
 #include "application/system_config.h"  // Centralized configuration constants
 #include "application/credentials.h"    // DEVICE_ID and FLASK_SERVER_URL
-#include "peripheral/print.h"
+#include "peripheral/logger.h"
 #include "peripheral/acquisition.h"
 #include "application/compression.h"
 #include "application/ringbuffer.h"
@@ -94,7 +95,7 @@ uint32_t TaskManager::systemStartTime = 0;
 
 bool TaskManager::init(uint32_t pollFreqMs, uint32_t uploadFreqMs, 
                        uint32_t configFreqMs, uint32_t commandFreqMs, uint32_t otaFreqMs) {
-    print("[TaskManager] Initializing FreeRTOS dual-core system...\n");
+    LOG_SECTION("Initializing FreeRTOS dual-core system");
     
     // Store configuration
     pollFrequency = pollFreqMs;
@@ -106,56 +107,56 @@ bool TaskManager::init(uint32_t pollFreqMs, uint32_t uploadFreqMs,
     // Create queues
     sensorDataQueue = xQueueCreate(QUEUE_SENSOR_DATA_SIZE, sizeof(SensorSample));
     if (!sensorDataQueue) {
-        print("[TaskManager] ERROR: Failed to create sensor data queue\n");
+        LOG_ERROR(LOG_TAG_BOOT, "Failed to create sensor data queue");
         return false;
     }
     
     compressedDataQueue = xQueueCreate(QUEUE_COMPRESSED_DATA_SIZE, sizeof(CompressedPacket));
     if (!compressedDataQueue) {
-        print("[TaskManager] ERROR: Failed to create compressed data queue\n");
+        LOG_ERROR(LOG_TAG_BOOT, "Failed to create compressed data queue");
         return false;
     }
     
     commandQueue = xQueueCreate(QUEUE_COMMAND_SIZE, sizeof(Command));
     if (!commandQueue) {
-        print("[TaskManager] ERROR: Failed to create command queue\n");
+        LOG_ERROR(LOG_TAG_BOOT, "Failed to create command queue");
         return false;
     }
     
-    print("[TaskManager] Queues created successfully\n");
+    LOG_SUCCESS(LOG_TAG_BOOT, "Queues created successfully");
     
     // Create mutexes (with priority inheritance)
     nvsAccessMutex = xSemaphoreCreateMutex();
     if (!nvsAccessMutex) {
-        print("[TaskManager] ERROR: Failed to create NVS mutex\n");
+        LOG_ERROR(LOG_TAG_BOOT, "Failed to create NVS mutex");
         return false;
     }
     
     wifiClientMutex = xSemaphoreCreateMutex();
     if (!wifiClientMutex) {
-        print("[TaskManager] ERROR: Failed to create WiFi mutex\n");
+        LOG_ERROR(LOG_TAG_BOOT, "Failed to create WiFi mutex");
         return false;
     }
     
     dataPipelineMutex = xSemaphoreCreateMutex();
     if (!dataPipelineMutex) {
-        print("[TaskManager] ERROR: Failed to create data pipeline mutex\n");
+        LOG_ERROR(LOG_TAG_BOOT, "Failed to create data pipeline mutex");
         return false;
     }
     
     // Create binary semaphore for batch-ready signaling (starts empty)
     batchReadySemaphore = xSemaphoreCreateBinary();
     if (!batchReadySemaphore) {
-        print("[TaskManager] ERROR: Failed to create batch ready semaphore\n");
+        LOG_ERROR(LOG_TAG_BOOT, "Failed to create batch ready semaphore");
         return false;
     }
     
-    print("[TaskManager] Mutexes and semaphores created successfully\n");
+    LOG_SUCCESS(LOG_TAG_BOOT, "Mutexes and semaphores created successfully");
     
     systemInitialized = true;
     systemStartTime = millis();
     
-    print("[TaskManager] Initialization complete\n");
+    LOG_SUCCESS(LOG_TAG_BOOT, "TaskManager initialization complete");
     return true;
 }
 
@@ -165,11 +166,11 @@ bool TaskManager::init(uint32_t pollFreqMs, uint32_t uploadFreqMs,
 
 void TaskManager::startAllTasks(void* otaManager) {
     if (!systemInitialized) {
-        print("[TaskManager] ERROR: System not initialized!\n");
+        LOG_ERROR(LOG_TAG_BOOT, "System not initialized!");
         return;
     }
     
-    print("[TaskManager] Starting all FreeRTOS tasks...\n");
+    LOG_INFO(LOG_TAG_BOOT, "Starting all FreeRTOS tasks...");
     
     // ========================================
     // CORE 1 (APP_CPU) - Sensor & Processing
@@ -185,7 +186,7 @@ void TaskManager::startAllTasks(void* otaManager) {
         &sensorPollTask_h,        // Handle
         CORE_SENSORS              // Core 1
     );
-    print("[TaskManager] Created: SensorPoll (Core 1, Priority 24)\n");
+    LOG_SUCCESS(LOG_TAG_BOOT, "Created: SensorPoll (Core 1, Priority 24)");
     
     // HIGH: Compression Task
     xTaskCreatePinnedToCore(
@@ -197,7 +198,7 @@ void TaskManager::startAllTasks(void* otaManager) {
         &compressionTask_h,
         CORE_SENSORS              // Core 1
     );
-    print("[TaskManager] Created: Compression (Core 1, Priority 18)\n");
+    LOG_SUCCESS(LOG_TAG_BOOT, "Created: Compression (Core 1, Priority 18)");
     
     // LOWEST: Watchdog Task
     xTaskCreatePinnedToCore(
@@ -209,7 +210,7 @@ void TaskManager::startAllTasks(void* otaManager) {
         &watchdogTask_h,
         CORE_SENSORS              // Core 1
     );
-    print("[TaskManager] Created: Watchdog (Core 1, Priority 1)\n");
+    LOG_SUCCESS(LOG_TAG_BOOT, "Created: Watchdog (Core 1, Priority 1)");
     
     // ========================================
     // CORE 0 (PRO_CPU) - Network Operations
@@ -225,7 +226,7 @@ void TaskManager::startAllTasks(void* otaManager) {
         &uploadTask_h,
         CORE_NETWORK              // Core 0
     );
-    print("[TaskManager] Created: Upload (Core 0, Priority 20)\n");
+    LOG_SUCCESS(LOG_TAG_BOOT, "Created: Upload (Core 0, Priority 20)");
     
     // MEDIUM-HIGH: Command Task
     xTaskCreatePinnedToCore(
@@ -237,7 +238,7 @@ void TaskManager::startAllTasks(void* otaManager) {
         &commandTask_h,
         CORE_NETWORK              // Core 0
     );
-    print("[TaskManager] Created: Commands (Core 0, Priority 16)\n");
+    LOG_SUCCESS(LOG_TAG_BOOT, "Created: Commands (Core 0, Priority 16)");
     
     // MEDIUM: Config Task
     xTaskCreatePinnedToCore(
@@ -249,7 +250,7 @@ void TaskManager::startAllTasks(void* otaManager) {
         &configTask_h,
         CORE_NETWORK              // Core 0
     );
-    print("[TaskManager] Created: Config (Core 0, Priority 12)\n");
+    LOG_SUCCESS(LOG_TAG_BOOT, "Created: Config (Core 0, Priority 12)");
 
     // MEDIUM-LOW: Power Report Task
     xTaskCreatePinnedToCore(
@@ -261,7 +262,7 @@ void TaskManager::startAllTasks(void* otaManager) {
         &powerReportTask_h,
         CORE_NETWORK              // Core 0
     );
-    print("[TaskManager] Created: PowerReport (Core 0, Priority 8)\n");
+    LOG_SUCCESS(LOG_TAG_BOOT, "Created: PowerReport (Core 0, Priority 8)");
     
     // LOW: OTA Task
     xTaskCreatePinnedToCore(
@@ -273,14 +274,14 @@ void TaskManager::startAllTasks(void* otaManager) {
         &otaTask_h,
         CORE_NETWORK              // Core 0
     );
-    print("[TaskManager] Created: OTA (Core 0, Priority 5)\n");
+    LOG_SUCCESS(LOG_TAG_BOOT, "Created: OTA (Core 0, Priority 5)");
     
-    print("[TaskManager] All tasks started successfully!\n");
-    print("[TaskManager] System is now running in dual-core mode\n");
+    LOG_SUCCESS(LOG_TAG_BOOT, "All tasks started successfully!");
+    LOG_SUCCESS(LOG_TAG_BOOT, "System is now running in dual-core mode");
 }
 
 void TaskManager::suspendAllTasks() {
-    print("[TaskManager] Suspending all tasks (except OTA)...\n");
+    LOG_INFO(LOG_TAG_BOOT, "Suspending all tasks (except OTA)...");
     
     if (sensorPollTask_h) vTaskSuspend(sensorPollTask_h);
     if (compressionTask_h) vTaskSuspend(compressionTask_h);
@@ -292,11 +293,11 @@ void TaskManager::suspendAllTasks() {
     if (watchdogTask_h) vTaskSuspend(watchdogTask_h);
     
     systemSuspended = true;
-    print("[TaskManager] All tasks suspended (OTA still running)\n");
+    LOG_INFO(LOG_TAG_BOOT, "All tasks suspended (OTA still running)");
 }
 
 void TaskManager::resumeAllTasks() {
-    print("[TaskManager] Resuming all tasks...\n");
+    LOG_INFO(LOG_TAG_BOOT, "Resuming all tasks...");
     
     if (sensorPollTask_h) vTaskResume(sensorPollTask_h);
     if (compressionTask_h) vTaskResume(compressionTask_h);
@@ -308,7 +309,7 @@ void TaskManager::resumeAllTasks() {
     if (watchdogTask_h) vTaskResume(watchdogTask_h);
     
     systemSuspended = false;
-    print("[TaskManager] All tasks resumed\n");
+    LOG_INFO(LOG_TAG_BOOT, "All tasks resumed");
 }
 
 // ============================================
@@ -316,7 +317,7 @@ void TaskManager::resumeAllTasks() {
 // ============================================
 
 void TaskManager::sensorPollTask(void* parameter) {
-    print("[SensorPoll] Task started on Core %d\n", xPortGetCoreID());
+    LOG_INFO(LOG_TAG_DATA, "SensorPoll task started on Core %d", xPortGetCoreID());
     
     // Register this task with hardware watchdog
     esp_task_wdt_add(NULL);
@@ -331,9 +332,9 @@ void TaskManager::sensorPollTask(void* parameter) {
     const RegID* registers = nvs::getReadRegs();
     xSemaphoreGive(nvsAccessMutex);
     
-    print("[SensorPoll] Monitoring %zu registers\n", registerCount);
-    print("[SensorPoll] Poll frequency: %lu ms\n", pollFrequency);
-    print("[SensorPoll] Deadline: %lu us\n", deadlineUs);
+    LOG_INFO(LOG_TAG_DATA, "Monitoring %zu registers", registerCount);
+    LOG_INFO(LOG_TAG_DATA, "Poll frequency: %lu ms", pollFrequency);
+    LOG_INFO(LOG_TAG_DATA, "Deadline: %lu us", deadlineUs);
     
     while (1) {
         // Wait for exact period (NO drift, NO jitter)
@@ -355,11 +356,11 @@ void TaskManager::sensorPollTask(void* parameter) {
             
             // Send to compression queue (non-blocking to avoid deadline miss)
             if (xQueueSend(sensorDataQueue, &sample, 0) != pdTRUE) {
-                print("[SensorPoll] WARNING: Queue full! Sample dropped\n");
+                LOG_WARN(LOG_TAG_DATA, "Queue full! Sample dropped");
                 stats_sensorPoll.deadlineMisses++;
             }
         } else {
-            print("[SensorPoll] ERROR: Modbus read failed (%zu/%zu regs)\n", 
+            LOG_ERROR(LOG_TAG_DATA, "Modbus read failed (%zu/%zu regs)", 
                   result.count, registerCount);
         }
         
@@ -394,7 +395,7 @@ void TaskManager::recordTaskExecution(TaskStats& stats, uint32_t executionTimeUs
 void TaskManager::checkDeadline(const char* taskName, uint32_t executionTimeUs, 
                                uint32_t deadlineUs, TaskStats& stats) {
     if (executionTimeUs > deadlineUs) {
-        print("[%s] DEADLINE MISS! Execution: %lu us, Deadline: %lu us\n",
+        LOG_ERROR(LOG_TAG_WATCHDOG, "[%s] DEADLINE MISS! Execution: %lu us, Deadline: %lu us",
               taskName, executionTimeUs, deadlineUs);
         stats.deadlineMisses++;
     }
@@ -410,23 +411,23 @@ bool TaskManager::isSystemHealthy() {
 void TaskManager::printSystemHealth() {
     uint32_t uptime = (millis() - systemStartTime) / 1000;
     
-    print("\n========== SYSTEM HEALTH REPORT ==========\n");
-    print("Uptime: %lu seconds\n", uptime);
-    print("Free Heap: %lu bytes\n", ESP.getFreeHeap());
-    print("Minimum Free Heap: %lu bytes\n", ESP.getMinFreeHeap());
-    print("\n");
+    LOG_SECTION("SYSTEM HEALTH REPORT");
+    LOG_INFO(LOG_TAG_WATCHDOG, "Uptime: %lu seconds", uptime);
+    LOG_INFO(LOG_TAG_WATCHDOG, "Free Heap: %lu bytes", ESP.getFreeHeap());
+    LOG_INFO(LOG_TAG_WATCHDOG, "Minimum Free Heap: %lu bytes", ESP.getMinFreeHeap());
+    // Newline removed - LOG_INFO handles this
     
-    print("TASK: SensorPoll (CRITICAL)\n");
-    print("  Executions: %lu\n", stats_sensorPoll.executionCount);
+    LOG_INFO(LOG_TAG_WATCHDOG, "TASK: SensorPoll (CRITICAL)");
+    LOG_INFO(LOG_TAG_WATCHDOG, "  Executions: %lu", stats_sensorPoll.executionCount);
     uint32_t avgTime = (stats_sensorPoll.executionCount > 0) ? 
                        (stats_sensorPoll.totalTimeUs / stats_sensorPoll.executionCount) : 0;
-    print("  Avg Time: %lu us\n", avgTime);
-    print("  Max Time: %lu us\n", stats_sensorPoll.maxTimeUs);
-    print("  Deadline Misses: %lu\n", stats_sensorPoll.deadlineMisses);
-    print("  Stack Free: %lu bytes\n", stats_sensorPoll.stackHighWater * sizeof(StackType_t));
-    print("\n");
+    LOG_INFO(LOG_TAG_WATCHDOG, "  Avg Time: %lu us", avgTime);
+    LOG_INFO(LOG_TAG_WATCHDOG, "  Max Time: %lu us", stats_sensorPoll.maxTimeUs);
+    LOG_INFO(LOG_TAG_WATCHDOG, "  Deadline Misses: %lu", stats_sensorPoll.deadlineMisses);
+    LOG_INFO(LOG_TAG_WATCHDOG, "  Stack Free: %lu bytes", stats_sensorPoll.stackHighWater * sizeof(StackType_t));
+    // Newline removed - LOG_INFO handles this
     
-    print("==========================================\n\n");
+    LOG_INFO(LOG_TAG_WATCHDOG, "==========================================");
 }
 
 // ============================================
@@ -434,7 +435,7 @@ void TaskManager::printSystemHealth() {
 // ============================================
 
 void TaskManager::compressionTask(void* parameter) {
-    print("[Compression] Task started on Core %d\n", xPortGetCoreID());
+    LOG_INFO(LOG_TAG_COMPRESS, "Compression task started on Core %d", xPortGetCoreID());
     
     // Register this task with hardware watchdog
     esp_task_wdt_add(NULL);
@@ -446,14 +447,14 @@ void TaskManager::compressionTask(void* parameter) {
     // Example: 15000ms / 5000ms = 3 samples per upload cycle
     const size_t batchSize = (uploadFrequency / pollFrequency);
     
-    print("[Compression] Dynamic batch size: %zu samples (upload: %lu ms / poll: %lu ms)\n", 
+    LOG_INFO(LOG_TAG_COMPRESS, "Dynamic batch size: %zu samples (upload: %lu ms / poll: %lu ms)", 
           batchSize, uploadFrequency, pollFrequency);
     
     SensorSample sampleBatch[batchSize > 0 ? batchSize : 1];  // Ensure at least 1
     size_t batchCount = 0;
     
-    print("[Compression] Batch size: %zu samples\n", batchSize);
-    print("[Compression] Deadline: %lu us\n", deadlineUs);
+    LOG_INFO(LOG_TAG_COMPRESS, "Batch size: %zu samples", batchSize);
+    LOG_INFO(LOG_TAG_COMPRESS, "Deadline: %lu us", deadlineUs);
     
     while (1) {
         // Wait for sensor sample (blocks until available)
@@ -519,7 +520,7 @@ void TaskManager::compressionTask(void* parameter) {
                             strncpy(packet.compressionMethod, "raw", sizeof(packet.compressionMethod) - 1);
                         }
                     } else {
-                        print("[Compression] ERROR: Compressed data too large (%zu > %zu)\n",
+                        LOG_ERROR(LOG_TAG_COMPRESS, "Compressed data too large (%zu > %zu)",
                               compressedVec.size(), sizeof(packet.data));
                         stats_compression.deadlineMisses++;
                         batchCount = 0;
@@ -530,22 +531,22 @@ void TaskManager::compressionTask(void* parameter) {
                     
                     // Send to upload queue (non-blocking to avoid deadline miss)
                     if (xQueueSend(compressedDataQueue, &packet, 0) != pdTRUE) {
-                        print("[Compression] WARNING: Upload queue full! Packet dropped\n");
+                        LOG_WARN(LOG_TAG_COMPRESS, "Upload queue full! Packet dropped");
                         stats_compression.deadlineMisses++;
                     } else {
-                        print("[Compression] ✓ Packet enqueued to upload queue (size: %zu bytes, queue depth: %d)\n",
+                        LOG_SUCCESS(LOG_TAG_COMPRESS, "Packet enqueued to upload queue (size: %zu bytes, queue depth: %d)",
                               packet.dataSize, uxQueueMessagesWaiting(compressedDataQueue));
                         
                         // Signal upload task that batch is ready
                         xSemaphoreGive(batchReadySemaphore);
                     }
                     
-                    print("[Compression] Batch compressed: %zu samples -> %zu bytes (ratio: %.2f%%)\n",
+                    LOG_INFO(LOG_TAG_COMPRESS, "Batch compressed: %zu samples -> %zu bytes (ratio: %.2f%%)",
                           batchSize, packet.dataSize, 
                           (float)packet.compressedSize / packet.uncompressedSize * 100.0f);
                     
                 } else {
-                    print("[Compression] ERROR: Failed to acquire pipeline mutex\n");
+                    LOG_ERROR(LOG_TAG_COMPRESS, "Failed to acquire pipeline mutex");
                 }
                 
                 // Reset batch
@@ -571,7 +572,7 @@ void TaskManager::compressionTask(void* parameter) {
 // ============================================
 
 void TaskManager::uploadTask(void* parameter) {
-    print("[Upload] Task started on Core %d\n", xPortGetCoreID());
+    LOG_INFO(LOG_TAG_UPLOAD, "Upload task started on Core %d", xPortGetCoreID());
     
     // Register this task with hardware watchdog
     esp_task_wdt_add(NULL);
@@ -580,8 +581,8 @@ void TaskManager::uploadTask(void* parameter) {
     const TickType_t xFrequency = pdMS_TO_TICKS(uploadFrequency);
     const uint32_t deadlineUs = 5000000;  // 5s deadline per upload
     
-    print("[Upload] Upload frequency: %lu ms\n", uploadFrequency);
-    print("[Upload] Deadline: %lu us\n", deadlineUs);
+    LOG_INFO(LOG_TAG_UPLOAD, "Upload frequency: %lu ms", uploadFrequency);
+    LOG_INFO(LOG_TAG_UPLOAD, "Deadline: %lu us", deadlineUs);
     
     while (1) {
         // Wait for exact upload interval
@@ -593,7 +594,7 @@ void TaskManager::uploadTask(void* parameter) {
         // This ensures we don't race with compression finishing
         TickType_t semaphoreTimeout = pdMS_TO_TICKS(uploadFrequency + 1000);  // +1s buffer
         
-        print("[Upload] Waiting for compression batch signal (timeout: %lu ms)...\n", uploadFrequency + 1000);
+        LOG_DEBUG(LOG_TAG_UPLOAD, "Waiting for compression batch signal (timeout: %lu ms)...", uploadFrequency + 1000);
         
         // Try to take semaphore (clears it if available, waits if not)
         // We take ALL available semaphores to drain the queue
@@ -613,7 +614,7 @@ void TaskManager::uploadTask(void* parameter) {
         CompressedPacket packet;
         size_t queuedCount = 0;
         
-        print("[Upload] Checking compressed data queue (batch signal: %s)...\n", 
+        LOG_DEBUG(LOG_TAG_UPLOAD, "Checking compressed data queue (batch signal: %s)...", 
               batchSignalReceived ? "YES" : "TIMEOUT");
         
         while (xQueueReceive(compressedDataQueue, &packet, 0) == pdTRUE) {
@@ -637,38 +638,38 @@ void TaskManager::uploadTask(void* parameter) {
             if (DataUploader::addToQueue(smartData)) {
                 queuedCount++;
             } else {
-                print("[Upload] WARNING: Failed to queue packet - buffer full\n");
+                LOG_WARN(LOG_TAG_UPLOAD, "Failed to queue packet - buffer full");
             }
         }
         
-        print("[Upload] Queued %zu packets for upload\n", queuedCount);
+        LOG_INFO(LOG_TAG_UPLOAD, "Queued %zu packets for upload", queuedCount);
         
         // Now upload all pending data (if any)
         bool uploadSuccess = false;
         
         if (queuedCount > 0) {
-            print("[Upload] Attempting to acquire WiFi mutex (timeout: %d ms)...\n", 
+            LOG_DEBUG(LOG_TAG_UPLOAD, "Attempting to acquire WiFi mutex (timeout: %d ms)...", 
                   WIFI_MUTEX_TIMEOUT_UPLOAD_MS);
             
             // Acquire WiFi client mutex (shared with other network tasks)
             // Uses centralized timeout from system_config.h
             if (xSemaphoreTake(wifiClientMutex, pdMS_TO_TICKS(WIFI_MUTEX_TIMEOUT_UPLOAD_MS)) == pdTRUE) {
                 
-                print("[Upload] WiFi mutex acquired. Starting upload...\n");
+                LOG_DEBUG(LOG_TAG_UPLOAD, "WiFi mutex acquired. Starting upload...");
                 
                 // Call actual DataUploader API
                 uploadSuccess = DataUploader::uploadPendingData();
                 
-                print("[Upload] Upload completed. Releasing WiFi mutex...\n");
+                LOG_DEBUG(LOG_TAG_UPLOAD, "Upload completed. Releasing WiFi mutex...");
                 xSemaphoreGive(wifiClientMutex);
                 
                 if (uploadSuccess) {
-                    print("[Upload] Successfully uploaded %zu packets\n", queuedCount);
+                    LOG_SUCCESS(LOG_TAG_UPLOAD, "Successfully uploaded %zu packets", queuedCount);
                 } else {
-                    print("[Upload] Upload failed for %zu packets\n", queuedCount);
+                    LOG_ERROR(LOG_TAG_UPLOAD, "Upload failed for %zu packets", queuedCount);
                 }
             } else {
-                print("[Upload] ERROR: Failed to acquire WiFi mutex within 15s\n");
+                LOG_ERROR(LOG_TAG_UPLOAD, "Failed to acquire WiFi mutex within 15s");
                 stats_upload.deadlineMisses++;
             }
         }
@@ -691,7 +692,7 @@ void TaskManager::uploadTask(void* parameter) {
 // ============================================
 
 void TaskManager::commandTask(void* parameter) {
-    print("[Commands] Task started on Core %d\n", xPortGetCoreID());
+    LOG_INFO(LOG_TAG_COMMAND, "Commands task started on Core %d", xPortGetCoreID());
     
     // Register this task with hardware watchdog
     esp_task_wdt_add(NULL);
@@ -700,8 +701,8 @@ void TaskManager::commandTask(void* parameter) {
     TickType_t xFrequency = pdMS_TO_TICKS(commandFrequency);  // Use configurable frequency
     const uint32_t deadlineUs = COMMAND_DEADLINE_US;
     
-    print("[Commands] Check frequency: %lu ms\n", commandFrequency);
-    print("[Commands] Deadline: %lu us\n", deadlineUs);
+    LOG_INFO(LOG_TAG_COMMAND, "Check frequency: %lu ms", commandFrequency);
+    LOG_INFO(LOG_TAG_COMMAND, "Deadline: %lu us", deadlineUs);
     
     while (1) {
         // Wait for command check interval
@@ -746,7 +747,7 @@ void TaskManager::commandTask(void* parameter) {
 // ============================================
 
 void TaskManager::configTask(void* parameter) {
-    print("[Config] Task started on Core %d\n", xPortGetCoreID());
+    LOG_INFO(LOG_TAG_CONFIG, "Config task started on Core %d", xPortGetCoreID());
     
     // Register this task with hardware watchdog
     esp_task_wdt_add(NULL);
@@ -760,8 +761,8 @@ void TaskManager::configTask(void* parameter) {
     static bool pollFreq_uptodate = true;
     static bool uploadFreq_uptodate = true;
     
-    print("[Config] Check frequency: %lu ms\n", configFrequency);
-    print("[Config] Deadline: %lu us\n", deadlineUs);
+    LOG_INFO(LOG_TAG_CONFIG, "Check frequency: %lu ms", configFrequency);
+    LOG_INFO(LOG_TAG_CONFIG, "Deadline: %lu us", deadlineUs);
     
     while (1) {
         // Wait for config check interval
@@ -803,11 +804,11 @@ void TaskManager::configTask(void* parameter) {
 // ============================================
 
 void TaskManager::powerReportTask(void* parameter) {
-    print("[PowerReport] Task started on Core %d\n", xPortGetCoreID());
+    LOG_INFO(LOG_TAG_POWER, "PowerReport task started on Core %d", xPortGetCoreID());
     
     // Register with watchdog
     esp_task_wdt_add(NULL);
-    print("[PowerReport] Registered with watchdog\n");
+    LOG_INFO(LOG_TAG_POWER, "Registered with watchdog");
     
     // Load frequency from NVS (converted to ms)
     powerReportFrequency = nvs::getEnergyPollFreq() / 1000;  // Convert μs to ms
@@ -816,8 +817,8 @@ void TaskManager::powerReportTask(void* parameter) {
     TickType_t xFrequency = pdMS_TO_TICKS(powerReportFrequency);
     const uint32_t deadlineUs = 5000000;  // 5s deadline
     
-    print("[PowerReport] Report frequency: %lu ms\n", powerReportFrequency);
-    print("[PowerReport] Deadline: %lu us\n", deadlineUs);
+    LOG_INFO(LOG_TAG_POWER, "Report frequency: %lu ms", powerReportFrequency);
+    LOG_INFO(LOG_TAG_POWER, "Deadline: %lu us", deadlineUs);
     
     while (1) {
         // Wait for power report interval
@@ -885,18 +886,18 @@ void TaskManager::powerReportTask(void* parameter) {
             
             if (httpResponseCode > 0) {
                 if (httpResponseCode == 200 || httpResponseCode == 201) {
-                    print("[PowerReport] Successfully sent power report\n");
+                    LOG_SUCCESS(LOG_TAG_POWER, "Successfully sent power report");
                 } else {
-                    print("[PowerReport] Server returned code: %d\n", httpResponseCode);
+                    LOG_WARN(LOG_TAG_POWER, "Server returned code: %d", httpResponseCode);
                 }
             } else {
-                print("[PowerReport] POST failed: %s\n", http.errorToString(httpResponseCode).c_str());
+                LOG_ERROR(LOG_TAG_POWER, "POST failed: %s", http.errorToString(httpResponseCode).c_str());
             }
             
             http.end();
             xSemaphoreGive(wifiClientMutex);
         } else {
-            print("[PowerReport] Failed to acquire WiFi mutex\n");
+            LOG_ERROR(LOG_TAG_POWER, "Failed to acquire WiFi mutex");
         }
         
         uint32_t executionTime = micros() - startTime;
@@ -915,7 +916,7 @@ void TaskManager::powerReportTask(void* parameter) {
 // ============================================
 
 void TaskManager::otaTask(void* parameter) {
-    print("[OTA] Task started on Core %d\n", xPortGetCoreID());
+    LOG_INFO(LOG_TAG_FOTA, "OTA task started on Core %d", xPortGetCoreID());
     
     // NOTE: OTA task NOT registered with watchdog - it runs every 60s
     // which exceeds the 30s watchdog timeout. OTA is low priority and infrequent.
@@ -927,8 +928,8 @@ void TaskManager::otaTask(void* parameter) {
     // Store OTA manager instance (passed via parameter)
     OTAManager* otaManager = static_cast<OTAManager*>(parameter);
     
-    print("[OTA] Check frequency: %lu ms\n", otaFrequency);
-    print("[OTA] Deadline: %lu us\n", deadlineUs);
+    LOG_INFO(LOG_TAG_FOTA, "Check frequency: %lu ms", otaFrequency);
+    LOG_INFO(LOG_TAG_FOTA, "Deadline: %lu us", deadlineUs);
     
     while (1) {
         // Wait for OTA check interval
@@ -944,13 +945,13 @@ void TaskManager::otaTask(void* parameter) {
             
             // Check for firmware updates using actual OTAManager API
             if (otaManager && otaManager->checkForUpdate()) {
-                print("[OTA] Firmware update available! Starting download...\n");
+                LOG_INFO(LOG_TAG_FOTA, "Firmware update available! Starting download...");
                 
                 // KEEP the WiFi mutex - don't release it before suspending tasks!
                 // This prevents deadlock when re-acquiring after suspend.
                 
                 // Suspend critical tasks during OTA
-                print("[OTA] Suspending critical tasks for update...\n");
+                LOG_WARN(LOG_TAG_FOTA, "Suspending critical tasks for update...");
                 suspendAllTasks();
                 
                 // Perform OTA update (we already have the mutex)
@@ -959,11 +960,11 @@ void TaskManager::otaTask(void* parameter) {
                 xSemaphoreGive(wifiClientMutex);
                 
                 if (otaSuccess) {
-                    print("[OTA] Update successful! Verifying and rebooting...\n");
+                    LOG_SUCCESS(LOG_TAG_FOTA, "Update successful! Verifying and rebooting...");
                     otaManager->verifyAndReboot();
                     // System will reboot - code won't reach here
                 } else {
-                    print("[OTA] Update failed! Resuming normal operation...\n");
+                    LOG_ERROR(LOG_TAG_FOTA, "Update failed! Resuming normal operation...");
                     resumeAllTasks();
                 }
             } else {
@@ -971,7 +972,7 @@ void TaskManager::otaTask(void* parameter) {
             }
             
         } else {
-            print("[OTA] ERROR: Failed to acquire WiFi mutex\n");
+            LOG_ERROR(LOG_TAG_FOTA, "Failed to acquire WiFi mutex");
         }
         
         uint32_t executionTime = micros() - startTime;
@@ -993,7 +994,7 @@ void TaskManager::otaTask(void* parameter) {
 // ============================================
 
 void TaskManager::watchdogTask(void* parameter) {
-    print("[Watchdog] Task started on Core %d\n", xPortGetCoreID());
+    LOG_INFO(LOG_TAG_WATCHDOG, "Watchdog task started on Core %d", xPortGetCoreID());
     
     // Register this task with hardware watchdog
     esp_task_wdt_add(NULL);
@@ -1001,8 +1002,8 @@ void TaskManager::watchdogTask(void* parameter) {
     const TickType_t xCheckInterval = pdMS_TO_TICKS(WATCHDOG_CHECK_INTERVAL_MS);
     const uint32_t maxTaskIdleTime = MAX_TASK_IDLE_TIME_MS;
     
-    print("[Watchdog] Check interval: %lu ms\n", WATCHDOG_CHECK_INTERVAL_MS);
-    print("[Watchdog] Max task idle time: %lu ms\n", maxTaskIdleTime);
+    LOG_INFO(LOG_TAG_WATCHDOG, "Check interval: %lu ms", WATCHDOG_CHECK_INTERVAL_MS);
+    LOG_INFO(LOG_TAG_WATCHDOG, "Max task idle time: %lu ms", maxTaskIdleTime);
     
     while (1) {
         vTaskDelay(xCheckInterval);
@@ -1012,28 +1013,28 @@ void TaskManager::watchdogTask(void* parameter) {
         
         // Check sensor poll task (CRITICAL)
         if (currentTime - stats_sensorPoll.lastRunTime > maxTaskIdleTime) {
-            print("[Watchdog] CRITICAL: SensorPoll task stalled! Last run: %lu ms ago\n",
+            LOG_ERROR(LOG_TAG_WATCHDOG, "CRITICAL: SensorPoll task stalled! Last run: %lu ms ago",
                   currentTime - stats_sensorPoll.lastRunTime);
-            print("[Watchdog] SYSTEM RESET TRIGGERED!\n");
+            LOG_ERROR(LOG_TAG_WATCHDOG, "SYSTEM RESET TRIGGERED!");
             vTaskDelay(pdMS_TO_TICKS(1000));  // Give time for log
             ESP.restart();
         }
         
         // Check upload task (HIGH)
         if (currentTime - stats_upload.lastRunTime > uploadFrequency * 3) {
-            print("[Watchdog] WARNING: Upload task delayed! Last run: %lu ms ago\n",
+            LOG_WARN(LOG_TAG_WATCHDOG, "Upload task delayed! Last run: %lu ms ago",
                   currentTime - stats_upload.lastRunTime);
         }
         
         // Check compression task (HIGH)
         if (currentTime - stats_compression.lastRunTime > pollFrequency * 10) {
-            print("[Watchdog] WARNING: Compression task delayed! Last run: %lu ms ago\n",
+            LOG_WARN(LOG_TAG_WATCHDOG, "Compression task delayed! Last run: %lu ms ago",
                   currentTime - stats_compression.lastRunTime);
         }
         
         // Check for excessive deadline misses (using centralized threshold)
         if (stats_sensorPoll.deadlineMisses > MAX_DEADLINE_MISSES) {
-            print("[Watchdog] CRITICAL: Excessive sensor deadline misses (%lu > %d)! Resetting...\n",
+            LOG_ERROR(LOG_TAG_WATCHDOG, "CRITICAL: Excessive sensor deadline misses (%lu > %d)! Resetting...",
                   stats_sensorPoll.deadlineMisses, MAX_DEADLINE_MISSES);
             vTaskDelay(pdMS_TO_TICKS(1000));
             ESP.restart();
@@ -1061,30 +1062,30 @@ void TaskManager::watchdogTask(void* parameter) {
 
 void TaskManager::updatePollFrequency(uint32_t newFreqMs) {
     pollFrequency = newFreqMs;
-    print("[TaskManager] Poll frequency updated to %lu ms\n", newFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "Poll frequency updated to %lu ms", newFreqMs);
 }
 
 void TaskManager::updateUploadFrequency(uint32_t newFreqMs) {
     uploadFrequency = newFreqMs;
-    print("[TaskManager] Upload frequency updated to %lu ms\n", newFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "Upload frequency updated to %lu ms", newFreqMs);
 }
 
 void TaskManager::updateConfigFrequency(uint32_t newFreqMs) {
     configFrequency = newFreqMs;
-    print("[TaskManager] Config check frequency updated to %lu ms\n", newFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "Config check frequency updated to %lu ms", newFreqMs);
 }
 
 void TaskManager::updateCommandFrequency(uint32_t newFreqMs) {
     commandFrequency = newFreqMs;
-    print("[TaskManager] Command poll frequency updated to %lu ms\n", newFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "Command poll frequency updated to %lu ms", newFreqMs);
 }
 
 void TaskManager::updateOtaFrequency(uint32_t newFreqMs) {
     otaFrequency = newFreqMs;
-    print("[TaskManager] OTA check frequency updated to %lu ms\n", newFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "OTA check frequency updated to %lu ms", newFreqMs);
 }
 
 void TaskManager::updatePowerReportFrequency(uint32_t newFreqMs) {
     powerReportFrequency = newFreqMs;
-    print("[TaskManager] Power report frequency updated to %lu ms\n", newFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "Power report frequency updated to %lu ms", newFreqMs);
 }

@@ -13,6 +13,7 @@ from handlers import (
     clear_diagnostics,
     get_diagnostics_summary
 )
+from utils.logger_utils import log_success
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ def get_all_diagnostics_route():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting all diagnostics: {e}")
+        logger.error(f"✗ Error getting all diagnostics: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -54,7 +55,7 @@ def get_device_diagnostics(device_id: str):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting diagnostics for {device_id}: {e}")
+        logger.error(f"✗ Error getting diagnostics for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -87,7 +88,7 @@ def store_device_diagnostics(device_id: str):
             }), 500
         
     except Exception as e:
-        logger.error(f"Error storing diagnostics for {device_id}: {e}")
+        logger.error(f"✗ Error storing diagnostics for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -112,7 +113,7 @@ def clear_device_diagnostics(device_id: str):
             }), 500
         
     except Exception as e:
-        logger.error(f"Error clearing diagnostics for {device_id}: {e}")
+        logger.error(f"✗ Error clearing diagnostics for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -132,7 +133,7 @@ def get_diagnostics_summary_route():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting diagnostics summary: {e}")
+        logger.error(f"✗ Error getting diagnostics summary: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -157,7 +158,7 @@ def clear_all_diagnostics():
             }), 500
         
     except Exception as e:
-        logger.error(f"Error clearing all diagnostics: {e}")
+        logger.error(f"✗ Error clearing all diagnostics: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

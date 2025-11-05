@@ -1,35 +1,119 @@
 """
 Logging utilities for EcoWatt Flask server
-Provides centralized logging configuration
+Provides centralized logging configuration with ✓/✗ symbols
 """
 
 import logging
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
+from contextvars import ContextVar
+
+# Context variable to store request ID for each request
+request_id_ctx = ContextVar('request_id', default=None)
+
+
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter with colors and symbols for console output"""
+    
+    # ANSI color codes
+    COLORS = {
+        'DEBUG': '\033[36m',    # Cyan
+        'INFO': '\033[37m',     # White
+        'WARNING': '\033[33m',  # Yellow
+        'ERROR': '\033[31m',    # Red
+        'CRITICAL': '\033[35m', # Magenta
+        'RESET': '\033[0m',     # Reset
+        'BOLD': '\033[1m',      # Bold
+    }
+    
+    # Symbols for different log levels
+    SYMBOLS = {
+        'DEBUG': '    ',
+        'INFO': '    ',
+        'WARNING': '[!] ',
+        'ERROR': '✗   ',
+        'CRITICAL': '✗✗  ',
+        'SUCCESS': '✓   ',
+    }
+    
+    def format(self, record):
+        # Add request ID if available
+        request_id = request_id_ctx.get()
+        if request_id:
+            record.request_id = f"[{request_id[:8]}]"
+        else:
+            record.request_id = ""
+        
+        # Add symbol based on level
+        symbol = self.SYMBOLS.get(record.levelname, '    ')
+        
+        # Check if it's a success message
+        if hasattr(record, 'is_success') and record.is_success:
+            symbol = self.SYMBOLS['SUCCESS']
+            color = self.COLORS['RESET']
+        else:
+            color = self.COLORS.get(record.levelname, self.COLORS['RESET'])
+        
+        # Format the message with timestamp
+        log_fmt = f"{color}[%(asctime)s] [%(name)-15s] {symbol}%(message)s{self.COLORS['RESET']}"
+        
+        if request_id:
+            log_fmt = f"{color}[%(asctime)s] [%(name)-15s] %(request_id)s {symbol}%(message)s{self.COLORS['RESET']}"
+        
+        formatter = logging.Formatter(log_fmt, datefmt='%H:%M:%S')
+        return formatter.format(record)
+
+
+class FileFormatter(logging.Formatter):
+    """Formatter for file output (no colors, plain text)"""
+    
+    def format(self, record):
+        # Add request ID if available
+        request_id = request_id_ctx.get()
+        if request_id:
+            record.request_id = f"[{request_id}]"
+        else:
+            record.request_id = ""
+        
+        # Determine symbol
+        if hasattr(record, 'is_success') and record.is_success:
+            symbol = '✓'
+        elif record.levelname == 'ERROR':
+            symbol = '✗'
+        elif record.levelname == 'WARNING':
+            symbol = '!'
+        else:
+            symbol = ' '
+        
+        if request_id:
+            log_fmt = f"[%(asctime)s] [%(levelname)-8s] [%(name)-15s] %(request_id)s [{symbol}] %(message)s"
+        else:
+            log_fmt = f"[%(asctime)s] [%(levelname)-8s] [%(name)-15s] [{symbol}] %(message)s"
+        
+        formatter = logging.Formatter(log_fmt, datefmt='%Y-%m-%d %H:%M:%S')
+        return formatter.format(record)
 
 
 def init_logging(
     level=logging.INFO,
-    log_file=None,
-    log_format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    date_format='%Y-%m-%d %H:%M:%S'
+    log_file='logs/ecowatt_server.log',
+    console_colors=True,
+    session_based=True
 ):
     """
     Initialize logging configuration for the application
     
     Args:
         level: Logging level (logging.DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        log_file: Optional path to log file (None = console only)
-        log_format: Log message format string
-        date_format: Date/time format string
+        log_file: Path to log file (None = console only, default: logs/ecowatt_server.log)
+        console_colors: Enable colored console output (default: True)
+        session_based: Create new log file for each session with timestamp (default: True)
         
     Returns:
         logging.Logger: Root logger instance
     """
-    # Create formatter
-    formatter = logging.Formatter(log_format, datefmt=date_format)
-    
     # Get root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
@@ -38,10 +122,15 @@ def init_logging(
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
     
-    # Console handler (stdout)
+    # Console handler (stdout) with colors
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
-    console_handler.setFormatter(formatter)
+    
+    if console_colors:
+        console_handler.setFormatter(ColoredFormatter())
+    else:
+        console_handler.setFormatter(FileFormatter())
+    
     root_logger.addHandler(console_handler)
     
     # File handler (if specified)
@@ -50,14 +139,23 @@ def init_logging(
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         
-        file_handler = logging.FileHandler(log_file, mode='a')
+        # Generate session-based filename if enabled
+        if session_based:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            base_name = log_path.stem  # e.g., 'ecowatt_server'
+            extension = log_path.suffix  # e.g., '.log'
+            session_log_file = log_path.parent / f"{base_name}_{timestamp}{extension}"
+        else:
+            session_log_file = log_path
+        
+        file_handler = logging.FileHandler(session_log_file, mode='w')  # 'w' for new session
         file_handler.setLevel(level)
-        file_handler.setFormatter(formatter)
+        file_handler.setFormatter(FileFormatter())
         root_logger.addHandler(file_handler)
         
-        root_logger.info(f"Logging to file: {log_file}")
+        root_logger.info(f"Logging to file: {session_log_file}")
     
-    root_logger.info("Logging initialized")
+    root_logger.info("Logging system initialized")
     return root_logger
 
 
@@ -191,6 +289,64 @@ def log_security_event(event_type, device_id, details):
     audit_logger.info(message)
 
 
+def log_success(logger, message, *args, **kwargs):
+    """
+    Log a success message with ✓ symbol
+    
+    Args:
+        logger: Logger instance
+        message: Message to log
+        *args: Format arguments
+        **kwargs: Additional logging kwargs
+    """
+    # Create log record with success flag
+    if args:
+        message = message % args
+    
+    record = logger.makeRecord(
+        logger.name,
+        logging.INFO,
+        "(unknown file)",
+        0,
+        message,
+        (),
+        None
+    )
+    record.is_success = True
+    logger.handle(record)
+
+
+def set_request_id(request_id=None):
+    """
+    Set request ID for current context
+    
+    Args:
+        request_id: Request ID (generates new UUID if None)
+        
+    Returns:
+        str: Request ID
+    """
+    if request_id is None:
+        request_id = str(uuid.uuid4())
+    request_id_ctx.set(request_id)
+    return request_id
+
+
+def get_request_id():
+    """
+    Get current request ID
+    
+    Returns:
+        str: Request ID or None
+    """
+    return request_id_ctx.get()
+
+
+def clear_request_id():
+    """Clear request ID from context"""
+    request_id_ctx.set(None)
+
+
 def enable_debug_logging():
     """
     Enable debug logging for all loggers
@@ -215,6 +371,12 @@ __all__ = [
     'log_function_call',
     'create_audit_logger',
     'log_security_event',
+    'log_success',
+    'set_request_id',
+    'get_request_id',
+    'clear_request_id',
     'enable_debug_logging',
-    'disable_debug_logging'
+    'disable_debug_logging',
+    'ColoredFormatter',
+    'FileFormatter'
 ]

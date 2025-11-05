@@ -10,6 +10,7 @@ import time
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from database import Database, convert_utc_to_local
+from utils.logger_utils import log_success
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ def get_power_config(device_id):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting power config for {device_id}: {e}")
+        logger.error(f"✗ Error getting power config for {device_id}: {e}")
         return jsonify({'error': 'Failed to retrieve power configuration'}), 500
 
 
@@ -175,7 +176,7 @@ def update_power_config(device_id):
         logger.error(f"Invalid value in power config update for {device_id}: {e}")
         return jsonify({'error': f'Invalid value: {str(e)}'}), 400
     except Exception as e:
-        logger.error(f"Error updating power config for {device_id}: {e}")
+        logger.error(f"✗ Error updating power config for {device_id}: {e}")
         return jsonify({'error': 'Failed to update power configuration'}), 500
 
 
@@ -263,7 +264,7 @@ def receive_energy_report(device_id):
         logger.error(f"Invalid value in energy report from {device_id}: {e}")
         return jsonify({'error': f'Invalid value: {str(e)}'}), 400
     except Exception as e:
-        logger.error(f"Error receiving energy report from {device_id}: {e}")
+        logger.error(f"✗ Error receiving energy report from {device_id}: {e}")
         return jsonify({'error': 'Failed to save energy report'}), 500
 
 
@@ -353,5 +354,5 @@ def get_energy_history(device_id):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting energy history for {device_id}: {e}")
+        logger.error(f"✗ Error getting energy history for {device_id}: {e}")
         return jsonify({'error': 'Failed to retrieve energy history'}), 500

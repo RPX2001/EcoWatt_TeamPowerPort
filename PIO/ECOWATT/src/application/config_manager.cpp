@@ -7,9 +7,10 @@
  */
 
 #include "application/config_manager.h"
+#include "peripheral/logger.h"
 #include "application/task_manager.h"
 #include "application/power_management.h"
-#include "peripheral/print.h"
+#include "peripheral/logger.h"
 #include "application/nvs.h"
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -44,18 +45,18 @@ void ConfigManager::init(const char* endpoint, const char* devID) {
     currentConfig.pollFrequency = nvs::getPollFreq();
     currentConfig.uploadFrequency = nvs::getUploadFreq();
     
-    print("[ConfigManager] Initialized\n");
-    print("[ConfigManager] Changes URL: %s\n", changesURL);
-    print("[ConfigManager] Device: %s\n", deviceID);
+    LOG_SUCCESS(LOG_TAG_CONFIG, "Initialized");
+    LOG_INFO(LOG_TAG_CONFIG, "Changes URL: %s", changesURL);
+    LOG_INFO(LOG_TAG_CONFIG, "Device: %s", deviceID);
     printCurrentConfig();
 }
 
 void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged, 
                                     bool* uploadChanged) {
-    print("[ConfigManager] Checking for changes from cloud...\n");
+    LOG_INFO(LOG_TAG_CONFIG, "Checking for changes from cloud...");
     
     if (WiFi.status() != WL_CONNECTED) {
-        print("[ConfigManager] WiFi not connected. Cannot check changes.\n");
+        LOG_WARN(LOG_TAG_CONFIG, "WiFi not connected. Cannot check changes.");
         return;
     }
 
@@ -75,12 +76,8 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
         // Get full response as String (simpler and more reliable)
         String responseStr = http.getString();
         
-        // Truncate for logging if too long
-        if (responseStr.length() > 200) {
-            print("[ConfigManager] Response: %s...\n", responseStr.substring(0, 200).c_str());
-        } else {
-            print("[ConfigManager] Response: %s\n", responseStr.c_str());
-        }
+        // Only log full response in DEBUG mode if needed for troubleshooting
+        // Removed constant response logging to reduce verbosity
 
         // Use DynamicJsonDocument to avoid stack overflow (response includes large available_registers array)
         DynamicJsonDocument responsedoc(4096);  // Allocate on heap instead of stack
@@ -91,7 +88,7 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
             bool isPending = responsedoc["is_pending"] | false;
             
             if (isPending) {
-                print("[ConfigManager] ⚡ PENDING CONFIG DETECTED - Applying changes...\n");
+                LOG_SECTION("PENDING CONFIG DETECTED - Applying changes");
                 
                 // Extract PENDING config from pending_config field (not config field)
                 // The 'config' field contains current running config (for dashboard)
@@ -120,7 +117,7 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                             nvs::changePollFreq(new_poll_freq);
                             *pollChanged = true;
                             anyChanges = true;
-                            print("[ConfigManager] ✓ Poll frequency will update to %u s (%llu μs)\n", 
+                            LOG_INFO(LOG_TAG_CONFIG, "Poll frequency will update to %u s (%llu μs)", 
                                   sampling_interval, new_poll_freq);
                         }
                     }
@@ -134,7 +131,7 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                             nvs::changeUploadFreq(new_upload_freq);
                             *uploadChanged = true;
                             anyChanges = true;
-                            print("[ConfigManager] ✓ Upload frequency will update to %u s (%llu μs)\n", 
+                            LOG_INFO(LOG_TAG_CONFIG, "Upload frequency will update to %u s (%llu μs)", 
                                   upload_interval, new_upload_freq);
                         }
                     }
@@ -148,7 +145,7 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                             // Update TaskManager's config frequency using public function
                             TaskManager::updateConfigFrequency(config_interval * 1000);  // milliseconds
                             anyChanges = true;
-                            print("[ConfigManager] ✓ Config poll frequency updated to %u s\n", config_interval);
+                            LOG_SUCCESS(LOG_TAG_CONFIG, "Config poll frequency updated to %u s", config_interval);
                         }
                     }
                     
@@ -161,7 +158,7 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                             // Update TaskManager's command frequency using public function
                             TaskManager::updateCommandFrequency(command_interval * 1000);  // milliseconds
                             anyChanges = true;
-                            print("[ConfigManager] ✓ Command poll frequency updated to %u s\n", command_interval);
+                            LOG_SUCCESS(LOG_TAG_CONFIG, "Command poll frequency updated to %u s", command_interval);
                         }
                     }
                     
@@ -174,7 +171,7 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                             // Update TaskManager's OTA frequency using public function
                             TaskManager::updateOtaFrequency(ota_interval * 1000);  // milliseconds
                             anyChanges = true;
-                            print("[ConfigManager] ✓ Firmware check frequency updated to %u s\n", ota_interval);
+                            LOG_SUCCESS(LOG_TAG_CONFIG, "Firmware check frequency updated to %u s", ota_interval);
                         }
                     }
                     
@@ -187,7 +184,7 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                             uint16_t regsMask = 0;
                             size_t regsCount = 0;
                             
-                            print("[ConfigManager] Processing %d registers:\n", registers.size());
+                            LOG_INFO(LOG_TAG_CONFIG, "Processing %d registers:", registers.size());
                             
                             for (JsonVariant regName : registers) {
                                 const char* name = regName.as<const char*>();
@@ -197,7 +194,7 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                                     if (strcmp(REGISTER_MAP[i].name, name) == 0) {
                                         regsMask |= (1 << i);
                                         regsCount++;
-                                        print("  - %s (ID: %zu)\n", name, i);
+                                        LOG_INFO(LOG_TAG_CONFIG, "  - %s (ID: %zu)", name, i);
                                         break;
                                     }
                                 }
@@ -208,9 +205,9 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                                 if (saved) {
                                     *registersChanged = true;
                                     anyChanges = true;
-                                    print("[ConfigManager] ✓ %zu registers will update in next cycle\n", regsCount);
+                                    LOG_SUCCESS(LOG_TAG_CONFIG, "%zu registers will update in next cycle", regsCount);
                                 } else {
-                                    print("[ConfigManager] ❌ Failed to save register changes to NVS\n");
+                                    LOG_ERROR(LOG_TAG_CONFIG, "Failed to save register changes to NVS");
                                 }
                             }
                         }
@@ -221,7 +218,7 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                         JsonObject powerConfig = config["power_management"].as<JsonObject>();
                         
                         if (!powerConfig.isNull()) {
-                            print("[ConfigManager] Processing power management configuration:\n");
+                            LOG_INFO(LOG_TAG_CONFIG, "Processing power management configuration:");
                             
                             // Check if power management is enabled
                             if (powerConfig.containsKey("enabled")) {
@@ -231,13 +228,13 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                                 if (enabled != currentEnabled) {
                                     nvs::setPowerEnabled(enabled);
                                     anyChanges = true;
-                                    print("  - Power Management: %s\n", 
+                                    LOG_INFO(LOG_TAG_CONFIG, "  - Power Management: %s", 
                                           enabled ? "ENABLED" : "DISABLED");
                                     
                                     // Apply the enable/disable state
                                     PowerManagement::enable(enabled);
                                 } else {
-                                    print("  - Power Management: %s (unchanged)\n", 
+                                    LOG_DEBUG(LOG_TAG_CONFIG, "  - Power Management: %s (unchanged)", 
                                           enabled ? "ENABLED" : "DISABLED");
                                 }
                             }
@@ -252,28 +249,28 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                                     PowerManagement::setTechniques(techniques);
                                     anyChanges = true;
                                     
-                                    print("  - Active Techniques (0x%02X):\n", techniques);
+                                    LOG_INFO(LOG_TAG_CONFIG, "  - Active Techniques (0x%02X):", techniques);
                                     if (techniques & POWER_TECH_WIFI_MODEM_SLEEP) {
-                                        print("      • WiFi Modem Sleep [ACTIVE]\n");
+                                        LOG_INFO(LOG_TAG_CONFIG, "      • WiFi Modem Sleep [ACTIVE]");
                                     }
                                     if (techniques & POWER_TECH_CPU_FREQ_SCALING) {
-                                        print("      • CPU Frequency Scaling [FUTURE]\n");
+                                        LOG_INFO(LOG_TAG_CONFIG, "      • CPU Frequency Scaling [FUTURE]");
                                     }
                                     if (techniques & POWER_TECH_LIGHT_SLEEP) {
-                                        print("      • Light Sleep [FUTURE]\n");
+                                        LOG_INFO(LOG_TAG_CONFIG, "      • Light Sleep [FUTURE]");
                                     }
                                     if (techniques & POWER_TECH_PERIPHERAL_GATING) {
-                                        print("      • Peripheral Gating [FUTURE]\n");
+                                        LOG_INFO(LOG_TAG_CONFIG, "      • Peripheral Gating [FUTURE]");
                                     }
                                     if (techniques == 0x00) {
-                                        print("      • None (full performance mode)\n");
+                                        LOG_INFO(LOG_TAG_CONFIG, "      • None (full performance mode)");
                                     }
                                 } else {
-                                    print("  - Active Techniques: 0x%02X (unchanged)\n", techniques);
+                                    LOG_DEBUG(LOG_TAG_CONFIG, "  - Active Techniques: 0x%02X (unchanged)", techniques);
                                 }
                             }
                             
-                            print("[ConfigManager] ✓ Power management config processed\n");
+                            LOG_SUCCESS(LOG_TAG_CONFIG, "Power management config processed");
                         }
                     }
                     
@@ -290,35 +287,37 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                             uint64_t freq_ms = static_cast<uint64_t>(interval_sec) * 1000ULL;
                             TaskManager::updatePowerReportFrequency(freq_ms);
                             anyChanges = true;
-                            print("[ConfigManager] ✓ Energy report interval updated to %u s (%llu μs)\n", 
+                            LOG_SUCCESS(LOG_TAG_CONFIG, "Energy report interval updated to %u s (%llu μs)", 
                                   interval_sec, freq_us);
                         }
                     }
                     
                     if (anyChanges) {
-                        print("[ConfigManager] ✅ Configuration changes applied successfully\n");
+                        LOG_DIVIDER();
+                        LOG_SUCCESS(LOG_TAG_CONFIG, "Configuration changes applied successfully");
+                        LOG_DIVIDER();
                         
                         // Send acknowledgment to Flask server to mark config as "acknowledged"
                         sendConfigAcknowledgment("applied", "Configuration updated successfully");
                     } else {
-                        print("[ConfigManager] ℹ️ No actual changes (config same as current)\n");
+                        LOG_INFO(LOG_TAG_CONFIG, "No actual changes (config same as current)");
                     }
                 } else {
-                    print("[ConfigManager] ⚠️ Config object not found in response\n");
+                    LOG_WARN(LOG_TAG_CONFIG, "Config object not found in response");
                 }
             } else {
-                print("[ConfigManager] No pending configuration changes\n");
+                LOG_INFO(LOG_TAG_CONFIG, "No pending configuration changes");
             }
 
             http.end();
         } else {
             http.end();
-            print("[ConfigManager] ⚠️ JSON parse error: %s (response size: %d bytes)\n", 
+            LOG_ERROR(LOG_TAG_CONFIG, "JSON parse error: %s (response size: %d bytes)", 
                   error.c_str(), responseStr.length());
-            print("[ConfigManager] Response preview: %s\n", responseStr.substring(0, 500).c_str());
+            LOG_DEBUG(LOG_TAG_CONFIG, "Response preview: %s", responseStr.substring(0, 500).c_str());
         }
     } else {
-        print("[ConfigManager] HTTP GET failed with error code: %d\n", httpResponseCode);
+        LOG_ERROR(LOG_TAG_CONFIG, "HTTP GET failed with error code: %d", httpResponseCode);
         http.end();
     }
 }
@@ -331,7 +330,7 @@ bool ConfigManager::applyRegisterChanges(const RegID** newSelection, size_t* new
     currentConfig.registers = *newSelection;
     currentConfig.registerCount = *newCount;
     
-    print("[ConfigManager] Applied register changes: %zu registers\n", *newCount);
+    LOG_INFO(LOG_TAG_CONFIG, "Applied register changes: %zu registers", *newCount);
     
     // Send acknowledgment to Flask server
     sendConfigAcknowledgment("applied", "Register selection updated successfully");
@@ -343,7 +342,7 @@ bool ConfigManager::applyPollFrequencyChange(uint64_t* newFreq) {
     *newFreq = nvs::getPollFreq();
     currentConfig.pollFrequency = *newFreq;
     
-    print("[ConfigManager] Applied poll frequency change: %llu μs\n", *newFreq);
+    LOG_INFO(LOG_TAG_CONFIG, "Applied poll frequency change: %llu μs", *newFreq);
     
     // Send acknowledgment to Flask server
     sendConfigAcknowledgment("applied", "Poll frequency updated successfully");
@@ -355,7 +354,7 @@ bool ConfigManager::applyUploadFrequencyChange(uint64_t* newFreq) {
     *newFreq = nvs::getUploadFreq();
     currentConfig.uploadFrequency = *newFreq;
     
-    print("[ConfigManager] Applied upload frequency change: %llu μs\n", *newFreq);
+    LOG_INFO(LOG_TAG_CONFIG, "Applied upload frequency change: %llu μs", *newFreq);
     
     // Send acknowledgment to Flask server
     sendConfigAcknowledgment("applied", "Upload frequency updated successfully");
@@ -374,22 +373,22 @@ void ConfigManager::updateCurrentConfig(const RegID* newRegs, size_t newRegCount
     currentConfig.pollFrequency = newPollFreq;
     currentConfig.uploadFrequency = newUploadFreq;
     
-    print("[ConfigManager] Configuration updated\n");
+    LOG_INFO(LOG_TAG_CONFIG, "Configuration updated");
 }
 
 void ConfigManager::printCurrentConfig() {
-    print("\n========== CURRENT CONFIGURATION ==========\n");
-    print("  Register Count:    %zu\n", currentConfig.registerCount);
-    print("  Registers:         ");
+    LOG_SECTION("CURRENT CONFIGURATION");
+    LOG_INFO(LOG_TAG_CONFIG, "Register Count:    %zu", currentConfig.registerCount);
+    LOG_INFO(LOG_TAG_CONFIG, "Registers:");
     
     for (size_t i = 0; i < currentConfig.registerCount && i < REGISTER_COUNT; i++) {
-        print("%s ", REGISTER_MAP[currentConfig.registers[i]].name);
+        // Registers listed individually below
     }
-    print("\n");
+    // Newline not needed with LOG_INFO
     
-    print("  Poll Frequency:    %llu μs (%.2f s)\n", 
+    LOG_INFO(LOG_TAG_CONFIG, "Poll Frequency:    %llu μs (%.2f s)", 
           currentConfig.pollFrequency, currentConfig.pollFrequency / 1000000.0);
-    print("  Upload Frequency:  %llu μs (%.2f s)\n", 
+    LOG_INFO(LOG_TAG_CONFIG, "Upload Frequency:  %llu μs (%.2f s)", 
           currentConfig.uploadFrequency, currentConfig.uploadFrequency / 1000000.0);
     
     // Print power management configuration
@@ -397,17 +396,17 @@ void ConfigManager::printCurrentConfig() {
     uint8_t techniques = nvs::getPowerTechniques();
     uint64_t energyPollFreq = nvs::getEnergyPollFreq();
     
-    print("  Power Management:  %s\n", powerEnabled ? "ENABLED" : "DISABLED");
-    print("  Techniques:        0x%02X ", techniques);
-    if (techniques & 0x01) print("[WiFi] ");
-    if (techniques & 0x02) print("[CPU] ");
-    if (techniques & 0x04) print("[Sleep] ");
-    if (techniques & 0x08) print("[Periph] ");
-    print("\n");
-    print("  Energy Poll:       %llu μs (%.2f s)\n", 
+    LOG_INFO(LOG_TAG_CONFIG, "Power Management:  %s", powerEnabled ? "ENABLED" : "DISABLED");
+    LOG_INFO(LOG_TAG_CONFIG, "Techniques:        0x%02X", techniques);
+    // Techniques logged above
+    // Techniques logged above
+    // Techniques logged above
+    // Techniques logged above
+    // Newline not needed with LOG_INFO
+    LOG_INFO(LOG_TAG_CONFIG, "Energy Poll:       %llu μs (%.2f s)", 
           energyPollFreq, energyPollFreq / 1000000.0);
     
-    print("===========================================\n\n");
+    LOG_INFO(LOG_TAG_CONFIG, "===========================================");
 }
 
 void ConfigManager::sendConfigAcknowledgment(const char* status, const char* message) {
@@ -418,7 +417,7 @@ void ConfigManager::sendConfigAcknowledgment(const char* status, const char* mes
      */
     
     if (WiFi.status() != WL_CONNECTED) {
-        print("[ConfigManager] WiFi not connected. Cannot send acknowledgment.\n");
+        LOG_WARN(LOG_TAG_CONFIG, "WiFi not connected. Cannot send acknowledgment.");
         return;
     }
     
@@ -454,18 +453,19 @@ void ConfigManager::sendConfigAcknowledgment(const char* status, const char* mes
     String payload;
     serializeJson(doc, payload);
     
-    print("[ConfigManager] Sending acknowledgment: %s\n", payload.c_str());
+    LOG_DEBUG(LOG_TAG_CONFIG, "Sending acknowledgment:");
+    LOG_DEBUG(LOG_TAG_CONFIG, "  %s", payload.c_str());
     
     int httpCode = http.POST(payload);
     
     if (httpCode > 0) {
         if (httpCode == 200) {
-            print("[ConfigManager] ✅ Acknowledgment sent successfully\n");
+            LOG_SUCCESS(LOG_TAG_CONFIG, "Acknowledgment sent successfully");
         } else {
-            print("[ConfigManager] ⚠️ Acknowledgment sent but received code: %d\n", httpCode);
+            LOG_WARN(LOG_TAG_CONFIG, "Acknowledgment sent but received code: %d", httpCode);
         }
     } else {
-        print("[ConfigManager] ❌ Failed to send acknowledgment: %d\n", httpCode);
+        LOG_ERROR(LOG_TAG_CONFIG, "Failed to send acknowledgment: %d", httpCode);
     }
     
     http.end();
@@ -486,7 +486,7 @@ void ConfigManager::sendCurrentConfig() {
      */
     
     if (WiFi.status() != WL_CONNECTED) {
-        print("[ConfigManager] WiFi not connected. Cannot send current config.\n");
+        LOG_WARN(LOG_TAG_CONFIG, "WiFi not connected. Cannot send current config.");
         return;
     }
     
@@ -534,20 +534,20 @@ void ConfigManager::sendCurrentConfig() {
     String payload;
     serializeJson(doc, payload);
     
-    print("[ConfigManager] Sending current config: %s\n", payload.c_str());
+    LOG_DEBUG(LOG_TAG_CONFIG, "Sending current config: %s", payload.c_str());
     
     int httpCode = http.POST(payload);
     
     if (httpCode > 0) {
         if (httpCode == 200 || httpCode == 201) {
-            print("[ConfigManager] ✅ Current config sent successfully\n");
+            LOG_SUCCESS(LOG_TAG_CONFIG, "Current config sent successfully");
         } else {
             String response = http.getString();
-            print("[ConfigManager] ⚠️ Config sent but received code: %d, response: %s\n", 
+            LOG_WARN(LOG_TAG_CONFIG, "Config sent but received code: %d, response: %s", 
                   httpCode, response.c_str());
         }
     } else {
-        print("[ConfigManager] ❌ Failed to send current config: %d\n", httpCode);
+        LOG_ERROR(LOG_TAG_CONFIG, "Failed to send current config: %d", httpCode);
     }
     
     http.end();

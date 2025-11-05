@@ -8,6 +8,41 @@
 
 ---
 
+## Part 0: Logging Improvements 🔄 (IN PROGRESS)
+
+### ESP32 Logging System
+- [x] ✅ Create new logger.h/logger.cpp with NTP-based timestamps
+  - Uses getLocalTime() for real-time timestamps (HH:MM:SS format)
+  - Falls back to millis() if NTP unavailable
+  - Log levels: DEBUG, INFO, WARN, ERROR, NONE
+  - Module tags: BOOT, WIFI, UPLOAD, POWER, SECURITY, etc.
+  - Success symbol: ✓, Error: ✗, Warning: [!]
+- [x] ✅ Updated system_initializer.cpp with new logging
+- [x] ✅ Updated data_uploader.cpp with new logging
+- [x] ✅ Updated power_management.cpp with new logging
+- [x] ✅ Updated command_executor.cpp with new logging
+- [x] ✅ Updated peripheral_power.cpp with new logging
+- [ ] 🔄 Update nvs.cpp with new logging
+- [ ] 🔄 Update OTAManager.cpp with new logging
+- [ ] 🔄 Update compression files with new logging
+- [ ] 🔄 Update security.cpp with new logging (handle ArduinoJson print conflicts)
+
+### Flask Logging System
+- [x] ✅ Enhanced logger_utils.py with ColoredFormatter and FileFormatter
+  - ANSI color codes for console output
+  - Plain text for file logs
+  - Request ID tracking with contextvars
+  - log_success() helper function
+  - Consistent timestamp format (HH:MM:SS)
+- [x] ✅ Updated flask_server_modular.py with new logging
+- [x] ✅ Updated diagnostics_handler.py with new logging
+- [x] ✅ Updated compression_handler.py with new logging
+- [ ] 🔄 Update database.py with new logging
+- [ ] 🔄 Update remaining handlers with new logging
+- [ ] 🔄 Update routes with new logging
+
+---
+
 ## Part 1: Power Management and Measurement 🔄 (IN PROGRESS)
 
 ### Power Optimization Implementation

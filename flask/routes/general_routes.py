@@ -14,6 +14,7 @@ from handlers import (
     get_command_stats,
     get_fault_statistics
 )
+from utils.logger_utils import log_success
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ def index():
 def health_check():
     """Health check endpoint"""
     try:
-        # Basic health check
+        log_success(logger, "Health check passed")
         return jsonify({
             'status': 'healthy',
             'timestamp': datetime.now().isoformat(),
@@ -54,7 +55,7 @@ def health_check():
         }), 200
         
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
+        logger.error(f"✗ Health check failed: {e}")
         return jsonify({
             'status': 'unhealthy',
             'error': str(e)
@@ -65,6 +66,7 @@ def health_check():
 def get_all_statistics():
     """Get all system statistics"""
     try:
+        logger.debug("Gathering system statistics from all modules")
         stats = {
             'timestamp': datetime.now().isoformat(),
             'compression': get_compression_statistics(),
@@ -74,13 +76,14 @@ def get_all_statistics():
             'fault': get_fault_statistics()
         }
         
+        log_success(logger, "Retrieved all system statistics")
         return jsonify({
             'success': True,
             'statistics': stats
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting all statistics: {e}")
+        logger.error(f"✗ Error getting all statistics: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -91,6 +94,7 @@ def get_all_statistics():
 def get_system_status():
     """Get overall system status"""
     try:
+        logger.debug("Gathering module status information")
         # Gather system status information
         compression_stats = get_compression_statistics()
         security_stats = get_security_stats()
@@ -123,13 +127,14 @@ def get_system_status():
             }
         }
         
+        log_success(logger, "System status retrieved - all modules operational")
         return jsonify({
             'success': True,
             'status': status
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting system status: {e}")
+        logger.error(f"✗ Error getting system status: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -157,6 +162,7 @@ def integration_test_sync():
         data = request.get_json()
         
         if not data:
+            logger.warning("✗ Test sync called without data")
             return jsonify({
                 'success': False,
                 'error': 'No data provided'
@@ -167,7 +173,10 @@ def integration_test_sync():
         status = data.get('status')
         result = data.get('result')
         
-        logger.info(f"[Test Sync] Test {test_number}: {test_name} - {status} ({result})")
+        if result == 'PASS':
+            log_success(logger, f"Test {test_number}: {test_name} - {status}")
+        else:
+            logger.error(f"✗ Test {test_number}: {test_name} - {status} ({result})")
         
         return jsonify({
             'success': True,
@@ -178,7 +187,7 @@ def integration_test_sync():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error in test sync: {e}")
+        logger.error(f"✗ Error in test sync: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -206,7 +215,7 @@ def get_device_config():
             'security_enabled': True
         }
         
-        logger.info(f"[Config] Configuration requested for device: {device_id}")
+        log_success(logger, f"Configuration sent to device: {device_id}")
         
         return jsonify({
             'success': True,
@@ -216,7 +225,7 @@ def get_device_config():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting config: {e}")
+        logger.error(f"✗ Error getting config: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

@@ -10,6 +10,7 @@ import os
 import json
 import tempfile
 from datetime import datetime
+from utils.logger_utils import log_success
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +107,7 @@ def prepare_firmware():
             'error': 'Operation timed out'
         }), 504
     except Exception as e:
-        logger.error(f"Error preparing firmware: {e}")
+        logger.error(f"✗ Error preparing firmware: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -176,7 +177,7 @@ def generate_keys():
             'error': 'Operation timed out'
         }), 504
     except Exception as e:
-        logger.error(f"Error generating keys: {e}")
+        logger.error(f"✗ Error generating keys: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -246,7 +247,7 @@ def benchmark_compression():
             'error': 'Operation timed out'
         }), 504
     except Exception as e:
-        logger.error(f"Error running benchmark: {e}")
+        logger.error(f"✗ Error running benchmark: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

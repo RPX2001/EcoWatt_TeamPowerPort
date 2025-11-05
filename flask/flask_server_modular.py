@@ -25,7 +25,7 @@ import threading
 from database import Database
 
 # Import logging utilities
-from utils.logger_utils import init_logging
+from utils.logger_utils import init_logging, log_success
 
 # Import all route blueprints
 from routes import (
@@ -67,92 +67,64 @@ def register_blueprints():
     """Register all route blueprints"""
     try:
         # Register blueprints with optional URL prefixes
-        logger.info("Registering general_bp...")
+        logger.debug("Registering general_bp")
         app.register_blueprint(general_bp)
-        logger.info("Registering diagnostics_bp...")
+        logger.debug("Registering diagnostics_bp")
         app.register_blueprint(diagnostics_bp)
-        logger.info("Registering aggregation_bp...")
+        logger.debug("Registering aggregation_bp")
         app.register_blueprint(aggregation_bp)
-        logger.info("Registering security_bp...")
+        logger.debug("Registering security_bp")
         app.register_blueprint(security_bp)
-        logger.info("Registering ota_bp...")
+        logger.debug("Registering ota_bp")
         app.register_blueprint(ota_bp)
-        logger.info("Registering command_bp...")
+        logger.debug("Registering command_bp")
         app.register_blueprint(command_bp)
-        logger.info("Registering fault_bp...")
+        logger.debug("Registering fault_bp")
         app.register_blueprint(fault_bp)
-        logger.info("Registering device_bp...")
+        logger.debug("Registering device_bp")
         app.register_blueprint(device_bp)
-        logger.info("Registering config_bp...")
+        logger.debug("Registering config_bp")
         app.register_blueprint(config_bp)
-        logger.info("Registering utilities_bp...")
+        logger.debug("Registering utilities_bp")
         app.register_blueprint(utilities_bp)
-        logger.info("Registering power_bp...")
+        logger.debug("Registering power_bp")
         app.register_blueprint(power_bp)
         
+        log_success(logger, "All route blueprints registered")
+        
         # Debug: Print all registered routes
-        logger.info("✓ All route blueprints registered")
-        logger.info("Registered routes:")
+        logger.debug("Registered routes:")
         for rule in app.url_map.iter_rules():
-            logger.info(f"  {rule.methods} {rule.rule}")
+            logger.debug(f"  {rule.methods} {rule.rule}")
         
         return True
         
     except Exception as e:
-        logger.error(f"Failed to register blueprints: {e}")
+        logger.error(f"✗ Failed to register blueprints: {e}")
         logger.exception(e)
         return False
 
 
 def print_startup_banner():
     """Print startup information"""
-    print("=" * 70)
-    print("EcoWatt Smart Server v2.0.0 - Modular Architecture")
-    print("=" * 70)
+    print()
+    print("╔════════════════════════════════════════════════════════════════════╗")
+    print("║           EcoWatt Smart Server v2.0.0                              ║")
+    print("║              Modular Architecture                                  ║")
+    print("╚════════════════════════════════════════════════════════════════════╝")
+    print()
     print("Features:")
     print("  ✓ Modular architecture (Routes → Handlers → Utilities)")
-    print("  ✓ Compression handling (Dictionary, Temporal, Semantic, Bit-packed)")
+    print("  ✓ Compression (Dictionary, Temporal, Semantic, Bit-packed)")
     print("  ✓ Security validation with replay protection")
     print("  ✓ OTA firmware updates with chunking")
     print("  ✓ Command execution queue")
     print("  ✓ Fault injection testing")
     print("  ✓ Diagnostics tracking")
-    print("=" * 70)
-    print("Available Endpoints:")
-    print("  General:     GET  /              - API information")
-    print("               GET  /health        - Health check")
-    print("               GET  /stats         - All statistics")
-    print("               GET  /status        - System status")
-    print("               GET  /ping          - Simple ping")
-    print("")
-    print("  Diagnostics: GET/POST/DELETE /diagnostics/<device_id>")
-    print("               GET  /diagnostics/summary")
-    print("")
-    print("  Aggregation: POST /aggregated/<device_id>")
-    print("               GET/DELETE /compression/stats")
-    print("")
-    print("  Security:    POST /security/validate/<device_id>")
-    print("               GET/DELETE /security/stats")
-    print("               DELETE /security/nonces")
-    print("")
-    print("  OTA:         GET  /ota/check/<device_id>")
-    print("               POST /ota/initiate/<device_id>")
-    print("               GET  /ota/chunk/<device_id>")
-    print("               POST /ota/complete/<device_id>")
-    print("               GET  /ota/status")
-    print("")
-    print("  Commands:    POST /commands/<device_id>")
-    print("               GET  /commands/<device_id>/poll")
-    print("               POST /commands/<device_id>/result")
-    print("               GET  /commands/status/<command_id>")
-    print("               GET/DELETE /commands/stats")
-    print("")
-    print("  Fault:       POST /fault/enable")
-    print("               POST /fault/disable")
-    print("               GET  /fault/status")
-    print("               GET  /fault/available")
-    print("               GET/DELETE /fault/stats")
-    print("=" * 70)
+    print()
+    print("Server: http://0.0.0.0:5001")
+    print("────────────────────────────────────────────────────────────────────")
+    print()
 
 
 # Initialize database schema (must be before blueprints for imports)
@@ -167,15 +139,14 @@ if __name__ == '__main__':
     print_startup_banner()
     
     # Start Flask server
-    logger.info("Starting Flask server on 0.0.0.0:5001")
-    print("=" * 70)
-    print("Server starting... Press Ctrl+C to stop")
-    print("=" * 70)
+    log_success(logger, "Flask server starting on 0.0.0.0:5001")
     
     try:
         app.run(host='0.0.0.0', port=5001, debug=True)
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
-        print("\n" + "=" * 70)
-        print("Server stopped gracefully")
-        print("=" * 70)
+        print()
+        print("╔════════════════════════════════════════════════════════════════════╗")
+        print("║                   Server Stopped Gracefully                        ║")
+        print("╚════════════════════════════════════════════════════════════════════╝")
+        print()

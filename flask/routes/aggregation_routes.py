@@ -16,6 +16,7 @@ from handlers import (
     reset_compression_statistics,
     handle_aggregated_data
 )
+from utils.logger_utils import log_success
 
 logger = logging.getLogger(__name__)
 
@@ -268,7 +269,7 @@ def receive_aggregated_data(device_id: str):
             }), 400
         
     except Exception as e:
-        logger.error(f"Error processing aggregated data for {device_id}: {e}")
+        logger.error(f"✗ Error processing aggregated data for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -304,7 +305,7 @@ def validate_crc():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error validating CRC: {e}")
+        logger.error(f"✗ Error validating CRC: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -323,7 +324,7 @@ def get_compression_stats():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting compression stats: {e}")
+        logger.error(f"✗ Error getting compression stats: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -342,7 +343,7 @@ def reset_compression_stats():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error resetting compression stats: {e}")
+        logger.error(f"✗ Error resetting compression stats: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -422,7 +423,7 @@ def get_historical_data(device_id: str):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting historical data for {device_id}: {e}")
+        logger.error(f"✗ Error getting historical data for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -464,7 +465,7 @@ def get_latest_data(device_id: str):
             }), 404
             
     except Exception as e:
-        logger.error(f"Error getting latest data for {device_id}: {e}")
+        logger.error(f"✗ Error getting latest data for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -522,7 +523,7 @@ def export_data_csv(device_id: str):
         return response
         
     except Exception as e:
-        logger.error(f"Error exporting CSV for {device_id}: {e}")
+        logger.error(f"✗ Error exporting CSV for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

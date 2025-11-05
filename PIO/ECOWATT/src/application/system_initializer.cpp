@@ -13,11 +13,8 @@
 #include "application/security.h"
 #include "application/OTAManager.h"
 #include "application/fault_recovery.h" // Milestone 5
+#include "peripheral/logger.h"
 #include <time.h>
-
-// Include peripheral/print.h AFTER OTAManager.h
-// Both define print() macro, but they both rely on debug.log() so it's fine
-#include "peripheral/print.h"
 
 // Initialize static members
 bool SystemInitializer::initialized = false;
@@ -26,136 +23,112 @@ bool SystemInitializer::initialized = false;
 extern Arduino_Wifi Wifi;
 
 bool SystemInitializer::initializeAll() {
-    Serial.begin(115200);
-    delay(1000);
+    // Note: WiFi and Logger already initialized in main.cpp setup()
     
     printBootSequence();
     
-    // Step 1: Print system
-    Serial.println("[BOOT] Step 1: Initializing print system...");
-    print_init();
-    Serial.println("[BOOT] Step 2: Print system initialized");
-    print("Starting ECOWATT System Initialization\n");
+    // Step 1: Sync NTP time (WiFi already connected from main.cpp)
+    LOG_INFO(LOG_TAG_BOOT, "Syncing NTP time...");
+    syncNTPTime();
+    LOG_SUCCESS(LOG_TAG_BOOT, "WiFi and NTP initialized");
 
-    // Step 2: WiFi
-    Serial.println("[BOOT] Step 3: Starting WiFi initialization...");
-    if (!initWiFi()) {
-        Serial.println("[BOOT] ERROR: WiFi initialization failed");
-        return false;
-    }
-    Serial.println("[BOOT] Step 4: WiFi initialized successfully");
-
-    // Step 3: Power Management
-    Serial.println("[BOOT] Step 5: Initializing Power Management...");
+    // Step 2: Power Management
+    LOG_INFO(LOG_TAG_BOOT, "Initializing Power Management...");
     if (!initPowerManagement()) {
-        Serial.println("[BOOT] ERROR: Power Management initialization failed");
+        LOG_ERROR(LOG_TAG_BOOT, "Power Management initialization failed");
         return false;
     }
-    Serial.println("[BOOT] Step 6: Power Management initialized");
+    LOG_SUCCESS(LOG_TAG_BOOT, "Power Management initialized");
 
-    // Step 4: Security Layer
-    Serial.println("[BOOT] Step 7: Initializing Security Layer...");
+    // Step 3: Security Layer
+    LOG_INFO(LOG_TAG_BOOT, "Initializing Security Layer...");
     if (!initSecurity()) {
-        Serial.println("[BOOT] ERROR: Security initialization failed");
+        LOG_ERROR(LOG_TAG_BOOT, "Security initialization failed");
         return false;
     }
-    Serial.println("[BOOT] Step 8: Security Layer initialized");
+    LOG_SUCCESS(LOG_TAG_BOOT, "Security Layer initialized");
 
-    // Step 5: Fault Recovery (Milestone 5)
-    Serial.println("[BOOT] Step 9: Initializing Fault Recovery Module...");
+    // Step 4: Fault Recovery (Milestone 5)
+    LOG_INFO(LOG_TAG_BOOT, "Initializing Fault Recovery...");
     initFaultRecovery();
-    Serial.println("[BOOT] Step 10: Fault Recovery initialized");
+    LOG_SUCCESS(LOG_TAG_BOOT, "Fault Recovery initialized");
 
     initialized = true;
-    Serial.println("[BOOT] ✓ All core systems initialized successfully");
+    LOG_SECTION("SYSTEM INITIALIZATION COMPLETE");
+    LOG_SUCCESS(LOG_TAG_BOOT, "All core systems ready");
     
     return true;
 }
 
-bool SystemInitializer::initWiFi() {
-    Wifi.begin();
+// Separate function for NTP sync (WiFi already connected)
+bool SystemInitializer::syncNTPTime() {
+    if (WiFi.status() != WL_CONNECTED) {
+        LOG_WARN(LOG_TAG_WIFI, "WiFi not connected - skipping NTP sync");
+        return false;
+    }
     
-    // Check if WiFi is actually connected
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("WiFi: CONNECTED ✓");
-        Serial.printf("  IP: %s\n", WiFi.localIP().toString().c_str());
-        
-        // Initialize NTP time synchronization
-        Serial.println("Initializing NTP time sync...");
-        configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-        setenv("TZ", "UTC", 1);  // Set timezone to UTC
-        tzset();
-        
-        // Wait for time to be set (up to 10 seconds)
-        int retry = 0;
-        const int retry_count = 10;
-        struct tm timeinfo;
-        
-        // Temporarily undefine print macro to use Serial.print()
-        #ifdef print
-        #undef print
-        #endif
-        
-        while (!getLocalTime(&timeinfo) && retry < retry_count) {
-            Serial.print(".");
-            delay(1000);
-            retry++;
-        }
-        
-        if (retry < retry_count) {
-            Serial.println("NTP Time Sync: OK ✓");
-            Serial.printf("  Current time: %04d-%02d-%02d %02d:%02d:%02d UTC\n",
-                  timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
-                  timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-        } else {
-            Serial.println("NTP Time Sync: TIMEOUT (will use millis fallback)");
-        }
-        
-        // Redefine print macro
-        #define print(...) debug.log(__VA_ARGS__)
-        
+    // Initialize NTP time synchronization with Sri Lankan timezone (UTC+5:30)
+    configTime(19800, 0, "pool.ntp.org", "time.nist.gov");  // 19800 = 5.5 hours * 3600 seconds
+    setenv("TZ", "IST-5:30", 1);  // Set timezone to Sri Lankan Time (UTC+5:30)
+    tzset();
+    
+    // Wait for time to be set (up to 10 seconds)
+    int retry = 0;
+    const int retry_count = 10;
+    struct tm timeinfo;
+    
+    while (!getLocalTime(&timeinfo) && retry < retry_count) {
+        delay(1000);
+        retry++;
+    }
+    
+    if (retry < retry_count) {
+        LOG_SUCCESS(LOG_TAG_WIFI, "NTP time synchronized");
+        char timeStr[64];
+        strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
+        LOG_INFO(LOG_TAG_WIFI, "Time: %s Sri Lankan Time (UTC+5:30)", timeStr);
         return true;
     } else {
-        Serial.println("WiFi: FAILED ✗");
-        Serial.println("  System will continue but network features disabled");
-        return false;  // Return false to indicate WiFi failure
+        LOG_WARN(LOG_TAG_WIFI, "NTP sync timeout - using millis() fallback");
+        return false;
     }
 }
 
 bool SystemInitializer::initPowerManagement() {
     PowerManagement::init();
     PeripheralPower::init();
-    print("Power Management: OK\n");
-    print("Peripheral Power Gating: OK\n");
+    LOG_SUCCESS(LOG_TAG_POWER, "Power management initialized");
+    LOG_SUCCESS(LOG_TAG_POWER, "Peripheral power gating enabled");
     return true;
 }
 
 bool SystemInitializer::initSecurity() {
-    print("Initializing Security Layer...\n");
     SecurityLayer::init();
-    print("Security Layer: OK\n");
+    LOG_SUCCESS(LOG_TAG_SECURITY, "Security layer initialized");
     return true;
 }
 
 bool SystemInitializer::initOTA(const char* serverURL, const char* deviceID, 
                                 const char* version) {
-    print("Initializing OTA Manager...\n");
-    print("  Server: %s\n", serverURL);
-    print("  Device: %s\n", deviceID);
-    print("  Version: %s\n", version);
+    LOG_INFO(LOG_TAG_FOTA, "Initializing OTA Manager");
+    LOG_DEBUG(LOG_TAG_FOTA, "Server: %s", serverURL);
+    LOG_DEBUG(LOG_TAG_FOTA, "Device: %s", deviceID);
+    LOG_DEBUG(LOG_TAG_FOTA, "Version: %s", version);
     
     // OTA Manager is created externally in main.cpp
     // This function just logs the initialization
     
-    print("OTA Manager: OK\n");
+    LOG_SUCCESS(LOG_TAG_FOTA, "OTA Manager ready");
     return true;
 }
 
 void SystemInitializer::printBootSequence() {
-    Serial.println("\n\n===========================================");
-    Serial.println("ESP32 BOOTING - EcoWatt System");
-    Serial.println("Team: PowerPort");
-    Serial.println("===========================================\n");
+    LOG_INFO(LOG_TAG_BOOT, "");
+    LOG_INFO(LOG_TAG_BOOT, "╔════════════════════════════════════════════════════════════╗");
+    LOG_INFO(LOG_TAG_BOOT, "║              ESP32 EcoWatt System Boot                     ║");
+    LOG_INFO(LOG_TAG_BOOT, "║                  Team PowerPort                            ║");
+    LOG_INFO(LOG_TAG_BOOT, "╚════════════════════════════════════════════════════════════╝");
+    LOG_INFO(LOG_TAG_BOOT, "");
 }
 
 bool SystemInitializer::isInitialized() {

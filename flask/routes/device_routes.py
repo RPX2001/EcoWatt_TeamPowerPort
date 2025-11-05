@@ -10,6 +10,7 @@ import time
 from typing import Dict, List
 from datetime import datetime
 from database import Database
+from utils.logger_utils import log_success
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ def get_devices():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error fetching devices: {e}")
+        logger.error(f"✗ Error fetching devices: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -132,7 +133,7 @@ def get_device(device_id: str):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error fetching device {device_id}: {e}")
+        logger.error(f"✗ Error fetching device {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -225,7 +226,7 @@ def register_device():
         }), 201
         
     except Exception as e:
-        logger.error(f"Error registering device: {e}")
+        logger.error(f"✗ Error registering device: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -283,7 +284,7 @@ def update_device(device_id: str):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error updating device {device_id}: {e}")
+        logger.error(f"✗ Error updating device {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -318,7 +319,7 @@ def delete_device(device_id: str):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error deleting device {device_id}: {e}")
+        logger.error(f"✗ Error deleting device {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

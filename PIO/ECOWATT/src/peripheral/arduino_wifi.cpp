@@ -1,12 +1,13 @@
 #include "peripheral/arduino_wifi.h"
+#include "peripheral/logger.h"
 
 Arduino_Wifi::Arduino_Wifi() {
   // Initialize with credentials from credentials.h
   ssid = WIFI_SSID;
   password = WIFI_PASSWORD;
   
-  debug.log("WiFi credentials loaded:\n");
-  debug.log("  SSID: %s\n", ssid);
+  LOG_DEBUG(LOG_TAG_WIFI, "WiFi credentials loaded");
+  LOG_DEBUG(LOG_TAG_WIFI, "  SSID: %s", ssid);
 };
 
 
@@ -22,7 +23,7 @@ void Arduino_Wifi::begin()
   WiFi.disconnect();
   delay(100);
   
-  debug.log("Connecting to WiFi SSID: %s\n", ssid);
+  LOG_INFO(LOG_TAG_WIFI, "Connecting to WiFi SSID: %s", ssid);
   WiFi.begin(ssid, password);
 
   int attempts = 0;
@@ -31,25 +32,25 @@ void Arduino_Wifi::begin()
   while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) 
   {
     wait.ms(500);
-    debug.log(".");
+    Serial.print(".");
     attempts++;
     
     if (attempts % 10 == 0) {
-      debug.log(" [%d/%d]\n", attempts, maxAttempts);
+      Serial.printf(" [%d/%d]\n", attempts, maxAttempts);
     }
   }
   
   if (WiFi.status() == WL_CONNECTED) {
-    debug.log("\n✓ WiFi Connected!\n");
-    debug.log("  IP Address: %s\n", WiFi.localIP().toString().c_str());
-    debug.log("  Signal Strength: %d dBm\n", WiFi.RSSI());
+    LOG_SUCCESS(LOG_TAG_WIFI, "WiFi Connected");
+    LOG_INFO(LOG_TAG_WIFI, "  IP Address: %s", WiFi.localIP().toString().c_str());
+    LOG_INFO(LOG_TAG_WIFI, "  Signal Strength: %d dBm", WiFi.RSSI());
   } else {
-    debug.log("\n✗ WiFi Connection Failed!\n");
-    debug.log("  Status Code: %d\n", WiFi.status());
-    debug.log("  Please check:\n");
-    debug.log("    1. SSID: %s\n", ssid);
-    debug.log("    2. Password is correct\n");
-    debug.log("    3. WiFi network is available\n");
+    LOG_ERROR(LOG_TAG_WIFI, "WiFi Connection Failed");
+    LOG_ERROR(LOG_TAG_WIFI, "  Status Code: %d", WiFi.status());
+    LOG_WARN(LOG_TAG_WIFI, "  Please check:");
+    LOG_WARN(LOG_TAG_WIFI, "    1. SSID: %s", ssid);
+    LOG_WARN(LOG_TAG_WIFI, "    2. Password is correct");
+    LOG_WARN(LOG_TAG_WIFI, "    3. WiFi network is available");
   }
 }
 
@@ -129,7 +130,7 @@ bool Arduino_Wifi::isConnected()
 void Arduino_Wifi::reconnect()
 {
   if (!isConnected()) {
-    debug.log("WiFi disconnected. Attempting to reconnect...\n");
+    LOG_WARN(LOG_TAG_WIFI, "WiFi disconnected. Attempting to reconnect...");
     WiFi.disconnect();
     delay(100);
     begin();

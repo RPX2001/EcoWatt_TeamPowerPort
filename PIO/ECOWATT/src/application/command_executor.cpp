@@ -7,8 +7,7 @@
  */
 
 #include "application/command_executor.h"
-#include "peripheral/print.h"
-#include "peripheral/formatted_print.h"
+#include "peripheral/logger.h"
 // Temporarily undef print macro before any ArduinoJson includes (via acquisition.h)
 #ifdef print
 #undef print
@@ -19,8 +18,6 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
-// Redefine print macro after all ArduinoJson includes
-#define print(...) debug.log(__VA_ARGS__)
 
 // Initialize static members
 char CommandExecutor::pollURL[256] = "";
@@ -45,10 +42,10 @@ void CommandExecutor::init(const char* pollEndpoint, const char* resultEndpoint,
     commandsSuccessful = 0;
     commandsFailed = 0;
     
-    print("[CommandExecutor] Initialized\n");
-    print("[CommandExecutor] Poll URL: %s\n", pollURL);
-    print("[CommandExecutor] Result URL: %s\n", resultURL);
-    print("[CommandExecutor] Device: %s\n", deviceID);
+    LOG_INFO(LOG_TAG_COMMAND, "CommandExecutor initialized");
+    LOG_DEBUG(LOG_TAG_COMMAND, "Poll URL: %s", pollURL);
+    LOG_DEBUG(LOG_TAG_COMMAND, "Result URL: %s", resultURL);
+    LOG_DEBUG(LOG_TAG_COMMAND, "Device ID: %s", deviceID);
 }
 
 void CommandExecutor::checkAndExecuteCommands() {
@@ -102,7 +99,7 @@ void CommandExecutor::checkAndExecuteCommands() {
                 if (!m4Command.isNull()) {
                     const char* action = m4Command["action"] | "";
                     
-                    print("  [CMD] Received M4 command: %s (ID: %s)\n", action, commandId);
+                    LOG_DEBUG(LOG_TAG_COMMAND, "Received M4 command: %s (ID: %s)", action, commandId);
                     
                     // Parse M4 parameters
                     const char* targetRegister = m4Command["target_register"] | "";
@@ -110,11 +107,8 @@ void CommandExecutor::checkAndExecuteCommands() {
                     int regAddress = m4Command["register_address"] | -1;  // Flask adds this
                     
                     if (strlen(targetRegister) > 0) {
-                        print("  [INFO] Target Register: %s", targetRegister);
-                        if (regAddress >= 0) {
-                            print(" (address: %d)", regAddress);
-                        }
-                        print(", Value: %d\n", value);
+                        LOG_DEBUG(LOG_TAG_COMMAND, "Target Register: %s (address: %d), Value: %d", 
+                                 targetRegister, regAddress, value);
                     }
                     
                     // Execute the command
@@ -124,16 +118,16 @@ void CommandExecutor::checkAndExecuteCommands() {
                     sendCommandResult(commandId, success);
                     
                     if (success) {
-                        PRINT_SUCCESS("Command executed successfully");
+                        LOG_SUCCESS(LOG_TAG_COMMAND, "Command executed successfully");
                     } else {
-                        PRINT_ERROR("Command execution failed");
+                        LOG_ERROR(LOG_TAG_COMMAND, "Command execution failed");
                     }
                 } else {
-                    PRINT_ERROR("Invalid M4 format - missing 'command' object");
+                    LOG_ERROR(LOG_TAG_COMMAND, "Invalid M4 format - missing 'command' object");
                 }
             }
         } else if (error) {
-            PRINT_ERROR("Failed to parse JSON response: %s", error.c_str());
+            LOG_ERROR(LOG_TAG_COMMAND, "Failed to parse JSON response: %s", error.c_str());
         } else {
             // No commands - this is normal, don't print anything
             // Silently skip to avoid log spam
@@ -146,18 +140,18 @@ void CommandExecutor::checkAndExecuteCommands() {
         http.end();
     } else if (httpResponseCode < 0) {
         // Other HTTP client error (connection failed, etc)
-        PRINT_WARNING("Command poll failed - network error (code: %d)", httpResponseCode);
+        LOG_WARN(LOG_TAG_COMMAND, "Command poll failed - network error (code: %d)", httpResponseCode);
         http.end();
     } else {
         // HTTP error response (4xx, 5xx)
-        PRINT_ERROR("HTTP GET failed - Error code: %d", httpResponseCode);
+        LOG_ERROR(LOG_TAG_COMMAND, "HTTP GET failed - Error code: %d", httpResponseCode);
         http.end();
     }
 }
 
 bool CommandExecutor::executeCommand(const char* commandId, const char* action, 
                                      JsonObject& m4Command) {
-    print("[CommandExecutor] Executing M4 action: %s\n", action);
+    LOG_DEBUG(LOG_TAG_COMMAND, "Executing M4 action: %s", action);
     
     commandsExecuted++;
     bool success = false;
@@ -178,7 +172,7 @@ bool CommandExecutor::executeCommand(const char* commandId, const char* action,
     } else if (strcmp(action, "reset_peripheral_stats") == 0) {
         success = executeResetPeripheralStatsCommand();
     } else {
-        print("[CommandExecutor] Unknown M4 action: %s\n", action);
+        LOG_DEBUG(LOG_TAG_COMMAND, " Unknown M4 action: %s\n", action);
         success = false;
     }
     
@@ -202,14 +196,14 @@ bool CommandExecutor::executePowerCommand(JsonObject& m4Command) {
     if (powerPercentage < 0) powerPercentage = 0;
     if (powerPercentage > 100) powerPercentage = 100;
     
-    print("[CommandExecutor] Setting power to %d W (%d%%)\n", powerValue, powerPercentage);
+    LOG_DEBUG(LOG_TAG_COMMAND, " Setting power to %d W (%d%%)\n", powerValue, powerPercentage);
     
     bool result = setPower(powerPercentage);
     
     if (result) {
-        print("[CommandExecutor] Power set successfully\n");
+        LOG_DEBUG(LOG_TAG_COMMAND, " Power set successfully");
     } else {
-        print("[CommandExecutor] Failed to set power\n");
+        LOG_DEBUG(LOG_TAG_COMMAND, " Failed to set power");
     }
     
     return result;
@@ -222,14 +216,14 @@ bool CommandExecutor::executePowerPercentageCommand(JsonObject& m4Command) {
     if (percentage < 0) percentage = 0;
     if (percentage > 100) percentage = 100;
     
-    print("[CommandExecutor] Setting power percentage to %d%%\n", percentage);
+    LOG_DEBUG(LOG_TAG_COMMAND, " Setting power percentage to %d%%\n", percentage);
     
     bool result = setPower(percentage);
     
     if (result) {
-        print("[CommandExecutor] Power percentage set successfully\n");
+        LOG_DEBUG(LOG_TAG_COMMAND, " Power percentage set successfully");
     } else {
-        print("[CommandExecutor] Failed to set power percentage\n");
+        LOG_DEBUG(LOG_TAG_COMMAND, " Failed to set power percentage");
     }
     
     return result;
@@ -246,22 +240,22 @@ bool CommandExecutor::executeWriteRegisterCommand(JsonObject& m4Command) {
         // Try to parse target_register as number
         regAddress = atoi(targetRegister);
         if (regAddress == 0 && strcmp(targetRegister, "0") != 0) {
-            print("[CommandExecutor] Invalid register address: %s\n", targetRegister);
+            LOG_DEBUG(LOG_TAG_COMMAND, " Invalid register address: %s\n", targetRegister);
             return false;
         }
     }
     
-    print("[CommandExecutor] Writing register %d (%s) with value %d\n", 
+    LOG_DEBUG(LOG_TAG_COMMAND, " Writing register %d (%s) with value %d\n", 
           regAddress, strlen(targetRegister) > 0 ? targetRegister : "unnamed", value);
     
     // Build Modbus write frame using existing acquisition function
     char writeFrame[64];
     if (!buildWriteFrame(0x11, (uint16_t)regAddress, (uint16_t)value, writeFrame, sizeof(writeFrame))) {
-        print("[CommandExecutor] Failed to build Modbus write frame\n");
+        LOG_DEBUG(LOG_TAG_COMMAND, " Failed to build Modbus write frame");
         return false;
     }
     
-    print("[CommandExecutor] Modbus write frame: %s\n", writeFrame);
+    LOG_DEBUG(LOG_TAG_COMMAND, " Modbus write frame: %s\n", writeFrame);
     
     // Send write command to Inverter SIM via protocol adapter
     char responseFrame[64] = {0};
@@ -270,12 +264,12 @@ bool CommandExecutor::executeWriteRegisterCommand(JsonObject& m4Command) {
     // Try up to 3 times with delay
     for (int attempt = 0; attempt < 3; attempt++) {
         if (adapter.writeRegister(writeFrame, responseFrame, sizeof(responseFrame))) {
-            print("[CommandExecutor] ✓ Register write successful (attempt %d/3)\n", attempt + 1);
-            print("[CommandExecutor] Response: %s\n", responseFrame);
+            LOG_DEBUG(LOG_TAG_COMMAND, " ✓ Register write successful (attempt %d/3)\n", attempt + 1);
+            LOG_DEBUG(LOG_TAG_COMMAND, " Response: %s\n", responseFrame);
             success = true;
             break;
         } else {
-            print("[CommandExecutor] Write attempt %d/3 failed\n", attempt + 1);
+            LOG_DEBUG(LOG_TAG_COMMAND, " Write attempt %d/3 failed\n", attempt + 1);
             if (attempt < 2) {
                 vTaskDelay(pdMS_TO_TICKS(500));  // Wait 500ms before retry
             }
@@ -283,43 +277,43 @@ bool CommandExecutor::executeWriteRegisterCommand(JsonObject& m4Command) {
     }
     
     if (!success) {
-        print("[CommandExecutor] ✗ Register write failed after 3 attempts\n");
+        LOG_DEBUG(LOG_TAG_COMMAND, " ✗ Register write failed after 3 attempts");
     }
     
     return success;
 }
 
 bool CommandExecutor::executeGetPowerStatsCommand() {
-    print("[CommandExecutor] Printing power management statistics...\n");
+    LOG_DEBUG(LOG_TAG_COMMAND, " Printing power management statistics...");
     PowerManagement::printStats();
     return true;
 }
 
 bool CommandExecutor::executeResetPowerStatsCommand() {
-    print("[CommandExecutor] Resetting power management statistics...\n");
+    LOG_DEBUG(LOG_TAG_COMMAND, " Resetting power management statistics...");
     PowerManagement::resetStats();
     PowerManagement::printStats();
     return true;
 }
 
 bool CommandExecutor::executeGetPeripheralStatsCommand() {
-    print("[CommandExecutor] Printing peripheral power gating statistics...\n");
+    LOG_DEBUG(LOG_TAG_COMMAND, " Printing peripheral power gating statistics...");
     PeripheralPower::printStats();
     return true;
 }
 
 bool CommandExecutor::executeResetPeripheralStatsCommand() {
-    print("[CommandExecutor] Resetting peripheral power gating statistics...\n");
+    LOG_DEBUG(LOG_TAG_COMMAND, " Resetting peripheral power gating statistics...");
     PeripheralPower::resetStats();
     PeripheralPower::printStats();
     return true;
 }
 
 void CommandExecutor::sendCommandResult(const char* commandId, bool success) {
-    print("[CommandExecutor] Sending M4 command result to server...\n");
+    LOG_DEBUG(LOG_TAG_COMMAND, " Sending M4 command result to server...");
     
     if (WiFi.status() != WL_CONNECTED) {
-        print("[CommandExecutor] WiFi not connected. Cannot send result.\n");
+        LOG_DEBUG(LOG_TAG_COMMAND, " WiFi not connected. Cannot send result.");
         return;
     }
 
@@ -350,14 +344,15 @@ void CommandExecutor::sendCommandResult(const char* commandId, bool success) {
     char resultBody[256];
     serializeJson(resultDoc, resultBody, sizeof(resultBody));
 
-    print("[CommandExecutor] M4 result payload: %s\n", resultBody);
+    LOG_DEBUG(LOG_TAG_COMMAND, "M4 result payload:");
+    LOG_DEBUG(LOG_TAG_COMMAND, "  %s", resultBody);
 
     int httpResponseCode = http.POST((uint8_t*)resultBody, strlen(resultBody));
 
     if (httpResponseCode == 200) {
-        print("[CommandExecutor] ✓ M4 command result sent successfully\n");
+        LOG_DEBUG(LOG_TAG_COMMAND, " ✓ M4 command result sent successfully");
     } else {
-        print("[CommandExecutor] ✗ Failed to send result (HTTP %d)\n", httpResponseCode);
+        LOG_DEBUG(LOG_TAG_COMMAND, " ✗ Failed to send result (HTTP %d)\n", httpResponseCode);
     }
 
     http.end();
@@ -374,19 +369,19 @@ void CommandExecutor::resetStats() {
     commandsExecuted = 0;
     commandsSuccessful = 0;
     commandsFailed = 0;
-    print("[CommandExecutor] Statistics reset\n");
+    LOG_DEBUG(LOG_TAG_COMMAND, " Statistics reset");
 }
 
 void CommandExecutor::printStats() {
-    print("\n========== COMMAND EXECUTOR STATISTICS ==========\n");
-    print("  Total Commands:      %lu\n", commandsExecuted);
-    print("  Successful:          %lu\n", commandsSuccessful);
-    print("  Failed:              %lu\n", commandsFailed);
+    LOG_INFO(LOG_TAG_COMMAND, "\n========== COMMAND EXECUTOR STATISTICS ==========");
+    LOG_INFO(LOG_TAG_COMMAND, "  Total Commands:      %lu\n", commandsExecuted);
+    LOG_INFO(LOG_TAG_COMMAND, "  Successful:          %lu\n", commandsSuccessful);
+    LOG_INFO(LOG_TAG_COMMAND, "  Failed:              %lu\n", commandsFailed);
     
     if (commandsExecuted > 0) {
         float successRate = (commandsSuccessful * 100.0f) / commandsExecuted;
-        print("  Success Rate:        %.2f%%\n", successRate);
+        LOG_INFO(LOG_TAG_COMMAND, "  Success Rate:        %.2f%%\n", successRate);
     }
     
-    print("==================================================\n\n");
+    LOG_INFO(LOG_TAG_COMMAND, "==================================================");;
 }

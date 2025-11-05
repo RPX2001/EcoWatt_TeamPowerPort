@@ -7,6 +7,7 @@ import logging
 from typing import Dict, List, Optional, Tuple
 from utils.compression_utils import decompress_smart_binary_data
 from utils.data_utils import deserialize_aggregated_sample, expand_aggregated_to_samples
+from utils.logger_utils import log_success
 import struct
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ def handle_compressed_data(base64_data: str, validate_crc: bool = True) -> Tuple
         - stats_dict: Statistics about decompression
     """
     try:
-        logger.info(f"Processing compressed data: {len(base64_data)} bytes (base64)")
+        logger.debug(f"Processing compressed data: {len(base64_data)} bytes (base64)")
         
         # Update statistics
         compression_stats['total_decompressions'] += 1
@@ -52,7 +53,7 @@ def handle_compressed_data(base64_data: str, validate_crc: bool = True) -> Tuple
         decompressed_values, stats = decompress_smart_binary_data(base64_data)
         
         if decompressed_values is None:
-            logger.error("Decompression failed")
+            logger.error("✗ Decompression failed")
             compression_stats['failed_decompressions'] += 1
             return None, {'error': 'Decompression failed', 'stats': stats}
         
@@ -75,8 +76,8 @@ def handle_compressed_data(base64_data: str, validate_crc: bool = True) -> Tuple
                 compression_stats['total_bytes_original']
             )
         
-        logger.info(f"Decompression successful: {len(decompressed_values)} values, "
-                   f"method: {method}, ratio: {stats.get('ratio', 0):.3f}")
+        log_success(logger, "Decompressed %d values | Method: %s | Ratio: %.3f", 
+                   len(decompressed_values), method, stats.get('ratio', 0))
         
         return decompressed_values, {
             'success': True,
@@ -88,7 +89,7 @@ def handle_compressed_data(base64_data: str, validate_crc: bool = True) -> Tuple
         }
         
     except Exception as e:
-        logger.error(f"Error handling compressed data: {e}")
+        logger.error(f"✗ Error handling compressed data: {e}")
         compression_stats['failed_decompressions'] += 1
         return None, {'error': str(e)}
 

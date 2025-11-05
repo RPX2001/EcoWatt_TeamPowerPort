@@ -1,4 +1,5 @@
 #include "application/compression.h"
+#include "peripheral/logger.h"
 
 // ==================== STATIC MEMBER INITIALIZATION ====================
 
@@ -99,10 +100,10 @@ std::vector<uint8_t> DataCompression::compressWithSmartSelection(uint16_t* data,
     size_t compressedBytes = bestResult.data.size();
     float savingsPercent = (1.0f - bestResult.academicRatio) * 100.0f;
     
-    print("COMPRESSION RESULT: %s method\n", bestResult.method.c_str());
-    print("Original: %zu bytes -> Compressed: %zu bytes (%.1f%% savings)\n", 
+    LOG_INFO(LOG_TAG_COMPRESS, "COMPRESSION RESULT: %s method", bestResult.method.c_str());
+    LOG_INFO(LOG_TAG_COMPRESS, "Original: %zu bytes -> Compressed: %zu bytes (%.1f%% savings)", 
           originalBytes, compressedBytes, savingsPercent);
-    print("Academic Ratio: %.3f | Time: %lu μs\n", bestResult.academicRatio, totalTime);
+    LOG_INFO(LOG_TAG_COMPRESS, "Academic Ratio: %.3f | Time: %lu μs", bestResult.academicRatio, totalTime);
 
     // Update dictionary with new data for future improvements
     updateDictionary(data, selection, count);
@@ -984,7 +985,7 @@ void DataCompression::printCompressionStats(const char* method, size_t originalS
 {
     if (originalSize == 0) 
     {
-        print("Error: Original size is zero\n");
+        LOG_ERROR(LOG_TAG_COMPRESS, "Error: Original size is zero");
         return;
     }
     
@@ -993,18 +994,18 @@ void DataCompression::printCompressionStats(const char* method, size_t originalS
     float traditionalRatio = (float)originalSize / (float)compressedSize;
     float savings = (1.0f - academicRatio) * 100.0f;
 
-    print("COMPRESSION STATISTICS (Academic Format)\n");
-    print("Method: %s\n", method);
-    print("Original: %zu bytes -> Compressed: %zu bytes\n", originalSize, compressedSize);
-    print("Academic Compression Ratio: %.3f (%.1f%% of original)\n", academicRatio, academicRatio * 100);
-    print("Traditional Ratio: %.2f:1\n", traditionalRatio);
-    print("Storage Savings: %.1f%%\n", savings);
+    LOG_SECTION("COMPRESSION STATISTICS (Academic Format)");
+    LOG_INFO(LOG_TAG_COMPRESS, "Method: %s", method);
+    LOG_INFO(LOG_TAG_COMPRESS, "Original: %zu bytes -> Compressed: %zu bytes", originalSize, compressedSize);
+    LOG_INFO(LOG_TAG_COMPRESS, "Academic Compression Ratio: %.3f (%.1f%% of original)", academicRatio, academicRatio * 100);
+    LOG_INFO(LOG_TAG_COMPRESS, "Traditional Ratio: %.2f:1", traditionalRatio);
+    LOG_INFO(LOG_TAG_COMPRESS, "Storage Savings: %.1f%%", savings);
     
     const char* efficiency = (academicRatio < EXCELLENT_RATIO_THRESHOLD) ? "Excellent" :
                            (academicRatio < GOOD_RATIO_THRESHOLD) ? "Good" :
                            (academicRatio < POOR_RATIO_THRESHOLD) ? "Fair" : "Poor";
-    print("Efficiency Rating: %s\n", efficiency);
-    print("================================\n");
+    LOG_INFO(LOG_TAG_COMPRESS, "Efficiency Rating: %s", efficiency);
+    LOG_INFO(LOG_TAG_COMPRESS, "================================");
 }
 
 
@@ -1015,13 +1016,13 @@ void DataCompression::printCompressionStats(const char* method, size_t originalS
  */
 void DataCompression::printMemoryUsage() 
 {
-    print("ESP32 MEMORY STATUS\n");
-    print("Free Heap: %u bytes\n", ESP.getFreeHeap());
-    print("Heap Size: %u bytes\n", ESP.getHeapSize());
-    print("Max Alloc: %u bytes\n", ESP.getMaxAllocHeap());
-    print("PSRAM Free: %u bytes\n", ESP.getFreePsram());
-    print("Flash Size: %u bytes\n", ESP.getFlashChipSize());
-    print("==========================\n");
+    LOG_SECTION("ESP32 MEMORY STATUS");
+    LOG_INFO(LOG_TAG_COMPRESS, "Free Heap: %u bytes", ESP.getFreeHeap());
+    LOG_INFO(LOG_TAG_COMPRESS, "Heap Size: %u bytes", ESP.getHeapSize());
+    LOG_INFO(LOG_TAG_COMPRESS, "Max Alloc: %u bytes", ESP.getMaxAllocHeap());
+    LOG_INFO(LOG_TAG_COMPRESS, "PSRAM Free: %u bytes", ESP.getFreePsram());
+    LOG_INFO(LOG_TAG_COMPRESS, "Flash Size: %u bytes", ESP.getFlashChipSize());
+    LOG_INFO(LOG_TAG_COMPRESS, "==========================");
 }
 
 // ==================== ERROR HANDLING ====================
@@ -1039,7 +1040,7 @@ void DataCompression::setError(const String& errorMsg, ErrorType errorType)
     lastErrorType = errorType;
     if (debugMode) 
     {
-        print("DataCompression Error: %s\n", errorMsg.c_str());
+        LOG_ERROR(LOG_TAG_COMPRESS, "DataCompression Error: %s", errorMsg.c_str());
     }
 }
 
@@ -1541,22 +1542,22 @@ void DataCompression::setDictionaryLearningRate(float rate)
  */
 void DataCompression::printMethodPerformanceStats() 
 {
-    print("\nMETHOD PERFORMANCE STATISTICS\n");
-    print("═══════════════════════════════════════\n");
+    LOG_SECTION("METHOD PERFORMANCE STATISTICS");
+    LOG_INFO(LOG_TAG_COMPRESS, "═══════════════════════════════════════");
     
     for (const auto& stat : methodStats) 
     {
         if (stat.useCount > 0) {
-            print("Method: %s\n", stat.methodName.c_str());
-            print("   Uses: %lu times\n", stat.useCount);
-            print("   Avg Ratio: %.3f\n", stat.avgCompressionRatio);
-            print("   Avg Time: %lu μs\n", stat.avgTimeUs);
-            print("   Success Rate: %.1f%%\n", stat.successRate * 100);
-            print("   Adaptive Score: %.3f\n", stat.adaptiveScore);
-            print("   Total Savings: %lu bytes\n", stat.totalSavings);
-            print("   ───────────────────────\n");
+            LOG_INFO(LOG_TAG_COMPRESS, "Method: %s", stat.methodName.c_str());
+            LOG_INFO(LOG_TAG_COMPRESS, "   Uses: %lu times", stat.useCount);
+            LOG_INFO(LOG_TAG_COMPRESS, "   Avg Ratio: %.3f", stat.avgCompressionRatio);
+            LOG_INFO(LOG_TAG_COMPRESS, "   Avg Time: %lu μs", stat.avgTimeUs);
+            LOG_INFO(LOG_TAG_COMPRESS, "   Success Rate: %.1f%%", stat.successRate * 100);
+            LOG_INFO(LOG_TAG_COMPRESS, "   Adaptive Score: %.3f", stat.adaptiveScore);
+            LOG_INFO(LOG_TAG_COMPRESS, "   Total Savings: %lu bytes", stat.totalSavings);
+            LOG_INFO(LOG_TAG_COMPRESS, "   ───────────────────────");
         }
     }
 
-    print("═══════════════════════════════════════\n");
+    LOG_INFO(LOG_TAG_COMPRESS, "═══════════════════════════════════════");
 }

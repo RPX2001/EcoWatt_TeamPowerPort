@@ -1,4 +1,5 @@
 #include "peripheral/acquisition.h"
+#include "peripheral/logger.h"
 #include "application/fault_recovery.h" // Milestone 5: Fault Recovery
 #include "application/data_uploader.h"  // For getDeviceID()
 #include <functional>  // For std::bind to reduce stack usage
@@ -187,11 +188,11 @@ bool setPower(uint16_t powerValue)
   char frame[32];
   if (!buildWriteFrame(0x11, 8, powerValue, frame, sizeof(frame))) 
   {
-    debug.log("Failed to build write frame\n");
+    LOG_ERROR(LOG_TAG_MODBUS, "Failed to build write frame");
     return false;
   }
 
-  debug.log("Sending write frame: %s\n", frame);
+  LOG_DEBUG(LOG_TAG_MODBUS, "Sending write frame: %s", frame);
 
   char responseFrame[128];
 
@@ -199,7 +200,7 @@ bool setPower(uint16_t powerValue)
 
   if (WiFi.status() != WL_CONNECTED)
   {
-    debug.log("WiFi not connected\n");
+    LOG_WARN(LOG_TAG_MODBUS, "WiFi not connected");
     okReq = false;
   }
   else
@@ -209,19 +210,19 @@ bool setPower(uint16_t powerValue)
 
   if (!okReq) 
   {
-    debug.log("Write request failed after retries.\n");
+    LOG_ERROR(LOG_TAG_MODBUS, "Write request failed after retries");
     return false;
   }
 
   if (strcmp(responseFrame, frame) == 0) 
   {
-    debug.log("Power set to %u successfully\n", powerValue);
+    LOG_SUCCESS(LOG_TAG_MODBUS, "Power set to %u successfully", powerValue);
     return true;
   } 
   else 
   {
-    debug.log("Failed to set power, response mismatch\n");
-    debug.log("Raw response frame: %s\n", responseFrame);
+    LOG_ERROR(LOG_TAG_MODBUS, "Failed to set power, response mismatch");
+    LOG_DEBUG(LOG_TAG_MODBUS, "Raw response frame: %s", responseFrame);
     return false;
   }
 }
@@ -274,7 +275,7 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
   char frame[64];
   if (!buildReadFrame(0x11, regs, regCount, startAddr, count, frame, sizeof(frame))) 
   {
-    debug.log("Failed to build read frame.\n");
+    LOG_ERROR(LOG_TAG_MODBUS, "Failed to build read frame");
     result.values[0] = 0xFFFF; // Indicate error
     result.count = 1;
     return result;
@@ -290,7 +291,7 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
 
   if (WiFi.status() != WL_CONNECTED)
   {
-    debug.log("WiFi not connected\n");
+    LOG_WARN(LOG_TAG_MODBUS, "WiFi not connected");
     ok =  false;
   }
   else
@@ -301,7 +302,7 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
   //if response is error return error values to main code
   if (!ok) 
   {
-    debug.log("Read request failed after retries.\n");
+    LOG_ERROR(LOG_TAG_MODBUS, "Read request failed after retries");
     
     // MILESTONE 5: Report timeout fault
     FaultRecoveryEvent event;
@@ -328,7 +329,7 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
   FaultType fault = detectFault(response_frame, expectedByteCount, sizeof(responseFrame));
   
   if (fault != FaultType::NONE) {
-    debug.log("[FAULT DETECTED] Type: %s\n", getFaultTypeName(fault));
+    LOG_WARN(LOG_TAG_FAULT, "Fault detected: %s", getFaultTypeName(fault));
     
     // Execute recovery with retries (use std::bind to avoid lambda overhead)
     uint8_t retryCount = 0;

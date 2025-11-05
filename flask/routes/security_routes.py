@@ -13,6 +13,7 @@ from handlers import (
     clear_nonces,
     get_device_security_info
 )
+from utils.logger_utils import log_success
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ def validate_payload(device_id: str):
             }), 401
         
     except Exception as e:
-        logger.error(f"Error validating payload for {device_id}: {e}")
+        logger.error(f"✗ Error validating payload for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -73,7 +74,7 @@ def get_security_statistics():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting security stats: {e}")
+        logger.error(f"✗ Error getting security stats: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -98,7 +99,7 @@ def reset_security_statistics():
             }), 500
         
     except Exception as e:
-        logger.error(f"Error resetting security stats: {e}")
+        logger.error(f"✗ Error resetting security stats: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -123,7 +124,7 @@ def clear_device_nonces(device_id: str):
             }), 500
         
     except Exception as e:
-        logger.error(f"Error clearing nonces for {device_id}: {e}")
+        logger.error(f"✗ Error clearing nonces for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -148,7 +149,7 @@ def clear_all_nonces():
             }), 500
         
     except Exception as e:
-        logger.error(f"Error clearing all nonces: {e}")
+        logger.error(f"✗ Error clearing all nonces: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -167,7 +168,7 @@ def get_device_security(device_id: str):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting device security info: {e}")
+        logger.error(f"✗ Error getting device security info: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

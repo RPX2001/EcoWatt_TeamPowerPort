@@ -1,6 +1,7 @@
 #include "application/nvs.h"
 #include "config/test_config.h"
 #include "application/system_config.h"
+#include "peripheral/logger.h"
 
 // Global NVS instance definition
 Preferences esp_prefs_nvs;
@@ -357,31 +358,30 @@ void nvs::initPowerNamespace()
     // This ensures the namespace exists before any reads/writes
     
     if (!esp_prefs_nvs.begin("power", false)) {
-        // Failed to create/open namespace - this is a critical error
-        Serial.println("[NVS] ERROR: Failed to initialize power namespace!");
+        LOG_ERROR(LOG_TAG_NVS, "Failed to initialize power namespace");
         return;
     }
     
     // Check and initialize each key with defaults if not present
     if (!esp_prefs_nvs.isKey("enabled")) {
         esp_prefs_nvs.putBool("enabled", DEFAULT_POWER_ENABLED);
-        Serial.printf("[NVS] Initialized power.enabled = %s\n", DEFAULT_POWER_ENABLED ? "true" : "false");
+        LOG_INFO(LOG_TAG_NVS, "Initialized power.enabled = %s", DEFAULT_POWER_ENABLED ? "true" : "false");
     }
     
     if (!esp_prefs_nvs.isKey("techniques")) {
         esp_prefs_nvs.putUChar("techniques", DEFAULT_POWER_TECHNIQUES);
-        Serial.printf("[NVS] Initialized power.techniques = 0x%02X\n", DEFAULT_POWER_TECHNIQUES);
+        LOG_INFO(LOG_TAG_NVS, "Initialized power.techniques = 0x%02X", DEFAULT_POWER_TECHNIQUES);
     }
     
     if (!esp_prefs_nvs.isKey("energy_poll")) {
         esp_prefs_nvs.putULong64("energy_poll", DEFAULT_ENERGY_POLL_FREQUENCY_US);
-        Serial.printf("[NVS] Initialized power.energy_poll = %llu us (%.1f s)\n", 
-                     DEFAULT_ENERGY_POLL_FREQUENCY_US, 
-                     DEFAULT_ENERGY_POLL_FREQUENCY_US / 1000000.0);
+        LOG_INFO(LOG_TAG_NVS, "Initialized power.energy_poll = %llu us (%.1f s)", 
+                 DEFAULT_ENERGY_POLL_FREQUENCY_US, 
+                 DEFAULT_ENERGY_POLL_FREQUENCY_US / 1000000.0);
     }
     
     esp_prefs_nvs.end();
-    Serial.println("[NVS] Power namespace initialized successfully");
+    LOG_SUCCESS(LOG_TAG_NVS, "Power namespace initialized");
 }
 
 bool nvs::getPowerEnabled()

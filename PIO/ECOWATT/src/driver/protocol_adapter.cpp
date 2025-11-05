@@ -2,6 +2,7 @@
 #include <ArduinoJson.h>
 #include <Arduino.h>
 #include "driver/protocol_adapter.h"
+#include "peripheral/logger.h"
 #include "application/fault_recovery.h"
 #include "application/data_uploader.h"
 #include <time.h>
@@ -43,7 +44,7 @@ bool ProtocolAdapter::writeRegister(const char* frameHex, char* outFrameHex, siz
   // One-time retry for corrupted/failed packets
   if (!state)
   {
-    debug.log("Write operation failed. Attempting ONE retry...\n");
+    LOG_WARN(LOG_TAG_MODBUS, "Write operation failed. Attempting ONE retry...");
     state = sendRequest(writeURL, frameHex, responseJson, sizeof(responseJson));
     if (state)
     {
@@ -52,11 +53,11 @@ bool ProtocolAdapter::writeRegister(const char* frameHex, char* outFrameHex, siz
     
     if (!state)
     {
-      debug.log("❌ Write retry failed. Packet DROPPED.\n");
+      LOG_ERROR(LOG_TAG_MODBUS, "Write retry failed. Packet DROPPED.");
     }
     else
     {
-      debug.log("✓ Write operation successful on retry\n");
+      LOG_SUCCESS(LOG_TAG_MODBUS, "Write operation successful on retry");
     }
   }
   
@@ -85,7 +86,7 @@ bool ProtocolAdapter::readRegister(const char* frameHex, char* outFrameHex, size
   // One-time retry for corrupted/failed packets
   if (!state)
   {
-    debug.log("Read operation failed. Attempting ONE retry...\n");
+    LOG_WARN(LOG_TAG_MODBUS, "Read operation failed. Attempting ONE retry...");
     
     // MILESTONE 5: Send recovery event for fault detection
     FaultRecoveryEvent event;
@@ -105,13 +106,13 @@ bool ProtocolAdapter::readRegister(const char* frameHex, char* outFrameHex, size
     
     if (!state)
     {
-      debug.log("❌ Read retry failed. Packet DROPPED.\n");
+      LOG_ERROR(LOG_TAG_MODBUS, "Read retry failed. Packet DROPPED.");
       event.success = false;
       snprintf(event.details, sizeof(event.details), "Modbus read failed after 1 retry");
     }
     else
     {
-      debug.log("✓ Read operation successful on retry\n");
+      LOG_SUCCESS(LOG_TAG_MODBUS, "Read operation successful on retry");
       event.success = true;
       snprintf(event.details, sizeof(event.details), "Modbus read recovered after 1 retry");
     }
@@ -146,7 +147,7 @@ bool ProtocolAdapter::sendRequest(const char* url, const char* frameHex, char* o
     attempt++;
     if (!http.begin(url)) 
     {
-      debug.log("HTTP begin failed\n");
+      LOG_ERROR(LOG_TAG_MODBUS, "HTTP begin failed");
       return false;
     }
     http.setTimeout(httpTimeout);
@@ -156,7 +157,7 @@ bool ProtocolAdapter::sendRequest(const char* url, const char* frameHex, char* o
 
     char payload[256];
     snprintf(payload, sizeof(payload), "{\"frame\": \"%s\"}", frameHex);
-    debug.log("Attempt %d: Sending %s\n", attempt, payload);
+    LOG_DEBUG(LOG_TAG_MODBUS, "Attempt %d: Sending frame: %s", attempt, frameHex);
 
     // Use String for HTTP POST, but only for the call
     String payloadStr(payload);
@@ -177,7 +178,7 @@ bool ProtocolAdapter::sendRequest(const char* url, const char* frameHex, char* o
       http.end();  // Always close connection after getting response
       if (!ok) 
       {
-        debug.log("Empty response, retrying...\n");
+        LOG_WARN(LOG_TAG_MODBUS, "Empty response, retrying...");
       } 
       else 
       {
@@ -186,15 +187,15 @@ bool ProtocolAdapter::sendRequest(const char* url, const char* frameHex, char* o
     } 
     else 
     {
-      debug.log("Request failed (code %d), retrying...\n", httpResponseCode);
+      LOG_WARN(LOG_TAG_MODBUS, "Request failed (code %d), retrying...", httpResponseCode);
       http.end();  // Always close connection even on failure
     }
-    debug.log("Waiting %d ms before retry...\n", backoffDelay);
+    LOG_DEBUG(LOG_TAG_MODBUS, "Waiting %d ms before retry...", backoffDelay);
     wait.ms(backoffDelay);
     backoffDelay *= 2;
   }
 
-  debug.log("Failed after max retries.\n");
+  LOG_ERROR(LOG_TAG_MODBUS, "Failed after max retries.");
   return false;
 }
 
@@ -219,55 +220,54 @@ bool ProtocolAdapter::parseResponse(const char* response, char* outFrameHex, siz
   for (size_t i = 0; i < resp_len && i < 32; ++i) {
     //debug.log("%02X ", (unsigned char)response[i]);
   }
-  debug.log("\n");
+  // Removed empty newline
   if (!response || response[0] == '\0') 
   {
-    debug.log("No response.\n");
+    LOG_ERROR(LOG_TAG_MODBUS, "No response.");
     return false;
   }
 
   StaticJsonDocument<256> doc;
   DeserializationError err = deserializeJson(doc, response);
   if (err) {
-    debug.log("JSON parse failed: Malformed response from inverter\n");
+    LOG_ERROR(LOG_TAG_MODBUS, "JSON parse failed: Malformed response from inverter");
     return false;
   }
   const char* frame = doc["frame"] | "";
   size_t len = strlen(frame);
   if (len + 1 > outSize) {
-    debug.log("Frame too large for buffer\n");
+    LOG_ERROR(LOG_TAG_MODBUS, "Frame too large for buffer");
     return false;
   }
   
   // CHECK FOR CORRUPTION
   if (isFrameCorrupted(frame)) 
   {
-    debug.log("PACKET CORRUPTED - Frame integrity check failed\n");
-    debug.log("   Corrupted frame: %s\n", frame);
+    LOG_ERROR(LOG_TAG_MODBUS, "PACKET CORRUPTED - Frame integrity check failed");
+    LOG_ERROR(LOG_TAG_MODBUS, "   Corrupted frame: %s", frame);
     return false;  // Will trigger retry in caller
   }
 
   memcpy(outFrameHex, frame, len + 1);
-  debug.log("Received frame: %s\n", frame);
 
   // Use enhanced validation with CRC checking
   ParseResult validationResult = validateModbusFrame(frame);
   
   switch (validationResult) {
     case PARSE_OK:
-      debug.log("Valid Modbus frame (CRC verified).\n");
+      LOG_DEBUG(LOG_TAG_MODBUS, "Valid Modbus frame (CRC verified).");
       return true;
       
     case PARSE_CRC_ERROR:
-      debug.log("Frame validation failed: CRC error\n");
+      LOG_ERROR(LOG_TAG_MODBUS, "Frame validation failed: CRC error");
       return false;
       
     case PARSE_MALFORMED:
-      debug.log("Frame validation failed: Malformed frame\n");
+      LOG_ERROR(LOG_TAG_MODBUS, "Frame validation failed: Malformed frame");
       return false;
       
     case PARSE_TRUNCATED:
-      debug.log("Frame validation failed: Truncated frame\n");
+      LOG_ERROR(LOG_TAG_MODBUS, "Frame validation failed: Truncated frame");
       return false;
       
     case PARSE_EXCEPTION:
@@ -276,13 +276,13 @@ bool ProtocolAdapter::parseResponse(const char* response, char* outFrameHex, siz
         char buf[3]; buf[2] = '\0';
         memcpy(buf, frame + 4, 2);
         int errorCode = (int)strtol(buf, NULL, 16);
-        debug.log("Modbus Exception: ");
+        LOG_ERROR(LOG_TAG_MODBUS, "Modbus Exception");
         printErrorCode(errorCode);
       }
       return false;
       
     default:
-      debug.log("Frame validation failed: Unknown error\n");
+      LOG_ERROR(LOG_TAG_MODBUS, "Frame validation failed: Unknown error");
       return false;
   }
 }
@@ -362,7 +362,7 @@ bool ProtocolAdapter::isFrameCorrupted(const char* frameHex)
 {
   if (!frameHex || frameHex[0] == '\0') 
   {
-    debug.log("Corruption detected: NULL or empty frame\n");
+    LOG_ERROR(LOG_TAG_MODBUS, "Corruption detected: NULL or empty frame");
     return true;
   }
 
@@ -371,14 +371,14 @@ bool ProtocolAdapter::isFrameCorrupted(const char* frameHex)
   // Check 1: Minimum length (slave + func + CRC = 8 hex chars minimum)
   if (len < 8) 
   {
-    debug.log("Corruption detected: Frame too short (%u bytes, min 8)\n", (unsigned)len);
+    LOG_ERROR(LOG_TAG_MODBUS, "Corruption detected: Frame too short (%u bytes, min 8)", (unsigned)len);
     return true;
   }
 
   // Check 2: Must be even length (each byte = 2 hex chars)
   if (len % 2 != 0) 
   {
-    debug.log("Corruption detected: Odd frame length (%u chars)\n", (unsigned)len);
+    LOG_ERROR(LOG_TAG_MODBUS, "Corruption detected: Odd frame length (%u chars)", (unsigned)len);
     return true;
   }
 
@@ -387,7 +387,7 @@ bool ProtocolAdapter::isFrameCorrupted(const char* frameHex)
   {
     if (!isxdigit(frameHex[i])) 
     {
-      debug.log("Corruption detected: Invalid hex char '%c' at position %u\n", frameHex[i], (unsigned)i);
+      LOG_ERROR(LOG_TAG_MODBUS, "Corruption detected: Invalid hex char '%c' at position %u", frameHex[i], (unsigned)i);
       return true;
     }
   }
@@ -397,7 +397,7 @@ bool ProtocolAdapter::isFrameCorrupted(const char* frameHex)
   uint8_t frameBytes[256];
   if (byteLen > sizeof(frameBytes)) 
   {
-    debug.log("Corruption detected: Frame too large (%u bytes)\n", (unsigned)byteLen);
+    LOG_ERROR(LOG_TAG_MODBUS, "Corruption detected: Frame too large (%u bytes)", (unsigned)byteLen);
     return true;
   }
 
@@ -414,7 +414,7 @@ bool ProtocolAdapter::isFrameCorrupted(const char* frameHex)
   uint8_t funcCode = frameBytes[1];
   if (funcCode == 0x00 || funcCode == 0xFF) 
   {
-    debug.log("Corruption detected: Invalid function code 0x%02X\n", funcCode);
+    LOG_ERROR(LOG_TAG_MODBUS, "Corruption detected: Invalid function code 0x%02X", funcCode);
     return true;
   }
 
@@ -426,10 +426,10 @@ bool ProtocolAdapter::isFrameCorrupted(const char* frameHex)
     
     if (receivedCRC != calculatedCRC) 
     {
-      debug.log("Corruption detected: CRC mismatch!\n");
-      debug.log("   Expected CRC: 0x%04X\n", calculatedCRC);
-      debug.log("   Received CRC: 0x%04X\n", receivedCRC);
-      debug.log("   Frame: %s\n", frameHex);
+      LOG_ERROR(LOG_TAG_MODBUS, "Corruption detected: CRC mismatch");
+      LOG_ERROR(LOG_TAG_MODBUS, "  Expected CRC: 0x%04X", calculatedCRC);
+      LOG_ERROR(LOG_TAG_MODBUS, "  Received CRC: 0x%04X", receivedCRC);
+      LOG_ERROR(LOG_TAG_MODBUS, "  Frame: %s", frameHex);
       return true;
     }
   }
@@ -450,16 +450,16 @@ void ProtocolAdapter::printErrorCode(int code)
 {
   switch (code) 
   {
-    case 0x01: debug.log("01 - Illegal Function\n"); break;
-    case 0x02: debug.log("02 - Illegal Data Address\n"); break;
-    case 0x03: debug.log("03 - Illegal Data Value\n"); break;
-    case 0x04: debug.log("04 - Slave Device Failure\n"); break;
-    case 0x05: debug.log("05 - Acknowledge (processing delayed)\n"); break;
-    case 0x06: debug.log("06 - Slave Device Busy\n"); break;
-    case 0x08: debug.log("08 - Memory Parity Error\n"); break;
-    case 0x0A: debug.log("0A - Gateway Path Unavailable\n"); break;
-    case 0x0B: debug.log("0B - Gateway Target Device Failed to Respond\n"); break;
-    default:   debug.log("Unknown error code\n"); break;
+    case 0x01: LOG_ERROR(LOG_TAG_MODBUS, "01 - Illegal Function"); break;
+    case 0x02: LOG_ERROR(LOG_TAG_MODBUS, "02 - Illegal Data Address"); break;
+    case 0x03: LOG_ERROR(LOG_TAG_MODBUS, "03 - Illegal Data Value"); break;
+    case 0x04: LOG_ERROR(LOG_TAG_MODBUS, "04 - Slave Device Failure"); break;
+    case 0x05: LOG_WARN(LOG_TAG_MODBUS, "05 - Acknowledge (processing delayed)"); break;
+    case 0x06: LOG_WARN(LOG_TAG_MODBUS, "06 - Slave Device Busy"); break;
+    case 0x08: LOG_ERROR(LOG_TAG_MODBUS, "08 - Memory Parity Error"); break;
+    case 0x0A: LOG_ERROR(LOG_TAG_MODBUS, "0A - Gateway Path Unavailable"); break;
+    case 0x0B: LOG_ERROR(LOG_TAG_MODBUS, "0B - Gateway Target Device Failed to Respond"); break;
+    default:   LOG_ERROR(LOG_TAG_MODBUS, "Unknown error code"); break;
   }
 }
 
@@ -475,7 +475,7 @@ void ProtocolAdapter::printErrorCode(int code)
 ParseResult ProtocolAdapter::validateModbusFrame(const char* frameHex) 
 {
   if (!frameHex) {
-    debug.log("Frame validation: NULL frame\n");
+    LOG_ERROR(LOG_TAG_MODBUS, "Frame validation: NULL frame");
     return PARSE_MALFORMED;
   }
   
@@ -483,7 +483,7 @@ ParseResult ProtocolAdapter::validateModbusFrame(const char* frameHex)
   
   // Check minimum length (at least: SlaveID(2) + Function(2) + CRC(4) = 8 hex chars)
   if (len < 8) {
-    debug.log("Frame validation: Too short (%zu bytes)\n", len);
+    LOG_ERROR(LOG_TAG_MODBUS, "Frame validation: Too short (%zu bytes)", len);
     return PARSE_TRUNCATED;
   }
   
@@ -491,14 +491,14 @@ ParseResult ProtocolAdapter::validateModbusFrame(const char* frameHex)
   for (size_t i = 0; i < len; i++) {
     char c = frameHex[i];
     if (!isxdigit(c)) {
-      debug.log("Frame validation: Invalid character at position %zu: '%c'\n", i, c);
+      LOG_ERROR(LOG_TAG_MODBUS, "Frame validation: Invalid character at position %zu", i);
       return PARSE_MALFORMED;
     }
   }
   
   // Check if length is even (each byte = 2 hex chars)
   if (len % 2 != 0) {
-    debug.log("Frame validation: Odd length (%zu)\n", len);
+    LOG_ERROR(LOG_TAG_MODBUS, "Frame validation: Odd length (%zu)", len);
     return PARSE_MALFORMED;
   }
   
@@ -513,14 +513,14 @@ ParseResult ProtocolAdapter::validateModbusFrame(const char* frameHex)
   
   // Check for Modbus exception (function code & 0x80)
   if (byteLen >= 2 && (bytes[1] & 0x80)) {
-    debug.log("Frame validation: Modbus exception detected (function code: 0x%02X)\n", bytes[1]);
+    LOG_ERROR(LOG_TAG_MODBUS, "Frame validation: Modbus exception detected (function code: 0x%02X)", bytes[1]);
     delete[] bytes;
     return PARSE_EXCEPTION;
   }
   
   // Extract CRC from frame (last 2 bytes, little-endian)
   if (byteLen < 4) {
-    debug.log("Frame validation: Frame too short for CRC\n");
+    LOG_ERROR(LOG_TAG_MODBUS, "Frame validation: Frame too short for CRC");
     delete[] bytes;
     return PARSE_TRUNCATED;
   }
@@ -545,12 +545,12 @@ ParseResult ProtocolAdapter::validateModbusFrame(const char* frameHex)
   
   // Compare CRCs
   if (calculatedCRC != receivedCRC) {
-    debug.log("Frame validation: CRC mismatch (calculated: 0x%04X, received: 0x%04X)\n", 
+    LOG_ERROR(LOG_TAG_MODBUS, "Frame validation: CRC mismatch (calculated: 0x%04X, received: 0x%04X)", 
               calculatedCRC, receivedCRC);
     return PARSE_CRC_ERROR;
   }
   
-  debug.log("Frame validation: OK (CRC: 0x%04X)\n", calculatedCRC);
+  LOG_SUCCESS(LOG_TAG_MODBUS, "Frame validation: OK (CRC: 0x%04X)", calculatedCRC);
   return PARSE_OK;
 }
 

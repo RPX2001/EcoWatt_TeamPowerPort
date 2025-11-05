@@ -9,6 +9,7 @@ import logging
 import time
 from typing import Dict, List
 from database import convert_utc_to_local
+from utils.logger_utils import log_success
 
 logger = logging.getLogger(__name__)
 
@@ -231,7 +232,7 @@ def get_config(device_id):
         return jsonify(response), 200
         
     except Exception as e:
-        logger.error(f"Error getting config for {device_id}: {e}")
+        logger.error(f"✗ Error getting config for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -364,7 +365,7 @@ def update_config(device_id):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error updating config for {device_id}: {e}")
+        logger.error(f"✗ Error updating config for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -403,7 +404,7 @@ def get_config_history(device_id):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting config history for {device_id}: {e}")
+        logger.error(f"✗ Error getting config history for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -485,7 +486,7 @@ def receive_current_config(device_id):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error receiving current config for {device_id}: {e}")
+        logger.error(f"✗ Error receiving current config for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -568,7 +569,7 @@ def acknowledge_config(device_id):
             }), 404
         
     except Exception as e:
-        logger.error(f"Error acknowledging config for {device_id}: {e}")
+        logger.error(f"✗ Error acknowledging config for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

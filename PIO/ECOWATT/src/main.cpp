@@ -10,12 +10,11 @@
  */
 
 #include <Arduino.h>
-#include "peripheral/print.h"
+#include "peripheral/logger.h"
 
 // ArduinoJson requires clean 'print' identifier
 #undef print
 #include "peripheral/acquisition.h"
-#define print(...) debug.log(__VA_ARGS__)
 
 #include "application/system_initializer.h"
 #include "application/system_config.h"  // Centralized configuration constants
@@ -31,9 +30,7 @@
 #include "esp_task_wdt.h"
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <WiFi.h>
-
-// ============================================
+#include <WiFi.h>// ============================================
 // Global Objects
 // ============================================
 OTAManager* otaManager = nullptr;
@@ -50,17 +47,17 @@ Arduino_Wifi Wifi;
  */
 void enhanceDictionaryForOptimalCompression() {
     // Dictionary enhancement happens automatically in compression module
-    print("[Main] Compression dictionary ready\n");
+    LOG_INFO(LOG_TAG_BOOT, "Compression dictionary ready");;
 }
 
 /**
  * @brief Register device with Flask server
  */
 bool registerDeviceWithServer() {
-    print("[Main] Registering device with server...\n");
+    LOG_INFO(LOG_TAG_BOOT, "Registering device with server...");;
     
     if (WiFi.status() != WL_CONNECTED) {
-        print("[Main] WiFi not connected. Cannot register device.\n");
+        LOG_INFO(LOG_TAG_BOOT, "WiFi not connected. Cannot register device.");;
         return false;
     }
     
@@ -84,25 +81,27 @@ bool registerDeviceWithServer() {
     String payload;
     serializeJson(doc, payload);
     
-    print("[Main] Sending registration: %s\n", payload.c_str());
+    LOG_INFO(LOG_TAG_BOOT, "Sending registration:");
+    LOG_INFO(LOG_TAG_BOOT, "  %s", payload.c_str());
     
     int httpCode = http.POST(payload);
     
     if (httpCode == 201) {
-        print("[Main] ✓ Device registered successfully\n");
+        LOG_SUCCESS(LOG_TAG_BOOT, "Device registered successfully");
         http.end();
         return true;
-    } else if (httpCode == 409) {
-        print("[Main] ✓ Device already registered\n");
+    } else if (httpCode == 200 || httpCode == 409) {
+        // 200 = Updated existing device, 409 = Already registered
+        LOG_SUCCESS(LOG_TAG_BOOT, "Device already registered and updated");
         http.end();
         return true;
     } else if (httpCode > 0) {
         String response = http.getString();
-        print("[Main] ⚠ Registration response (%d): %s\n", httpCode, response.c_str());
+        LOG_WARN(LOG_TAG_BOOT, "Registration response (%d): %s", httpCode, response.c_str());
         http.end();
         return false;
     } else {
-        print("[Main] ✗ Registration failed: %s\n", http.errorToString(httpCode).c_str());
+        LOG_ERROR(LOG_TAG_BOOT, "Registration failed: %s", http.errorToString(httpCode).c_str());
         http.end();
         return false;
     }
@@ -115,28 +114,34 @@ void setup()
 {
     Serial.begin(115200);
     delay(1000);
-    print_init();
+    
+    // STEP 1: Initialize WiFi FIRST (before logger so timestamps work)
+    Wifi.begin();
+    
+    // STEP 2: Initialize logger (will now use NTP time if WiFi connected)
+    // Log level controlled by g_logLevel in logger.cpp - change there for DEBUG/INFO/etc.
+    initLogger();  // Uses g_logLevel from logger.cpp
     
     // CRITICAL: Reconfigure task watchdog with longer timeout
     // Uses centralized HARDWARE_WATCHDOG_TIMEOUT_S from system_config.h
     esp_task_wdt_deinit();                              // Clean slate
     esp_task_wdt_init(HARDWARE_WATCHDOG_TIMEOUT_S, true); // Configurable timeout, panic enabled
-    print("[Main] Task watchdog configured: %d seconds timeout\n", HARDWARE_WATCHDOG_TIMEOUT_S);
+    LOG_INFO(LOG_TAG_BOOT, "Task watchdog configured: %d seconds timeout\n", HARDWARE_WATCHDOG_TIMEOUT_S);
     
-    print("\n");
-    print("╔══════════════════════════════════════════════════════════╗\n");
-    print("║  EcoWatt ESP32 FreeRTOS System v3.0 - Dual-Core Edition ║\n");
-    print("╚══════════════════════════════════════════════════════════╝\n");
-    print("\n");
+    LOG_INFO(LOG_TAG_BOOT, "");;
+    LOG_INFO(LOG_TAG_BOOT, "╔══════════════════════════════════════════════════════════╗");;
+    LOG_INFO(LOG_TAG_BOOT, "║  EcoWatt ESP32 FreeRTOS System v3.0 - Dual-Core Edition ║");;
+    LOG_INFO(LOG_TAG_BOOT, "╚══════════════════════════════════════════════════════════╝");;
+    LOG_INFO(LOG_TAG_BOOT, "");;
     
-    // Initialize all system components
-    print("[Main] Initializing system components...\n");
+    // STEP 3: Initialize remaining system components
+    LOG_INFO(LOG_TAG_BOOT, "Initializing system components...");
     SystemInitializer::initializeAll();
     
     // Initialize OTA Manager  
-    print("[Main] Initializing OTA Manager...\n");
+    LOG_INFO(LOG_TAG_BOOT, "Initializing OTA Manager...");
     otaManager = new OTAManager(
-        FLASK_SERVER_URL ":5001",
+        FLASK_SERVER_URL,  // Already includes port, don't duplicate
         DEVICE_ID,
         FIRMWARE_VERSION
     );
@@ -145,29 +150,29 @@ void setup()
     otaManager->handleRollback();
     
     // Run post-OTA diagnostics to verify system health
-    print("[Main] Running post-boot diagnostics...\n");
+    LOG_INFO(LOG_TAG_BOOT, "Running post-boot diagnostics...");;
     bool diagnosticsPassed = otaManager->runDiagnostics();
     
     if (diagnosticsPassed) {
-        print("[Main] ✓ Diagnostics passed - firmware stable\n");
+        LOG_INFO(LOG_TAG_BOOT, "✓ Diagnostics passed - firmware stable");;
         
         // Register device with server (auto-registration)
-        print("[Main] Attempting device auto-registration...\n");
+        LOG_INFO(LOG_TAG_BOOT, "Attempting device auto-registration...");;
         if (registerDeviceWithServer()) {
-            print("[Main] ✓ Device registration complete\n");
+            LOG_INFO(LOG_TAG_BOOT, "✓ Device registration complete");;
         } else {
-            print("[Main] ⚠ Device registration failed (will retry later)\n");
+            LOG_INFO(LOG_TAG_BOOT, "⚠ Device registration failed (will retry later)");;
         }
         
         // Report OTA completion status to Flask server
-        print("[Main] Reporting OTA status to server...\n");
+        LOG_INFO(LOG_TAG_BOOT, "Reporting OTA status to server...");;
         if (otaManager->reportOTACompletionStatus()) {
-            print("[Main] ✓ OTA status reported successfully\n");
+            LOG_INFO(LOG_TAG_BOOT, "✓ OTA status reported successfully");;
         } else {
-            print("[Main] ⚠ Failed to report OTA status (will retry later)\n");
+            LOG_INFO(LOG_TAG_BOOT, "⚠ Failed to report OTA status (will retry later)");;
         }
     } else {
-        print("[Main] ✗ Diagnostics failed - system may be unstable\n");
+        LOG_INFO(LOG_TAG_BOOT, "✗ Diagnostics failed - system may be unstable");;
     }
     
     // Get configuration from NVS (centralized configuration source)
@@ -184,16 +189,16 @@ void setup()
     uint32_t commandFreqMs = commandPollFreq / 1000;
     uint32_t otaFreqMs = otaCheckFreq / 1000;
     
-    print("[Main] Task frequencies configured from NVS:\n");
-    print("  - Sensor Poll:  %lu ms (configurable via NVS)\n", pollFreqMs);
-    print("  - Upload:       %lu ms (configurable via NVS)\n", uploadFreqMs);
-    print("  - Config Check: %lu ms (configurable via NVS)\n", configFreqMs);
-    print("  - Command Poll: %lu ms (configurable via NVS)\n", commandFreqMs);
-    print("  - OTA Check:    %lu ms (configurable via NVS)\n", otaFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "Task frequencies configured from NVS:");;
+    LOG_INFO(LOG_TAG_BOOT, "  - Sensor Poll:  %lu ms (configurable via NVS)\n", pollFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "  - Upload:       %lu ms (configurable via NVS)\n", uploadFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "  - Config Check: %lu ms (configurable via NVS)\n", configFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "  - Command Poll: %lu ms (configurable via NVS)\n", commandFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "  - OTA Check:    %lu ms (configurable via NVS)\n", otaFreqMs);
 
     uint64_t energyPollFreq = nvs::getEnergyPollFreq();
     uint32_t energyPollMs = energyPollFreq / 1000;
-    print("  - Energy Poll:  %lu ms (%.1f s, configurable via NVS)\n", 
+    LOG_INFO(LOG_TAG_BOOT, "  - Energy Poll:  %lu ms (%.1f s, configurable via NVS)\n", 
           energyPollMs, energyPollMs / 1000.0);
     
     // Initialize Data Uploader (M4 format: /aggregated/<device_id>)
@@ -210,7 +215,7 @@ void setup()
     ConfigManager::init(FLASK_SERVER_URL "/config/" DEVICE_ID, DEVICE_ID);
     
     // Send current config to server so frontend can display it
-    print("[Main] Reporting current configuration to server...\n");
+    LOG_INFO(LOG_TAG_BOOT, "Reporting current configuration to server...");;
     ConfigManager::sendCurrentConfig();
     
     // Enhance compression dictionary
@@ -219,29 +224,29 @@ void setup()
     // ========================================
     // Initialize FreeRTOS Task Manager
     // ========================================
-    print("\n[Main] Initializing FreeRTOS Task Manager...\n");
+    LOG_INFO(LOG_TAG_BOOT, "\n[Main] Initializing FreeRTOS Task Manager...");;
     if (!TaskManager::init(pollFreqMs, uploadFreqMs, configFreqMs, commandFreqMs, otaFreqMs)) {
-        print("[Main] ERROR: Failed to initialize TaskManager!\n");
-        print("[Main] System halted.\n");
+        LOG_INFO(LOG_TAG_BOOT, "ERROR: Failed to initialize TaskManager!");;
+        LOG_INFO(LOG_TAG_BOOT, "System halted.");;
         while(1) {
             delay(1000);
         }
     }
     
     // Start all FreeRTOS tasks
-    print("[Main] Starting FreeRTOS tasks on both cores...\n");
+    LOG_INFO(LOG_TAG_BOOT, "Starting FreeRTOS tasks on both cores...");;
     TaskManager::startAllTasks(otaManager);
     
-    print("\n");
-    print("╔══════════════════════════════════════════════════════════╗\n");
-    print("║            FreeRTOS System Initialization Complete       ║\n");
-    print("║                                                          ║\n");
-    print("║  Core 0 (PRO_CPU):  Upload, Commands, Config, OTA       ║\n");
-    print("║  Core 1 (APP_CPU):  Sensors, Compression, Watchdog      ║\n");
-    print("║                                                          ║\n");
-    print("║  Real-time scheduling active with deadline guarantees   ║\n");
-    print("╚══════════════════════════════════════════════════════════╝\n");
-    print("\n");
+    LOG_INFO(LOG_TAG_BOOT, "");;
+    LOG_INFO(LOG_TAG_BOOT, "╔══════════════════════════════════════════════════════════╗");;
+    LOG_INFO(LOG_TAG_BOOT, "║            FreeRTOS System Initialization Complete       ║");;
+    LOG_INFO(LOG_TAG_BOOT, "║                                                          ║");;
+    LOG_INFO(LOG_TAG_BOOT, "║  Core 0 (PRO_CPU):  Upload, Commands, Config, OTA       ║");;
+    LOG_INFO(LOG_TAG_BOOT, "║  Core 1 (APP_CPU):  Sensors, Compression, Watchdog      ║");;
+    LOG_INFO(LOG_TAG_BOOT, "║                                                          ║");;
+    LOG_INFO(LOG_TAG_BOOT, "║  Real-time scheduling active with deadline guarantees   ║");;
+    LOG_INFO(LOG_TAG_BOOT, "╚══════════════════════════════════════════════════════════╝");;
+    LOG_INFO(LOG_TAG_BOOT, "");;
 }
 
 // ============================================

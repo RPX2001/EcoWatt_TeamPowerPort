@@ -4,6 +4,7 @@
  */
 
 #include "application/fault_recovery.h"
+#include "peripheral/logger.h"
 #include "application/data_uploader.h"
 #include "application/credentials.h"  // For FLASK_SERVER_URL
 #include <HTTPClient.h>
@@ -69,7 +70,7 @@ void initFaultRecovery() {
         s_deviceId[sizeof(s_deviceId) - 1] = '\0';
     }
     
-    debug.log("[FaultRecovery] Initialized with device_id: %s\n", s_deviceId);
+    LOG_INFO(LOG_TAG_FAULT, "Initialized with device_id: %s", s_deviceId);
     s_initialized = true;
 }
 
@@ -139,7 +140,7 @@ bool validateModbusCRC(const char* frameHex) {
     bool valid = (receivedCRC == calculatedCRC);
     
     if (!valid) {
-        debug.log("[FaultRecovery] CRC ERROR! Received: 0x%04X, Calculated: 0x%04X\n", 
+        LOG_ERROR(LOG_TAG_FAULT, "CRC ERROR! Received: 0x%04X, Calculated: 0x%04X", 
                   receivedCRC, calculatedCRC);
     }
     
@@ -157,7 +158,7 @@ bool validatePayloadLength(const char* frameHex, uint8_t expectedByteCount) {
     size_t expectedHexLen = 10 + (expectedByteCount * 2);
     
     if (hexLen < expectedHexLen) {
-        debug.log("[FaultRecovery] TRUNCATED! Expected %zu hex chars, got %zu\n", 
+        LOG_ERROR(LOG_TAG_FAULT, "TRUNCATED! Expected %zu hex chars, got %zu", 
                   expectedHexLen, hexLen);
         return false;
     }
@@ -168,7 +169,7 @@ bool validatePayloadLength(const char* frameHex, uint8_t expectedByteCount) {
         uint8_t reportedByteCount = (uint8_t)strtol(byteCountHex, NULL, 16);
         
         if (reportedByteCount != expectedByteCount) {
-            debug.log("[FaultRecovery] BYTE COUNT MISMATCH! Expected %u, got %u\n", 
+            LOG_ERROR(LOG_TAG_FAULT, "BYTE COUNT MISMATCH! Expected %u, got %u", 
                       expectedByteCount, reportedByteCount);
             return false;
         }
@@ -186,7 +187,7 @@ bool checkForGarbage(const char* frameHex) {
     for (size_t i = 0; i < len; i++) {
         char c = frameHex[i];
         if (!isxdigit(c)) {
-            debug.log("[FaultRecovery] GARBAGE DETECTED! Invalid char '%c' at position %zu\n", 
+            LOG_ERROR(LOG_TAG_FAULT, "GARBAGE DETECTED! Invalid char '%c' at position %zu", 
                       c, i);
             return false; // Garbage found
         }
@@ -195,7 +196,7 @@ bool checkForGarbage(const char* frameHex) {
     // Additional check: response should start with slave address (0x11 = "11" in hex)
     if (len >= 2) {
         if (frameHex[0] != '1' || frameHex[1] != '1') {
-            debug.log("[FaultRecovery] GARBAGE! Invalid slave address: %c%c\n", 
+            LOG_ERROR(LOG_TAG_FAULT, "GARBAGE! Invalid slave address: %c%c", 
                       frameHex[0], frameHex[1]);
             return false;
         }
@@ -210,7 +211,7 @@ bool checkBufferOverflow(const char* frameHex, size_t bufferSize) {
     size_t frameLen = strlen(frameHex);
     
     if (frameLen >= bufferSize) {
-        debug.log("[FaultRecovery] BUFFER OVERFLOW RISK! Frame %zu bytes, buffer %zu bytes\n", 
+        LOG_ERROR(LOG_TAG_FAULT, "BUFFER OVERFLOW RISK! Frame %zu bytes, buffer %zu bytes", 
                   frameLen, bufferSize);
         return false;
     }
@@ -268,7 +269,7 @@ bool executeRecovery(FaultType fault, std::function<bool()> retryFunction, uint8
         return true; // No recovery needed
     }
     
-    debug.log("[FaultRecovery] Executing recovery for fault: %s\n", getFaultTypeName(fault));
+    LOG_INFO(LOG_TAG_FAULT, "Executing recovery for fault: %s", getFaultTypeName(fault));
     
     // Retry with exponential backoff
     uint32_t delayMs = INITIAL_RETRY_DELAY_MS;
@@ -276,7 +277,7 @@ bool executeRecovery(FaultType fault, std::function<bool()> retryFunction, uint8
     for (uint8_t i = 0; i < MAX_RECOVERY_RETRIES; i++) {
         retryCount = i + 1;
         
-        debug.log("[FaultRecovery] Retry attempt %u/%u after %lu ms\n", 
+        LOG_INFO(LOG_TAG_FAULT, "Retry attempt %u/%u after %lu ms", 
                   retryCount, MAX_RECOVERY_RETRIES, delayMs);
         
         // Use vTaskDelay instead of delay() to be FreeRTOS-aware
@@ -284,7 +285,7 @@ bool executeRecovery(FaultType fault, std::function<bool()> retryFunction, uint8
         vTaskDelay(pdMS_TO_TICKS(delayMs));
         
         if (retryFunction()) {
-            debug.log("[FaultRecovery] ✅ Recovery successful after %u retries\n", retryCount);
+            LOG_SUCCESS(LOG_TAG_FAULT, "Recovery successful after %u retries", retryCount);
             return true;
         }
         
@@ -292,7 +293,7 @@ bool executeRecovery(FaultType fault, std::function<bool()> retryFunction, uint8
         delayMs = min(delayMs * 2, (uint32_t)MAX_RETRY_DELAY_MS);
     }
     
-    debug.log("[FaultRecovery] ❌ Recovery FAILED after %u retries\n", retryCount);
+    LOG_ERROR(LOG_TAG_FAULT, "Recovery FAILED after %u retries", retryCount);
     return false;
 }
 
@@ -302,7 +303,7 @@ bool executeRecovery(FaultType fault, std::function<bool()> retryFunction, uint8
 
 bool sendRecoveryEvent(const FaultRecoveryEvent& event) {
     if (WiFi.status() != WL_CONNECTED) {
-        debug.log("[FaultRecovery] WiFi not connected, cannot send event\n");
+        LOG_WARN(LOG_TAG_FAULT, "WiFi not connected, cannot send event");
         return false;
     }
     
@@ -327,17 +328,17 @@ bool sendRecoveryEvent(const FaultRecoveryEvent& event) {
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
     
-    debug.log("[FaultRecovery] Sending recovery event to %s\n", url);
-    debug.log("[FaultRecovery] Payload: %s\n", jsonStr.c_str());
+    LOG_DEBUG(LOG_TAG_FAULT, "Sending recovery event to %s", url);
+    LOG_DEBUG(LOG_TAG_FAULT, "Payload: %s", jsonStr.c_str());
     
     int httpCode = http.POST(jsonStr);
     
     if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
-        debug.log("[FaultRecovery] ✅ Event sent successfully (HTTP %d)\n", httpCode);
+        LOG_SUCCESS(LOG_TAG_FAULT, "Event sent successfully (HTTP %d)", httpCode);
         http.end();
         return true;
     } else {
-        debug.log("[FaultRecovery] ❌ Failed to send event (HTTP %d): %s\n", 
+        LOG_ERROR(LOG_TAG_FAULT, "Failed to send event (HTTP %d): %s", 
                   httpCode, http.getString().c_str());
         http.end();
         return false;

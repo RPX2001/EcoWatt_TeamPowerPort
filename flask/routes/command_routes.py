@@ -44,6 +44,7 @@ from handlers.command_handler import (
     command_stats     # For test access
 )
 from database import Database
+from utils.logger_utils import log_success
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ def queue_command_route(device_id):
             # Store full M4 command object
             Database.save_command(command_id=command_id, device_id=device_id, command=command_data)
         except Exception as e:
-            logger.warning(f"[Command] Failed to persist command {command_id} to DB: {e}")
+            logger.warning(f"[!] [Command] Failed to persist command {command_id} to DB: {e}")
         
         logger.info(f"[Command] Queued M4 command {command_id} for {device_id}: {command_data}")
         
@@ -128,7 +129,7 @@ def queue_command_route(device_id):
         }), 201
         
     except Exception as e:
-        logger.error(f"Error queuing command for {device_id}: {e}")
+        logger.error(f"✗ Error queuing command for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -167,7 +168,7 @@ def poll_commands_route(device_id):
             try:
                 Database.update_command_status(cmd['command_id'], 'dispatched')
             except Exception as e:
-                logger.warning(f"[Command] Failed to mark command {cmd['command_id']} as dispatched: {e}")
+                logger.warning(f"[!] [Command] Failed to mark command {cmd['command_id']} as dispatched: {e}")
 
         logger.info(f"[Command] Device {device_id} polled, {len(commands)} commands returned")
 
@@ -185,7 +186,7 @@ def poll_commands_route(device_id):
         return response, 200
         
     except Exception as e:
-        logger.error(f"Error polling commands for {device_id}: {e}")
+        logger.error(f"✗ Error polling commands for {device_id}: {e}")
         error_response = jsonify({
             'success': False,
             'error': str(e)
@@ -265,7 +266,7 @@ def submit_command_result_route(device_id):
         return response, 200
         
     except Exception as e:
-        logger.error(f"Error submitting command result: {e}")
+        logger.error(f"✗ Error submitting command result: {e}")
         error_response = jsonify({
             'success': False,
             'error': str(e)
@@ -298,13 +299,13 @@ def get_command_status_route(command_id):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting command status: {e}")
+        logger.error(f"✗ Error getting command status: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
         }), 500
     except Exception as e:
-        logger.error(f"Error getting command status: {e}")
+        logger.error(f"✗ Error getting command status: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -342,7 +343,7 @@ def get_command_history_route(device_id):
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting command history for {device_id}: {e}")
+        logger.error(f"✗ Error getting command history for {device_id}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -372,7 +373,7 @@ def get_command_statistics_route():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting command statistics: {e}")
+        logger.error(f"✗ Error getting command statistics: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -396,7 +397,7 @@ def reset_command_statistics_route():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error resetting command statistics: {e}")
+        logger.error(f"✗ Error resetting command statistics: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

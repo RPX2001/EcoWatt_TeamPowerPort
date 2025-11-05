@@ -9,6 +9,7 @@ import threading
 from datetime import datetime
 from typing import Dict, List, Optional
 from pathlib import Path
+from utils.logger_utils import log_success
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +58,11 @@ def store_diagnostics(device_id: str, diagnostics_data: Dict) -> bool:
         # Persist to file (optional, async in production)
         _persist_diagnostics(device_id, diagnostics_data)
         
-        logger.info(f"Stored diagnostics for {device_id}: {total_entries} total entries")
+        log_success(logger, "Stored diagnostics for %s (%d total)", device_id, total_entries)
         return True
         
     except Exception as e:
-        logger.error(f"Error storing diagnostics for {device_id}: {e}")
+        logger.error(f"✗ Failed to store diagnostics for {device_id}: {e}")
         return False
 
 
@@ -79,18 +80,18 @@ def get_diagnostics_by_device(device_id: str, limit: int = 10) -> List[Dict]:
     try:
         with diagnostics_lock:
             if device_id not in diagnostics_store:
-                logger.warning(f"No diagnostics found for device: {device_id}")
+                logger.debug(f"No diagnostics found for {device_id}")
                 return []
             
             # Return most recent entries
             entries = diagnostics_store[device_id][-limit:]
             entries.reverse()  # Most recent first
             
-        logger.info(f"Retrieved {len(entries)} diagnostics for {device_id}")
+        logger.debug(f"Retrieved {len(entries)} diagnostics for {device_id}")
         return entries
         
     except Exception as e:
-        logger.error(f"Error retrieving diagnostics for {device_id}: {e}")
+        logger.error(f"✗ Failed to retrieve diagnostics for {device_id}: {e}")
         return []
 
 
@@ -116,12 +117,11 @@ def get_all_diagnostics(limit_per_device: int = 10) -> Dict[str, List[Dict]]:
         total_devices = len(all_diagnostics)
         total_entries = sum(len(entries) for entries in all_diagnostics.values())
         
-        logger.info(f"Retrieved diagnostics for {total_devices} devices, "
-                   f"{total_entries} total entries")
+        logger.info(f"Retrieved diagnostics: {total_devices} devices, {total_entries} entries")
         return all_diagnostics
         
     except Exception as e:
-        logger.error(f"Error retrieving all diagnostics: {e}")
+        logger.error(f"✗ Failed to retrieve all diagnostics: {e}")
         return {}
 
 
@@ -141,12 +141,12 @@ def clear_diagnostics(device_id: Optional[str] = None) -> bool:
                 # Clear all diagnostics
                 count = len(diagnostics_store)
                 diagnostics_store.clear()
-                logger.info(f"Cleared diagnostics for all {count} devices")
+                log_success(logger, "Cleared diagnostics for all %d devices", count)
             else:
                 # Clear specific device
                 if device_id in diagnostics_store:
                     del diagnostics_store[device_id]
-                    logger.info(f"Cleared diagnostics for device: {device_id}")
+                    log_success(logger, "Cleared diagnostics for %s", device_id)
                 else:
                     logger.warning(f"No diagnostics found for device: {device_id}")
         

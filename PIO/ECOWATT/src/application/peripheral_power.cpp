@@ -7,7 +7,7 @@
  */
 
 #include "application/peripheral_power.h"
-#include "peripheral/formatted_print.h"
+#include "peripheral/logger.h"
 
 // Static member initialization
 PeripheralPowerStats PeripheralPower::stats = {0};
@@ -17,7 +17,7 @@ HardwareSerial* PeripheralPower::modbusSerial = &Serial2;
  * @brief Initialize peripheral power management
  */
 void PeripheralPower::init() {
-    PRINT_SECTION("PERIPHERAL POWER GATING INITIALIZATION");
+    LOG_INFO(LOG_TAG_POWER, "Peripheral power gating initialization");
     
     // Reset statistics
     resetStats();
@@ -25,9 +25,8 @@ void PeripheralPower::init() {
     // UART starts disabled (will be enabled when needed)
     stats.uart_currently_enabled = false;
     
-    PRINT_INFO("UART power gating: Enabled");
-    PRINT_INFO("UART will be powered only during Modbus polls");
-    PRINT_SUCCESS("Peripheral power management initialized");
+    LOG_INFO(LOG_TAG_POWER, "UART power gating enabled - powered only during Modbus polls");
+    LOG_SUCCESS(LOG_TAG_POWER, "Peripheral power management initialized");
 }
 
 /**
@@ -52,7 +51,7 @@ void PeripheralPower::enableUART(uint32_t baud) {
     stats.uart_enable_count++;
     
 #ifdef PERIPHERAL_POWER_DEBUG
-    Serial.printf("  [PGATE] UART Enabled (count: %u)\n", stats.uart_enable_count);
+    LOG_DEBUG(LOG_TAG_POWER, "UART Enabled (count: %u)\n", stats.uart_enable_count);
 #endif
 }
 
@@ -78,7 +77,7 @@ void PeripheralPower::disableUART() {
     stats.uart_disable_count++;
     
 #ifdef PERIPHERAL_POWER_DEBUG
-    Serial.printf("  [PGATE] UART Disabled (count: %u, duty: %.2f%%)\n", 
+    LOG_DEBUG(LOG_TAG_POWER, "UART Disabled (count: %u, duty: %.2f%%)\n", 
                   stats.uart_disable_count, 
                   getStats().uart_duty_cycle);
 #endif
@@ -168,42 +167,33 @@ PeripheralPowerStats PeripheralPower::getStats() {
 void PeripheralPower::printStats() {
     PeripheralPowerStats s = getStats();
     
-    PRINT_SECTION("PERIPHERAL POWER GATING STATISTICS");
+    LOG_INFO(LOG_TAG_STATS, "Peripheral Power Gating Statistics");
     
     // UART statistics
-    PRINT_INFO("UART Statistics:");
-    Serial.printf("  Enable Count:     %u\n", s.uart_enable_count);
-    Serial.printf("  Disable Count:    %u\n", s.uart_disable_count);
-    Serial.printf("  Active Time:      %u ms (%.1f s)\n", 
-                  s.uart_active_time_ms, s.uart_active_time_ms / 1000.0f);
-    Serial.printf("  Idle Time:        %u ms (%.1f s)\n", 
-                  s.uart_idle_time_ms, s.uart_idle_time_ms / 1000.0f);
-    Serial.printf("  Duty Cycle:       %.2f%%\n", s.uart_duty_cycle);
-    Serial.printf("  Current State:    %s\n\n", 
-                  s.uart_currently_enabled ? "ACTIVE" : "IDLE (Power Gated)");
+    LOG_INFO(LOG_TAG_STATS, "UART - Enable: %u, Disable: %u", s.uart_enable_count, s.uart_disable_count);
+    LOG_INFO(LOG_TAG_STATS, "UART - Active: %u ms (%.1f s), Idle: %u ms (%.1f s)", 
+             s.uart_active_time_ms, s.uart_active_time_ms / 1000.0f,
+             s.uart_idle_time_ms, s.uart_idle_time_ms / 1000.0f);
+    LOG_INFO(LOG_TAG_STATS, "UART - Duty Cycle: %.2f%%, State: %s", 
+             s.uart_duty_cycle, s.uart_currently_enabled ? "ACTIVE" : "IDLE");
     
     // Power savings
-    PRINT_INFO("Power Savings:");
-    Serial.printf("  UART Idle Current: 10 mA (typical)\n");
-    Serial.printf("  Gating Efficiency: %.1f%% of time\n", 100.0f - s.uart_duty_cycle);
-    Serial.printf("  Estimated Savings: %.2f mA\n", s.estimated_uart_savings_ma);
+    LOG_INFO(LOG_TAG_STATS, "Power Savings - Gating Efficiency: %.1f%%, Estimated: %.2f mA", 
+             100.0f - s.uart_duty_cycle, s.estimated_uart_savings_ma);
     
     if (s.estimated_uart_savings_ma > 0) {
-        float baseline_uart_current = 10.0f;  // 10 mA always-on
+        float baseline_uart_current = 10.0f;
         float savings_percent = (s.estimated_uart_savings_ma / baseline_uart_current) * 100.0f;
-        Serial.printf("  Power Reduction:   %.1f%%\n", savings_percent);
-        PRINT_SUCCESS("Peripheral gating is saving power!");
+        LOG_SUCCESS(LOG_TAG_STATS, "Peripheral gating saving %.1f%% power", savings_percent);
     } else {
-        PRINT_INFO("No significant UART power savings yet");
+        LOG_DEBUG(LOG_TAG_STATS, "No significant UART power savings yet");
     }
     
     // Overall system impact
-    PRINT_INFO("System Impact:");
-    float baseline_system_current = 150.0f;  // ~150 mA total system
+    float baseline_system_current = 150.0f;
     float system_reduction_percent = (s.estimated_uart_savings_ma / baseline_system_current) * 100.0f;
-    Serial.printf("  System Baseline:   150 mA\n");
-    Serial.printf("  System Reduction:  %.2f mA (%.1f%%)\n", 
-                  s.estimated_uart_savings_ma, system_reduction_percent);
+    LOG_INFO(LOG_TAG_STATS, "System Impact - Reduction: %.2f mA (%.1f%%)", 
+             s.estimated_uart_savings_ma, system_reduction_percent);
 }
 
 /**
