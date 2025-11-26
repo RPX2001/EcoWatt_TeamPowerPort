@@ -41,6 +41,24 @@
 - [ ] 🔄 Update remaining handlers with new logging
 - [ ] 🔄 Update routes with new logging
 
+### Compression System Fixes (Nov 26, 2025)
+- [x] ✅ **CRITICAL BUG FIXED**: ESP32 compression marker bytes missing
+  - **Issue**: `storeAsRawBinary()` was skipping header for small datasets (≤8 values)
+  - **Impact**: Server received data without compression markers (0x48 instead of 0x00)
+  - **Fix**: Eliminated raw binary mode entirely - always use bit-packing with marker
+  - **Files Modified**: 
+    - `PIO/ECOWATT/src/application/compression.cpp` - Removed storeAsRawBinary(), forced bit-packing
+    - `PIO/ECOWATT/include/application/compression.h` - Removed storeAsRawBinary() declaration
+    - `flask/utils/compression_utils.py` - Removed decompress_raw_binary(), deprecated 0x00 marker
+- [x] ✅ Verified compression/decompression compatibility
+  - All Python test scripts pass (dictionary, temporal, bit-packing)
+  - Markers match between ESP32 (0xD0, 0x70, 0x71, 0x01) and Flask
+  - Bit ordering confirmed (MSB-first for bit-packing, LSB-first for dictionary bitmask)
+- [x] ✅ Enforced compression policy
+  - ESP32 ALWAYS compresses with proper markers (minimum 8-bit bit-packing)
+  - Raw binary (0x00 marker) is deprecated and rejected by server
+  - Ensures consistent data format and proper decompression
+
 ---
 
 ## Part 1: Power Management and Measurement 🔄 (IN PROGRESS)

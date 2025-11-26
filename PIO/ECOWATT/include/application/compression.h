@@ -75,7 +75,6 @@ public:
     static std::vector<uint8_t> compressBinaryBitPacked(uint16_t* data, size_t count, uint8_t bitsPerValue);
     static std::vector<uint8_t> compressBinaryDelta(uint16_t* data, size_t count);
     static std::vector<uint8_t> compressBinaryRLE(uint16_t* data, size_t count);
-    static std::vector<uint8_t> storeAsRawBinary(uint16_t* data, size_t count);
     
     // Binary decompression methods
     static std::vector<uint16_t> decompressBinary(const std::vector<uint8_t>& compressed);

@@ -753,29 +753,16 @@ std::vector<uint8_t> DataCompression::compressBinary(uint16_t* data, size_t coun
 
     DataCharacteristics characteristics = analyzeData(data, count);
     
-    std::vector<uint8_t> bestResult;
-    String bestMethod = "RAW_BINARY";
-    size_t originalSize = count * 2;
+    // ALWAYS use bit-packing with proper header (never send raw data)
+    // This ensures server can always decompress with known marker
+    uint8_t bitsToUse = characteristics.optimalBits;
     
-    // Try bit-packing if it can save significant space
-    if (characteristics.optimalBits < 16 && characteristics.optimalBits >= 8) 
-    {
-        std::vector<uint8_t> bitPacked = compressBinaryBitPacked(data, count, characteristics.optimalBits);
-        
-        if (bitPacked.size() < originalSize) 
-        {
-            bestResult = bitPacked;
-            bestMethod = "BIT_PACKED";
-        }
-    }
+    // Use at least 8 bits for safety, max 16 bits
+    if (bitsToUse < 8) bitsToUse = 8;
+    if (bitsToUse > 16) bitsToUse = 16;
     
-    // If no compression helped, use raw binary
-    if (bestResult.empty() || bestResult.size() >= originalSize) 
-    {
-        return storeAsRawBinary(data, count);
-    }
-    
-    return bestResult;
+    // Always return bit-packed with header (0x01 marker)
+    return compressBinaryBitPacked(data, count, bitsToUse);
 }
 
 
@@ -802,18 +789,13 @@ std::vector<uint8_t> DataCompression::compressBinaryBitPacked(uint16_t* data, si
     
     size_t totalBits = count * bitsPerValue;
     size_t packedBytes = (totalBits + 7) / 8;
-    size_t originalBytes = count * 2;
     
-    // For small datasets, skip header if it negates compression benefit
-    bool useHeader = (count > 8) || (packedBytes + 3 < originalBytes);
+    // ALWAYS include header for proper server-side decompression
+    result.push_back(0x01);         // METHOD_ID_BIT_PACKED marker
+    result.push_back(bitsPerValue); // Bits per value
+    result.push_back(count);        // Number of values
     
-    if (useHeader) 
-    {
-        result.push_back(0x01);  // Binary bit-packed method ID
-        result.push_back(bitsPerValue);
-        result.push_back(count);
-    }
-    
+    // Pack the data
     std::vector<uint8_t> packedData(packedBytes, 0);
     
     size_t bitOffset = 0;
@@ -827,43 +809,6 @@ std::vector<uint8_t> DataCompression::compressBinaryBitPacked(uint16_t* data, si
     return result;
 }
 
-
-/**
- * @fn std::vector<uint8_t> DataCompression::storeAsRawBinary(uint16_t* data, size_t count)
- * 
- * @brief Store data as raw binary with minimal overhead.
- * 
- * @param data Pointer to the array of uint16_t sensor data.
- * @param count Number of data points (length of data array).
- * 
- * @return std::vector<uint8_t> Raw binary data as a byte vector.
- */
-std::vector<uint8_t> DataCompression::storeAsRawBinary(uint16_t* data, size_t count) 
-{
-    std::vector<uint8_t> result;
-    
-    // For small datasets (≤8 values), skip header overhead
-    if (count <= 8) 
-    {
-        result.reserve(count * 2);
-        for (size_t i = 0; i < count; i++) 
-        {
-            result.push_back(data[i] & 0xFF);
-            result.push_back((data[i] >> 8) & 0xFF);
-        }
-        return result;
-    }
-    
-    // For larger datasets, use header
-    result.push_back(0x00);  // METHOD_ID
-    result.push_back(count); // COUNT
-    for (size_t i = 0; i < count; i++) 
-    {
-        result.push_back(data[i] & 0xFF);
-        result.push_back((data[i] >> 8) & 0xFF);
-    }
-    return result;
-}
 
 // ==================== UTILITY FUNCTIONS ====================
 /**
@@ -1100,25 +1045,16 @@ std::vector<uint16_t> DataCompression::decompressBinary(const std::vector<uint8_
         return std::vector<uint16_t>();
     }
     
-    // Check if it's raw binary (small dataset without header)
-    if (compressed.size() % 2 == 0 && compressed.size() <= 16) {
-        return decompressRawBinary(compressed);
-    }
-    
-    // Check method marker
+    // Check method marker - we only support bit-packed (0x01) now
     uint8_t marker = compressed[0];
     
-    if (marker == 0x00) {
-        // Raw binary with header
-        return decompressRawBinary(compressed);
-    } 
-    else if (marker == 0x01) {
-        // Bit-packed
+    if (marker == 0x01) {
+        // Bit-packed (the only method we use)
         return decompressBinaryBitPacked(compressed);
     }
     else {
-        // Unknown marker, try raw binary
-        return decompressRawBinary(compressed);
+        setError("Unsupported compression marker");
+        return std::vector<uint16_t>();
     }
 }
 

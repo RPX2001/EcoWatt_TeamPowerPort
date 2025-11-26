@@ -382,6 +382,30 @@ def unpack_bits_from_buffer(buffer: bytes, bit_offset: int, num_bits: int) -> in
     return value
 
 
+def unpack_bits_from_buffer(buffer: bytes, bit_offset: int, num_bits: int) -> int:
+    """
+    Unpack a specific number of bits from a byte buffer (MSB-first, matching ESP32)
+    
+    Args:
+        buffer: Byte buffer
+        bit_offset: Starting bit position
+        num_bits: Number of bits to extract
+        
+    Returns:
+        Extracted integer value
+    """
+    value = 0
+    for i in range(num_bits):
+        byte_idx = (bit_offset + i) // 8
+        bit_in_byte = 7 - ((bit_offset + i) % 8)  # MSB-first (ESP32 style)
+        
+        if byte_idx < len(buffer):
+            bit_value = (buffer[byte_idx] >> bit_in_byte) & 1
+            value |= (bit_value << (num_bits - 1 - i))  # Build value MSB-first
+    
+    return value
+
+
 def decompress_smart_binary_data(base64_data: str) -> Tuple[Optional[List[float]], Dict]:
     """
     Auto-detect compression method and decompress
@@ -403,18 +427,29 @@ def decompress_smart_binary_data(base64_data: str) -> Tuple[Optional[List[float]
         # Check compression marker
         marker = binary_data[0]
         
+        # Log the full packet for debugging
+        logger.debug(f"Received {len(binary_data)} bytes, marker: 0x{marker:02X}, hex: {binary_data[:min(20, len(binary_data))].hex()}")
+        
         if marker == 0xD0:
             return decompress_dictionary_bitmask(binary_data)
         elif marker == 0xDE or marker == 0x70 or marker == 0x71:
             # 0xDE = old marker, 0x70 = ESP32 temporal base, 0x71 = ESP32 temporal delta
             return decompress_temporal_delta(binary_data)
-        elif marker == 0xAD:
+        elif marker == 0xAD or marker == 0x50:
             return decompress_semantic_rle(binary_data)
         elif marker == 0xBF or marker == 0x01:
             # Both 0xBF and 0x01 are bitpack markers (ESP32 uses 0x01)
             return decompress_bit_packed(binary_data)
+        elif marker == 0x00:
+            # Raw binary format is DEPRECATED - should not be used anymore
+            logger.warning("⚠ Raw binary format (0x00) detected - DEPRECATED! ESP32 should always compress.")
+            logger.warning("This may indicate an old firmware or configuration issue.")
+            return None, {'error': 'Raw binary format deprecated - please update ESP32 firmware'}
         else:
             logger.error(f"Unknown compression marker: 0x{marker:02X}")
+            # Log more context for debugging
+            logger.error(f"Full packet (hex): {binary_data.hex()}")
+            logger.error(f"Full packet (bytes): {list(binary_data)}")
             return None, {'error': f'Unknown marker: 0x{marker:02X}'}
             
     except Exception as e:
