@@ -641,32 +641,17 @@ void TaskManager::uploadTask(void* parameter) {
         
         uint32_t startTime = micros();
         
-        // Wait for compression to signal batch ready (with timeout = upload frequency)
-        // This ensures we don't race with compression finishing
-        TickType_t semaphoreTimeout = pdMS_TO_TICKS(uploadFrequency + 1000);  // +1s buffer
-        
-        LOG_DEBUG(LOG_TAG_UPLOAD, "Waiting for compression batch signal (timeout: %lu ms)...", uploadFrequency + 1000);
-        
-        // Try to take semaphore (clears it if available, waits if not)
-        // We take ALL available semaphores to drain the queue
-        bool batchSignalReceived = false;
+        // Clear any pending batch ready signals (non-blocking)
+        // This prevents signal accumulation from previous batches
         while (xSemaphoreTake(batchReadySemaphore, 0) == pdTRUE) {
-            batchSignalReceived = true;
+            // Drain all signals
         }
         
-        if (!batchSignalReceived) {
-            // No signal yet, wait for one
-            if (xSemaphoreTake(batchReadySemaphore, semaphoreTimeout) == pdTRUE) {
-                batchSignalReceived = true;
-            }
-        }
+        LOG_DEBUG(LOG_TAG_UPLOAD, "Checking compressed data queue...");
         
         // First, add all pending compressed packets to DataUploader queue
         CompressedPacket packet;
         size_t queuedCount = 0;
-        
-        LOG_DEBUG(LOG_TAG_UPLOAD, "Checking compressed data queue (batch signal: %s)...", 
-              batchSignalReceived ? "YES" : "TIMEOUT");
         
         while (xQueueReceive(compressedDataQueue, &packet, 0) == pdTRUE) {
             // Feed watchdog during queue processing
