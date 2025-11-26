@@ -125,8 +125,8 @@ def receive_aggregated_data(device_id: str):
                         logger.info(f"Packet {idx+1}: Base64 length={len(base64_data) if isinstance(base64_data, str) else 'not_string'}")
                         logger.info(f"Packet {idx+1}: Base64 data={base64_data[:50] if isinstance(base64_data, str) else type(base64_data)}")
                         
-                        # Decompress this packet
-                        decompressed, stats = handle_compressed_data(base64_data)
+                        # Decompress this packet with device_id for stateful reconstruction
+                        decompressed, stats = handle_compressed_data(base64_data, device_id=device_id)
                         
                         if decompressed is not None and stats.get('success'):
                             all_decompressed.extend(decompressed)
@@ -214,7 +214,7 @@ def receive_aggregated_data(device_id: str):
             
             else:
                 # Single base64 string (legacy format)
-                decompressed, stats = handle_compressed_data(compressed_data)
+                decompressed, stats = handle_compressed_data(compressed_data, device_id=device_id)
                 
                 if decompressed is not None and stats.get('success'):
                     logger.info(f"Processed {len(decompressed)} decompressed samples")

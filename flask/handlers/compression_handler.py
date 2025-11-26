@@ -30,12 +30,13 @@ compression_stats = {
 }
 
 
-def handle_compressed_data(base64_data: str, validate_crc: bool = True) -> Tuple[Optional[List[float]], Dict]:
+def handle_compressed_data(base64_data: str, device_id: str = None, validate_crc: bool = True) -> Tuple[Optional[List[float]], Dict]:
     """
     Main entry point for handling compressed diagnostic data
     
     Args:
         base64_data: Base64-encoded compressed data
+        device_id: Device identifier for stateful decompression (recommended for temporal delta)
         validate_crc: Whether to validate CRC32 checksum
         
     Returns:
@@ -44,13 +45,13 @@ def handle_compressed_data(base64_data: str, validate_crc: bool = True) -> Tuple
         - stats_dict: Statistics about decompression
     """
     try:
-        logger.debug(f"Processing compressed data: {len(base64_data)} bytes (base64)")
+        logger.debug(f"Processing compressed data: {len(base64_data)} bytes (base64), device: {device_id}")
         
         # Update statistics
         compression_stats['total_decompressions'] += 1
         
-        # Decompress data
-        decompressed_values, stats = decompress_smart_binary_data(base64_data)
+        # Decompress data with device_id for stateful reconstruction
+        decompressed_values, stats = decompress_smart_binary_data(base64_data, device_id=device_id)
         
         if decompressed_values is None:
             logger.error("✗ Decompression failed")

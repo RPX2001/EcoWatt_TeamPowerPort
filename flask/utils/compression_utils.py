@@ -10,6 +10,49 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# ==================== TEMPORAL STATE MANAGEMENT ====================
+class TemporalStateManager:
+    """
+    Manages temporal state for delta reconstruction across packets.
+    Each device maintains its own temporal buffer.
+    """
+    def __init__(self):
+        self._device_states = {}  # device_id -> state_dict
+    
+    def get_base_values(self, device_id: str, register_ids: List[int]) -> Optional[List[float]]:
+        """Get the last base values for a device with specific register layout"""
+        if device_id not in self._device_states:
+            return None
+        
+        state = self._device_states[device_id]
+        # Check if register layout matches
+        if state.get('register_ids') != register_ids:
+            logger.warning(f"Register layout changed for {device_id}, cannot reconstruct deltas")
+            return None
+        
+        return state.get('base_values')
+    
+    def store_base_values(self, device_id: str, register_ids: List[int], values: List[float]):
+        """Store base values for a device"""
+        self._device_states[device_id] = {
+            'register_ids': register_ids,
+            'base_values': values.copy(),
+            'last_update': None  # Could add timestamp if needed
+        }
+        logger.debug(f"Stored base values for {device_id}: {len(values)} values")
+    
+    def clear_device_state(self, device_id: str):
+        """Clear state for a specific device"""
+        if device_id in self._device_states:
+            del self._device_states[device_id]
+    
+    def clear_all(self):
+        """Clear all device states"""
+        self._device_states.clear()
+
+# Global temporal state manager instance
+_temporal_state = TemporalStateManager()
+
 
 def decompress_dictionary_bitmask(binary_data: bytes) -> Tuple[List[float], Dict]:
     """
@@ -104,12 +147,13 @@ def decompress_dictionary_bitmask(binary_data: bytes) -> Tuple[List[float], Dict
         return [], stats
 
 
-def decompress_temporal_delta(binary_data: bytes) -> Tuple[List[float], Dict]:
+def decompress_temporal_delta(binary_data: bytes, device_id: str = None) -> Tuple[List[float], Dict]:
     """
-    Decompress data encoded with Temporal Delta method (0xDE marker)
+    Decompress data encoded with Temporal Delta method (0xDE/0x70/0x71 markers)
     
     Args:
         binary_data: Compressed binary data
+        device_id: Device identifier for stateful delta reconstruction (required for 0x71)
         
     Returns:
         Tuple of (decompressed_values, stats_dict)
@@ -141,8 +185,8 @@ def decompress_temporal_delta(binary_data: bytes) -> Tuple[List[float], Dict]:
             if marker == 0x70:
                 # Base sample: contains register layout + full values
                 offset = 2
-                # Skip register IDs (count bytes)
-                reg_ids = binary_data[offset:offset+num_samples]
+                # Extract register IDs (count bytes)
+                reg_ids = list(binary_data[offset:offset+num_samples])
                 offset += num_samples
                 
                 # Extract full 16-bit values
@@ -155,6 +199,11 @@ def decompress_temporal_delta(binary_data: bytes) -> Tuple[List[float], Dict]:
                     decompressed_values.append(float(value))
                     offset += 2
                 
+                # Store base values for future delta reconstruction
+                if device_id:
+                    _temporal_state.store_base_values(device_id, reg_ids, decompressed_values)
+                    logger.debug(f"Stored base values for {device_id}: {reg_ids}")
+                
                 stats['success'] = True
                 stats['original_size'] = num_samples * 2
                 stats['ratio'] = len(binary_data) / (num_samples * 2) if num_samples > 0 else 0
@@ -163,10 +212,13 @@ def decompress_temporal_delta(binary_data: bytes) -> Tuple[List[float], Dict]:
             
             else:  # marker == 0x71
                 # Delta sample: variable-length encoded deltas
-                # NOTE: This is a simplified implementation that assumes we have base values
-                # For now, try to decode the variable-length format
+                # Need base values to reconstruct actual values
+                if not device_id:
+                    logger.warning("Device ID not provided for delta reconstruction (0x71), returning deltas only")
+                
+                # Decode variable-length deltas
                 offset = 2
-                decompressed_values = []
+                deltas = []
                 
                 for i in range(num_samples):
                     if offset >= len(binary_data):
@@ -175,7 +227,7 @@ def decompress_temporal_delta(binary_data: bytes) -> Tuple[List[float], Dict]:
                     
                     byte = binary_data[offset]
                     
-                    # Check encoding type
+                    # Check encoding type (from ESP32's variable-length encoding)
                     if byte & 0x80:  # 7-bit encoding
                         delta = byte & 0x3F
                         if byte & 0x40:
@@ -187,20 +239,55 @@ def decompress_temporal_delta(binary_data: bytes) -> Tuple[List[float], Dict]:
                             break
                         delta = struct.unpack('b', binary_data[offset+1:offset+2])[0]
                         offset += 2
-                    else:  # 16-bit delta
-                        if offset + 2 > len(binary_data):
+                    elif byte == 0x01:  # 16-bit marker
+                        if offset + 3 > len(binary_data):
                             logger.error("Truncated 16-bit delta")
+                            break
+                        delta = struct.unpack('<h', binary_data[offset+1:offset+3])[0]
+                        offset += 3
+                    else:
+                        # Assume 16-bit delta without marker (fallback)
+                        if offset + 2 > len(binary_data):
+                            logger.error("Truncated 16-bit delta (no marker)")
                             break
                         delta = struct.unpack('<h', binary_data[offset:offset+2])[0]
                         offset += 2
                     
-                    # For now, store the delta as-is (prediction reconstruction needs history)
-                    decompressed_values.append(float(delta))
+                    deltas.append(delta)
                 
+                # Try to reconstruct actual values from deltas
+                if device_id:
+                    base_values = _temporal_state.get_base_values(device_id, None)  # reg_ids unknown in delta packet
+                    
+                    if base_values and len(base_values) == len(deltas):
+                        # Reconstruct: ESP32 uses linear prediction: predicted = 2*prev - prev2
+                        # Then: delta = actual - predicted
+                        # So: actual = delta + predicted ≈ delta + prev (simplified)
+                        decompressed_values = []
+                        for i, delta in enumerate(deltas):
+                            reconstructed = base_values[i] + delta
+                            # Clamp to uint16 range
+                            reconstructed = max(0, min(65535, reconstructed))
+                            decompressed_values.append(float(reconstructed))
+                        
+                        # Update base values with reconstructed values for next delta
+                        _temporal_state.store_base_values(device_id, None, decompressed_values)
+                        
+                        stats['success'] = True
+                        stats['original_size'] = num_samples * 2
+                        stats['ratio'] = len(binary_data) / (num_samples * 2) if num_samples > 0 else 0
+                        logger.info(f"ESP32 Temporal Delta (0x71): {len(decompressed_values)} values reconstructed")
+                        return decompressed_values, stats
+                    else:
+                        logger.warning(f"Cannot reconstruct deltas: no base values (base={base_values is not None}, deltas={len(deltas)})")
+                
+                # Fallback: return deltas as-is (will be zeros or small values)
+                decompressed_values = [float(d) for d in deltas]
                 stats['success'] = True
+                stats['warning'] = 'Deltas only, no reconstruction possible'
                 stats['original_size'] = num_samples * 2
                 stats['ratio'] = len(binary_data) / (num_samples * 2) if num_samples > 0 else 0
-                logger.info(f"ESP32 Temporal Delta (0x71): {len(decompressed_values)} deltas decoded")
+                logger.info(f"ESP32 Temporal Delta (0x71): {len(deltas)} deltas decoded (no reconstruction)")
                 return decompressed_values, stats
         
         # Original 0xDE format handling
@@ -406,12 +493,13 @@ def unpack_bits_from_buffer(buffer: bytes, bit_offset: int, num_bits: int) -> in
     return value
 
 
-def decompress_smart_binary_data(base64_data: str) -> Tuple[Optional[List[float]], Dict]:
+def decompress_smart_binary_data(base64_data: str, device_id: str = None) -> Tuple[Optional[List[float]], Dict]:
     """
     Auto-detect compression method and decompress
     
     Args:
         base64_data: Base64-encoded compressed data
+        device_id: Device identifier for stateful decompression (optional but recommended for temporal delta)
         
     Returns:
         Tuple of (decompressed_values or None, stats_dict)
@@ -428,13 +516,14 @@ def decompress_smart_binary_data(base64_data: str) -> Tuple[Optional[List[float]
         marker = binary_data[0]
         
         # Log the full packet for debugging
-        logger.debug(f"Received {len(binary_data)} bytes, marker: 0x{marker:02X}, hex: {binary_data[:min(20, len(binary_data))].hex()}")
+        logger.debug(f"Received {len(binary_data)} bytes, marker: 0x{marker:02X}, device: {device_id}")
         
         if marker == 0xD0:
             return decompress_dictionary_bitmask(binary_data)
         elif marker == 0xDE or marker == 0x70 or marker == 0x71:
             # 0xDE = old marker, 0x70 = ESP32 temporal base, 0x71 = ESP32 temporal delta
-            return decompress_temporal_delta(binary_data)
+            # Pass device_id for stateful delta reconstruction
+            return decompress_temporal_delta(binary_data, device_id=device_id)
         elif marker == 0xAD or marker == 0x50:
             return decompress_semantic_rle(binary_data)
         elif marker == 0xBF or marker == 0x01:
