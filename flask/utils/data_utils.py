@@ -350,7 +350,8 @@ _device_latest_data: Dict[str, dict] = {}
 
 def store_device_latest_data(device_id: str, values: List[float], timestamp: float = None, 
                              compression_method: str = None, compression_ratio: float = None,
-                             sample_count: int = None, register_layout: List[int] = None):
+                             sample_count: int = None, register_layout: List[int] = None,
+                             sampling_interval_sec: int = None):
     """
     Store the latest data for a device with register mapping
     Handles both single sample and batch of samples with variable register counts
@@ -364,6 +365,7 @@ def store_device_latest_data(device_id: str, values: List[float], timestamp: flo
         compression_ratio: Compression ratio achieved (if compressed)
         sample_count: Number of samples in the values list (if known)
         register_layout: List of register IDs that were actually polled (e.g., [0, 1, 3, 7])
+        sampling_interval_sec: Actual sampling interval in seconds (from ESP32 config)
     """
     import time
     from datetime import datetime
@@ -393,8 +395,13 @@ def store_device_latest_data(device_id: str, values: List[float], timestamp: flo
     logger.info(f"Storing {num_samples} samples for {device_id} with {registers_per_sample} registers per sample")
     logger.info(f"Register layout: {register_layout}")
     
-    # Calculate time between samples (assume 1 second intervals)
-    time_interval_ms = 1000  # 1 second between samples
+    # Use actual sampling interval from ESP32, or default to 5 seconds if not provided
+    if sampling_interval_sec is None:
+        sampling_interval_sec = 5
+        logger.warning(f"Sampling interval not provided, defaulting to {sampling_interval_sec} seconds")
+    
+    time_interval_ms = sampling_interval_sec * 1000  # Convert seconds to milliseconds
+    logger.info(f"Using sampling interval: {sampling_interval_sec} seconds ({time_interval_ms} ms)")
     
     # Store each sample individually with actual timestamps
     for sample_idx in range(num_samples):

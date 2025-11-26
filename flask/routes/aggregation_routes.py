@@ -182,8 +182,12 @@ def receive_aggregated_data(device_id: str):
                     main_timestamp_s = data.get('timestamp', current_timestamp)
                     first_packet_timestamp = main_timestamp_s * 1000
                     
+                    # Extract sampling interval from ESP32 payload (in seconds)
+                    sampling_interval_sec = data.get('sampling_interval', 5)  # Default to 5 seconds if not provided
+                    
                     logger.info(f"[Timestamp Debug] Main timestamp: {main_timestamp_s} seconds")
                     logger.info(f"[Timestamp Debug] Using timestamp: {first_packet_timestamp} milliseconds")
+                    logger.info(f"[Timestamp Debug] Sampling interval: {sampling_interval_sec} seconds")
                     logger.info(f"[Timestamp Debug] Datetime: {datetime.fromtimestamp(first_packet_timestamp/1000)}")
                     
                     store_device_latest_data(
@@ -193,7 +197,8 @@ def receive_aggregated_data(device_id: str):
                         compression_method=compression_method,
                         compression_ratio=avg_compression_ratio,
                         sample_count=total_sample_count,
-                        register_layout=register_layout  # Pass the actual registers that were polled
+                        register_layout=register_layout,  # Pass the actual registers that were polled
+                        sampling_interval_sec=sampling_interval_sec  # Pass actual sampling interval from ESP32
                     )
                     
                     logger.info(f"Processed {len(all_decompressed)} decompressed samples from {len(all_stats)} packets")

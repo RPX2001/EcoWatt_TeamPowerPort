@@ -10,6 +10,7 @@
 #include "peripheral/logger.h"
 #include "peripheral/acquisition.h"
 #include "application/security.h"
+#include "application/config_manager.h"
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -167,6 +168,10 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     (*doc)["timestamp"] = getCurrentTimestamp();
     (*doc)["data_type"] = "compressed_sensor_batch";
     (*doc)["total_samples"] = allData.size();
+    
+    // Add sampling interval from current config (convert microseconds to seconds)
+    const SystemConfig& config = ConfigManager::getCurrentConfig();
+    (*doc)["sampling_interval"] = (uint32_t)(config.pollFrequency / 1000000);  // Convert μs to seconds
     
     // Build register mapping from first entry
     JsonObject registerMapping = (*doc)["register_mapping"].to<JsonObject>();
