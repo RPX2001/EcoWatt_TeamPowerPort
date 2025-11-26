@@ -12,6 +12,8 @@
 #include "application/security.h"
 #include "application/power_management.h"
 #include "application/peripheral_power.h"
+#include "application/fault_logger.h"
+#include "application/fault_handler.h"
 
 Arduino_Wifi Wifi;
 RingBuffer<SmartCompressedData, 20> smartRingBuffer;
@@ -82,7 +84,7 @@ volatile bool ota_token = false;
 // #define OTA_CHECK_INTERVAL 21600000000ULL  // 6 hours in microseconds
 #define OTA_CHECK_INTERVAL 60000000ULL  // 1 min in microseconds
 
-#define FIRMWARE_VERSION "1.0.4"
+#define FIRMWARE_VERSION "1.0.3"
 
 void IRAM_ATTR onOTATimer() {
     ota_token = true;
@@ -133,6 +135,12 @@ void setup()
 
   // Initialize Peripheral Power Gating
   PeripheralPower::init();
+
+  // Initialize Fault Recovery System
+  PRINT_SECTION("FAULT RECOVERY INITIALIZATION");
+  FaultLogger::init();
+  FaultHandler::init();
+  PRINT_SUCCESS("Fault recovery system ready");
 
   // Initialize Security Layer
   print("Initializing Security Layer...\n");
@@ -596,6 +604,40 @@ bool executeCommand(const char* commandId, const char* commandType, const char* 
         print("Resetting peripheral power gating statistics...\n");
         PeripheralPower::resetStats();
         PeripheralPower::printStats();
+        return true;
+        
+    } else if (strcmp(commandType, "get_fault_log") == 0) {
+        // Get fault log (all or recent N events)
+        int count = paramDoc["count"] | 0;
+        
+        PRINT_SECTION("FAULT LOG RETRIEVAL");
+        if (count > 0) {
+            print("Retrieving last %d fault events...\n", count);
+            String jsonLog = FaultLogger::getRecentEventsJSON(count);
+            print("%s\n", jsonLog.c_str());
+        } else {
+            print("Retrieving all fault events...\n");
+            String jsonLog = FaultLogger::getAllEventsJSON();
+            print("%s\n", jsonLog.c_str());
+        }
+        return true;
+        
+    } else if (strcmp(commandType, "clear_fault_log") == 0) {
+        // Clear fault log
+        print("Clearing fault log...\n");
+        FaultLogger::clearAllEvents();
+        return true;
+        
+    } else if (strcmp(commandType, "get_fault_stats") == 0) {
+        // Print fault statistics
+        print("Printing fault statistics...\n");
+        FaultLogger::printStatistics();
+        return true;
+        
+    } else if (strcmp(commandType, "print_fault_log") == 0) {
+        // Print formatted fault log to serial
+        print("Printing fault log...\n");
+        FaultLogger::printAllEvents();
         return true;
         
     } else {
@@ -1172,7 +1214,7 @@ std::vector<uint8_t> compressBatchWithSmartSelection(const SampleBatch& batch,
 /**
  * @fn bool readMultipleRegisters(const RegID* selection, size_t count, uint16_t* data)
  * 
- * @brief Read multiple registers from the sensor and store values in the provided array.
+ * @brief Read multiple registers from the sensor with fault detection and recovery.
  * 
  * @param selection Pointer to the array of RegID indicating which registers to read.
  * @param count Number of registers to read (length of selection and data arrays).
@@ -1182,19 +1224,89 @@ std::vector<uint8_t> compressBatchWithSmartSelection(const SampleBatch& batch,
  */
 bool readMultipleRegisters(const RegID* selection, size_t count, uint16_t* data) 
 {
-    // Use the acquisition system to read registers
-    DecodedValues result = readRequest(selection, count);
+    const uint8_t MAX_RETRIES = 3;
+    uint8_t retry_count = 0;
     
-    // Check if we got the expected number of values
-    if (result.count != count) {
-        return false;
+    while (retry_count <= MAX_RETRIES) {
+        // Use the acquisition system to read registers
+        DecodedValues result = readRequest(selection, count);
+        
+        // Check if we got an error indicator (0xFFFF in first value)
+        if (result.count == 1 && result.values[0] == 0xFFFF) {
+            // This indicates a communication failure from readRequest
+            FrameValidation validation;
+            validation.result = ValidationResult::TIMEOUT;
+            validation.error_description = "No response from inverter";
+            validation.exception_code = 0;
+            validation.recovered = false;
+            
+            if (retry_count < MAX_RETRIES) {
+                FaultHandler::recoverFromFault(validation, retry_count, "readMultipleRegisters");
+                retry_count++;
+                continue;  // Retry
+            } else {
+                // Max retries exceeded, log final failure
+                FaultLogger::logFault(
+                    FaultType::MODBUS_TIMEOUT,
+                    "Failed to read registers after " + String(MAX_RETRIES) + " retries",
+                    "readMultipleRegisters",
+                    false,  // Not recovered
+                    "Max retries exceeded",
+                    0,
+                    MAX_RETRIES
+                );
+                return false;
+            }
+        }
+        
+        // Check if we got the expected number of values
+        if (result.count != count) {
+            FrameValidation validation;
+            validation.result = ValidationResult::CORRUPT_FRAME;
+            validation.error_description = String("Expected ") + String(count) + 
+                                         " values, got " + String(result.count);
+            validation.exception_code = 0;
+            validation.recovered = false;
+            
+            if (retry_count < MAX_RETRIES) {
+                FaultHandler::recoverFromFault(validation, retry_count, "readMultipleRegisters");
+                retry_count++;
+                continue;  // Retry
+            } else {
+                FaultLogger::logFault(
+                    FaultType::CORRUPT_FRAME,
+                    validation.error_description,
+                    "readMultipleRegisters",
+                    false,
+                    "Max retries exceeded",
+                    0,
+                    MAX_RETRIES
+                );
+                return false;
+            }
+        }
+        
+        // Success - copy the register values to the output array
+        for (size_t i = 0; i < count && i < result.count; i++) {
+            data[i] = result.values[i];
+        }
+        
+        // Log successful recovery if this was a retry
+        if (retry_count > 0) {
+            FaultLogger::logFault(
+                FaultType::MODBUS_TIMEOUT,
+                "Successfully recovered after " + String(retry_count) + " retries",
+                "readMultipleRegisters",
+                true,  // Recovered!
+                "Retry with exponential backoff",
+                0,
+                retry_count
+            );
+        }
+        
+        return true;
     }
     
-    // Copy the register values to the output array
-    for (size_t i = 0; i < count && i < result.count; i++) {
-        data[i] = result.values[i];
-    }
-    
-    return true;
+    return false;  // Should not reach here
 }
 

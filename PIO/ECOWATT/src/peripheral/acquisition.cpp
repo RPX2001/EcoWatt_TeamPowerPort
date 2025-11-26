@@ -1,4 +1,6 @@
 #include "peripheral/acquisition.h"
+#include "application/fault_handler.h"
+#include "application/fault_logger.h"
 
 ProtocolAdapter adapter;
 
@@ -237,7 +239,7 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
     return result;
   }
 
-  // send request
+  // send request without internal retry handling
   char responseFrame[256];
   
   bool ok;
@@ -249,7 +251,88 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
   }
   else
   {
+    // Note: adapter.readRegister() will log "Attempt 1: Sending..." internally
     ok = adapter.readRegister(frame, responseFrame, sizeof(responseFrame));
+    
+    // ALWAYS validate the frame, even if adapter says ok
+    // (adapter might return true even with error frames after protocol_adapter modification)
+    if (strlen(responseFrame) > 0) {
+      // Convert hex string to bytes for validation
+      size_t hex_len = strlen(responseFrame);
+      uint8_t response_bytes[128];
+      size_t byte_count = hex_len / 2;
+      
+      for (size_t i = 0; i < byte_count; i++) {
+        char byte_str[3] = {responseFrame[i*2], responseFrame[i*2+1], '\0'};
+        response_bytes[i] = (uint8_t)strtol(byte_str, NULL, 16);
+      }
+      
+      // Validate the response frame
+      FrameValidation validation = FaultHandler::validateModbusFrame(
+        response_bytes,
+        byte_count,
+        0x11,  // expected slave address
+        0x03   // expected function code (read holding registers)
+      );
+      
+      // If fault detected, attempt recovery
+      if (validation.result != ValidationResult::VALID) {
+        debug.log("\n");
+        Serial.printf("  [ERROR] FAULT DETECTED: %s\n", validation.error_description.c_str());
+        Serial.printf("  Frame: ");
+        for (size_t i = 0; i < byte_count && i < 16; i++) {
+          Serial.printf("%02X", response_bytes[i]);
+        }
+        Serial.printf("\n");
+        Serial.printf("  Recoverable: %s\n", validation.recovered ? "YES" : "NO");
+        
+        if (validation.recovered) {
+          // Retry with exponential backoff
+          for (int retry = 0; retry < 3; retry++) {
+            unsigned long delay_ms = FaultHandler::getRetryDelay(validation, retry);
+            Serial.printf("  [INFO] Recovery attempt %d after %lu ms delay...\n", retry + 1, delay_ms);
+            delay(delay_ms);
+            
+            ok = adapter.readRegister(frame, responseFrame, sizeof(responseFrame));
+            
+            if (strlen(responseFrame) > 0) {
+              // Convert hex string to bytes for retry validation
+              hex_len = strlen(responseFrame);
+              byte_count = hex_len / 2;
+              
+              for (size_t i = 0; i < byte_count; i++) {
+                char byte_str[3] = {responseFrame[i*2], responseFrame[i*2+1], '\0'};
+                response_bytes[i] = (uint8_t)strtol(byte_str, NULL, 16);
+              }
+              
+              // Validate retry response
+              validation = FaultHandler::validateModbusFrame(
+                response_bytes,
+                byte_count,
+                0x11,
+                0x03
+              );
+              
+              if (validation.result == ValidationResult::VALID) {
+                Serial.printf("  [SUCCESS] ✓ Recovery successful!\n\n");
+                ok = true;
+                break;
+              } else {
+                Serial.printf("  [WARN] Retry %d still has error: %s\n", retry + 1, validation.error_description.c_str());
+              }
+            }
+          }
+          
+          if (validation.result != ValidationResult::VALID) {
+            Serial.printf("  [ERROR] ✗ Recovery failed after 3 retries\n\n");
+            ok = false;
+          }
+        } else {
+          Serial.printf("  [ERROR] ✗ Non-recoverable error, no retry attempted\n\n");
+          ok = false;
+        }
+      }
+    }
   }
 
   //if response is error return error values to main code

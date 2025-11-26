@@ -2,6 +2,8 @@
 #include <ArduinoJson.h>
 #include <Arduino.h>
 #include "driver/protocol_adapter.h"
+#include "application/fault_logger.h"
+#include "application/fault_handler.h"
 
 ProtocolAdapter::ProtocolAdapter() {}
 
@@ -65,31 +67,16 @@ bool ProtocolAdapter::readRegister(const char* frameHex, char* outFrameHex, size
   bool state = sendRequest(readURL, frameHex, responseJson, sizeof(responseJson));
   if (!state) return false;
 
+  // Parse response and extract frame (even if it's an error frame)
   state = parseResponse(responseJson, outFrameHex, outSize);
-  if (!state)
-  {
-    debug.log("Read operation failed. Then Retry\n");
-    int retry = 1;
-    while (retry <= 3 && !state)
-    {
-      debug.log("Retry attempt %d\n", retry);
-      state = sendRequest(readURL, frameHex, responseJson, sizeof(responseJson));
-      if (state)
-      {
-        state = parseResponse(responseJson, outFrameHex, outSize);
-      }
-      if (!state)
-      {
-        retry++;
-      }
-      else
-      {
-        debug.log("Read operation successful on retry\n");
-        break;
-      }
-    }
-  }
-  return state;
+  
+  // FAULT RECOVERY INTEGRATION:
+  // Always return true if we got a response from the server, even if parseResponse
+  // detected an exception or error. This allows acquisition.cpp to validate the frame
+  // and apply proper fault recovery strategies.
+  // Only return false if we couldn't get any response from the server.
+  
+  return (strlen(outFrameHex) > 0);  // Return true if we have any frame data
 }
 
 //  Robust Send with Retry
@@ -116,6 +103,7 @@ bool ProtocolAdapter::sendRequest(const char* url, const char* frameHex, char* o
     if (!http.begin(url)) 
     {
       debug.log("HTTP begin failed\n");
+      FaultHandler::handleHTTPError(-1, "ProtocolAdapter::sendRequest");
       return false;
     }
     http.setTimeout(httpTimeout);
@@ -147,6 +135,7 @@ bool ProtocolAdapter::sendRequest(const char* url, const char* frameHex, char* o
       if (!ok) 
       {
         debug.log("Empty response, retrying...\n");
+        FaultHandler::handleHTTPError(httpResponseCode, "ProtocolAdapter::sendRequest");
       } 
       else 
       {
@@ -156,6 +145,7 @@ bool ProtocolAdapter::sendRequest(const char* url, const char* frameHex, char* o
     else 
     {
       debug.log("Request failed (code %d), retrying...\n", httpResponseCode);
+      FaultHandler::handleHTTPError(httpResponseCode, "ProtocolAdapter::sendRequest");
       http.end();  // Always close connection even on failure
     }
     debug.log("Waiting %d ms before retry...\n", backoffDelay);
@@ -164,6 +154,15 @@ bool ProtocolAdapter::sendRequest(const char* url, const char* frameHex, char* o
   }
 
   debug.log("Failed after max retries.\n");
+  FaultLogger::logFault(
+      FaultType::HTTP_ERROR,
+      "HTTP request failed after " + String(maxRetries) + " retries",
+      "ProtocolAdapter::sendRequest",
+      false,
+      "Max retries exceeded",
+      0,
+      maxRetries
+  );
   return false;
 }
 
@@ -208,18 +207,36 @@ bool ProtocolAdapter::parseResponse(const char* response, char* outFrameHex, siz
     return false;
   }
   memcpy(outFrameHex, frame, len + 1);
-  debug.log("Received frame: %s\n", frame);
+  debug.log("\nReceived frame: %s\n", frame);
+  debug.log("Frame length: %d bytes (hex string length: %d)\n", len/2, len);
 
   // Modbus function code check
-  if (len < 6) return false;
+  if (len < 6) {
+    debug.log("Frame too short (< 6 chars)\n");
+    return false;
+  }
   char buf[3]; buf[2] = '\0';
   memcpy(buf, frame + 2, 2);
   int funcCode = (int)strtol(buf, NULL, 16);
+  debug.log("Function code: 0x%02X\n", funcCode);
   if (funcCode & 0x80) {
     memcpy(buf, frame + 4, 2);
     int errorCode = (int)strtol(buf, NULL, 16);
     debug.log("Modbus Exception: ");
     printErrorCode(errorCode);
+    
+    // Log the Modbus exception
+    FaultLogger::logFault(
+        FaultType::MODBUS_EXCEPTION,
+        String("Modbus exception 0x") + String(errorCode, HEX) + ": " + 
+        String(FaultLogger::exceptionCodeToString(errorCode)),
+        "ProtocolAdapter::parseResponse",
+        false,  // Not recovered at this level
+        "Retry at higher level",
+        errorCode,
+        0
+    );
+    
     return false;
   } else {
     debug.log("Valid Modbus frame.\n");

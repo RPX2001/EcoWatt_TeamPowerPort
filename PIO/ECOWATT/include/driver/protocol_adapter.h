@@ -37,7 +37,9 @@ class ProtocolAdapter
     const char* readURL  = "http://20.15.114.131:8080/api/inverter/read";
 
     // retry & timeout
-    const int maxRetries = 3;
+    // NOTE: maxRetries set to 1 to disable internal retries
+    // Fault recovery system in acquisition.cpp handles retries with proper validation
+    const int maxRetries = 1;
     const int httpTimeout = 5000; // ms
 
     bool sendRequest(const char* url, const char* frameHex, char* outResponseJson, size_t outSize);
