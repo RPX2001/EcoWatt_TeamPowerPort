@@ -389,15 +389,32 @@ def get_server_logs():
         
         # Get the logs directory
         logs_dir = os.path.join(FLASK_DIR, 'logs')
-        current_log_file = os.path.join(logs_dir, 'ecowatt_server.log')
         
-        if not os.path.exists(current_log_file):
+        # Find the most recent log file
+        log_files = []
+        if os.path.exists(logs_dir):
+            for file in os.listdir(logs_dir):
+                if file.startswith('ecowatt_server') and file.endswith('.log'):
+                    file_path = os.path.join(logs_dir, file)
+                    file_stat = os.stat(file_path)
+                    log_files.append({
+                        'path': file_path,
+                        'name': file,
+                        'mtime': file_stat.st_mtime
+                    })
+        
+        if not log_files:
             return jsonify({
                 'success': True,
                 'logs': [],
                 'count': 0,
-                'message': 'No log file found'
+                'message': 'No log files found'
             }), 200
+        
+        # Sort by modification time and get the most recent
+        log_files.sort(key=lambda x: x['mtime'], reverse=True)
+        current_log_file = log_files[0]['path']
+        current_log_name = log_files[0]['name']
         
         # Read the log file
         logs = []
@@ -434,13 +451,10 @@ def get_server_logs():
                 timestamp = None
                 try:
                     # Try to parse timestamp from log line
-                    # Format: YYYY-MM-DD HH:MM:SS
-                    parts = line.split(' - ', 1)
-                    if len(parts) >= 2:
-                        timestamp_str = parts[0].strip()
-                        # Simple timestamp extraction (adjust based on your log format)
-                        if len(timestamp_str) > 10:
-                            timestamp = timestamp_str
+                    # Format: [YYYY-MM-DD HH:MM:SS]
+                    if line.startswith('[') and ']' in line:
+                        timestamp_str = line[1:line.index(']')]
+                        timestamp = timestamp_str
                 except:
                     pass
                 
@@ -464,7 +478,7 @@ def get_server_logs():
             'success': True,
             'logs': logs,
             'count': len(logs),
-            'file': current_log_file
+            'file': current_log_name
         }), 200
         
     except Exception as e:
