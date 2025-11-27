@@ -314,6 +314,33 @@ def get_ota_statistics():
         }), 500
 
 
+@ota_bp.route('/ota/history/<device_id>', methods=['GET'])
+def get_ota_history(device_id: str):
+    """Get OTA update history for a device"""
+    try:
+        from database import Database
+        
+        # Get limit parameter (default 20)
+        limit = request.args.get('limit', default=20, type=int)
+        
+        # Get history from database
+        history = Database.get_ota_history(device_id, limit)
+        
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'history': history,
+            'count': len(history)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"✗ Error getting OTA history for {device_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 # ==============================================================================
 # FOTA FAULT INJECTION ENDPOINTS (For Testing)
 # ==============================================================================

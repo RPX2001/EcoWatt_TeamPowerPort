@@ -25,7 +25,7 @@ const menuItems = [
   { text: 'Commands', icon: <SendIcon />, path: '/commands' },
   { text: 'FOTA', icon: <SystemUpdateIcon />, path: '/fota' },
   { text: 'Logs', icon: <ArticleIcon />, path: '/logs' },
-  { text: 'Utilities', icon: <BuildIcon />, path: '/utilities' },
+  // { text: 'Utilities', icon: <BuildIcon />, path: '/utilities' }, // Hidden - will add later if needed
   { text: 'Testing', icon: <BugReportIcon />, path: '/testing' },
 ];
 

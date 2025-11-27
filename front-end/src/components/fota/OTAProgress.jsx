@@ -334,64 +334,6 @@ const OTAProgress = () => {
             )}
           </Box>
         )}
-
-        <Divider sx={{ my: 3 }} />
-
-        {/* Statistics */}
-        <Box>
-          <Typography variant="h6" gutterBottom>
-            OTA Statistics
-          </Typography>
-          
-          <Stack spacing={2}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-              <Typography variant="body2" color="text.secondary">
-                Total Updates:
-              </Typography>
-              <Typography variant="body2" fontWeight="bold">
-                {stats.total_updates || 0}
-              </Typography>
-            </Box>
-            
-            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-              <Typography variant="body2" color="text.secondary">
-                Successful:
-              </Typography>
-              <Typography variant="body2" fontWeight="bold" color="success.main">
-                {stats.successful_updates || 0}
-              </Typography>
-            </Box>
-            
-            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-              <Typography variant="body2" color="text.secondary">
-                Failed:
-              </Typography>
-              <Typography variant="body2" fontWeight="bold" color="error.main">
-                {stats.failed_updates || 0}
-              </Typography>
-            </Box>
-            
-            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-              <Typography variant="body2" color="text.secondary">
-                Active Sessions:
-              </Typography>
-              <Typography variant="body2" fontWeight="bold">
-                {stats.active_sessions || 0}
-              </Typography>
-            </Box>
-            
-            {stats.success_rate !== undefined && (
-              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="body2" color="text.secondary">
-                  Success Rate:
-                </Typography>
-                <Typography variant="body2" fontWeight="bold">
-                  {Math.round(stats.success_rate * 100)}%
-                </Typography>
-              </Box>
-            )}
-          </Stack>
-        </Box>
       </Paper>
     </Box>
   );

@@ -363,31 +363,6 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
           </Grid>
         </Box>
 
-        {/* Data Processing Section */}
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', mb: 2 }}>
-            🗜️ Data Processing
-          </Typography>
-          <Divider sx={{ mb: 3 }} />
-          
-          <FormControlLabel
-            control={
-              <Switch
-                checked={config.compression_enabled}
-                onChange={(e) => handleInputChange('compression_enabled', e.target.checked)}
-              />
-            }
-            label={
-              <Box>
-                <Typography variant="body1">Enable Data Compression</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Compress data before uploading to reduce bandwidth usage
-                </Typography>
-              </Box>
-            }
-          />
-        </Box>
-
         {/* Registers Section */}
         <Box sx={{ mb: 4 }}>
           <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', mb: 1 }}>

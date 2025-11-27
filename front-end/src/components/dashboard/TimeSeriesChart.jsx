@@ -16,7 +16,7 @@ const TimeSeriesChart = ({
   title, 
   dataKeys = [], 
   colors = ['#1976d2', '#dc004e', '#ff9800', '#4caf50'],
-  height = 300,
+  height = 400,
   yAxisLabel = '',
 }) => {
   const formatXAxis = (timestamp) => {
@@ -43,9 +43,26 @@ const TimeSeriesChart = ({
   };
 
   return (
-    <Paper elevation={2} sx={{ p: 2 }}>
+    <Paper 
+      elevation={3} 
+      sx={{ 
+        p: 3, 
+        height: '100%',
+        width: '100%',
+        borderRadius: 2,
+        boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+      }}
+    >
       {title && (
-        <Typography variant="h6" gutterBottom>
+        <Typography 
+          variant="h6" 
+          gutterBottom 
+          sx={{ 
+            fontWeight: 600, 
+            mb: 2,
+            color: 'primary.main'
+          }}
+        >
           {title}
         </Typography>
       )}
@@ -64,21 +81,37 @@ const TimeSeriesChart = ({
         </Box>
       ) : (
         <ResponsiveContainer width="100%" height={height}>
-          <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" />
+          <LineChart data={data} margin={{ top: 10, right: 50, left: 10, bottom: 30 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" opacity={0.5} />
             <XAxis 
               dataKey="timestamp" 
               tickFormatter={formatXAxis}
-              label={{ value: 'Time', position: 'insideBottom', offset: -5 }}
+              label={{ value: 'Time', position: 'insideBottom', offset: -15, style: { fontWeight: 600 } }}
+              tick={{ fontSize: 13 }}
+              tickMargin={10}
             />
             <YAxis 
-              label={{ value: yAxisLabel, angle: -90, position: 'insideLeft' }}
+              label={{ value: yAxisLabel, angle: -90, position: 'insideLeft', style: { fontWeight: 600 } }}
+              tick={{ fontSize: 13 }}
+              width={70}
+              tickMargin={5}
             />
             <Tooltip 
               formatter={formatTooltip}
               labelFormatter={formatTooltipLabel}
+              contentStyle={{ 
+                backgroundColor: 'rgba(255, 255, 255, 0.98)', 
+                border: '1px solid #ccc',
+                borderRadius: '8px',
+                padding: '12px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+              }}
             />
-            <Legend />
+            <Legend 
+              wrapperStyle={{ paddingTop: '15px' }}
+              iconType="line"
+              iconSize={20}
+            />
             {dataKeys.map((key, index) => (
               <Line
                 key={key.dataKey || key}
@@ -86,9 +119,9 @@ const TimeSeriesChart = ({
                 dataKey={key.dataKey || key}
                 name={key.name || key}
                 stroke={colors[index % colors.length]}
-                strokeWidth={2}
+                strokeWidth={3}
                 dot={false}
-                activeDot={{ r: 6 }}
+                activeDot={{ r: 8, strokeWidth: 2 }}
               />
             ))}
           </LineChart>

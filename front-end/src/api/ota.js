@@ -146,6 +146,18 @@ export const getFirmwareManifest = (version) => {
   return api.get(`/ota/firmware/${version}/manifest`);
 };
 
+/**
+ * Get OTA update history for device
+ * @param {string} deviceId - Device ID
+ * @param {number} limit - Number of records to retrieve (default 20)
+ * @returns {Promise} API response with OTA history
+ */
+export const getOTAHistory = (deviceId, limit = 20) => {
+  return api.get(`/ota/history/${deviceId}`, {
+    params: { limit }
+  });
+};
+
 export default {
   checkForUpdate,
   initiateOTA,
@@ -158,5 +170,6 @@ export default {
   uploadFirmware,
   getFirmwareList,
   deleteFirmware,
-  getFirmwareManifest
+  getFirmwareManifest,
+  getOTAHistory
 };

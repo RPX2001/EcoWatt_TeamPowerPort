@@ -14,7 +14,7 @@ import Configuration from './pages/Configuration';
 import Commands from './pages/Commands';
 import FOTA from './pages/FOTA';
 import Logs from './pages/Logs';
-import Utilities from './pages/Utilities';
+// import Utilities from './pages/Utilities'; // Hidden - will add later if needed
 import Testing from './pages/Testing';
 
 // Create a client
@@ -52,12 +52,13 @@ function App() {
                 component="main"
                 sx={{
                   flexGrow: 1,
-                  p: 3,
+                  p: 2,
                   width: '100%',
-                  minWidth: '1200px', // Ensure consistent minimum width across all tabs
+                  maxWidth: '100%',
                   bgcolor: 'background.default',
                   marginLeft: sidebarOpen ? 0 : '-240px',
                   transition: 'margin-left 0.3s ease',
+                  overflow: 'auto',
                 }}
               >
                 <Toolbar /> {/* Spacer for fixed navbar */}
@@ -67,7 +68,7 @@ function App() {
                   <Route path="/commands" element={<Commands />} />
                   <Route path="/fota" element={<FOTA />} />
                   <Route path="/logs" element={<Logs />} />
-                  <Route path="/utilities" element={<Utilities />} />
+                  {/* <Route path="/utilities" element={<Utilities />} /> */} {/* Hidden - will add later if needed */}
                   <Route path="/testing" element={<Testing />} />
                 </Routes>
               </Box>

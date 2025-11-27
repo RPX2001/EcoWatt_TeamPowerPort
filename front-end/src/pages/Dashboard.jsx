@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { 
-  Box, Typography, Grid, CircularProgress, Alert, 
+  Box, Typography, CircularProgress, Alert, 
   Paper, Table, TableBody, TableCell, TableContainer, 
   TableHead, TableRow, Tabs, Tab 
 } from '@mui/material';
@@ -263,18 +263,20 @@ const Dashboard = () => {
   };
 
   return (
-    <Box>
-      <Typography variant="h4" gutterBottom>
+    <Box sx={{ width: '100%', maxWidth: '100%' }}>
+      <Typography variant="h4" gutterBottom sx={{ px: 2, pt: 2 }}>
         Dashboard
       </Typography>
 
-      <DeviceSelector 
-        selectedDevice={selectedDevice} 
-        onDeviceChange={handleDeviceChange} 
-      />
+      <Box sx={{ px: 2 }}>
+        <DeviceSelector 
+          selectedDevice={selectedDevice} 
+          onDeviceChange={handleDeviceChange} 
+        />
+      </Box>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error" sx={{ mx: 2, mb: 2 }}>
           {error}
         </Alert>
       )}
@@ -291,13 +293,13 @@ const Dashboard = () => {
           {latestData && (
             <>
               {/* Register Values - Full width */}
-              <Box sx={{ mb: 3 }}>
+              <Box sx={{ mb: 3, px: 2 }}>
                 <RegisterValues data={latestData} deviceConfig={deviceConfig} />
               </Box>
 
               {/* Device Configuration */}
               {deviceConfig && (
-                <Box sx={{ mb: 3 }}>
+                <Box sx={{ mb: 3, px: 2 }}>
                   <DeviceConfiguration config={deviceConfig} />
                 </Box>
               )}
@@ -307,7 +309,7 @@ const Dashboard = () => {
           
           {/* Show message if device is offline and no data available */}
           {!latestData && !loading && historicalData.length === 0 && (
-            <Alert severity="warning" sx={{ mb: 3 }}>
+            <Alert severity="warning" sx={{ mx: 2, mb: 3 }}>
               Device is currently offline and no historical data is available in the database.
               Please check if the device has ever uploaded data to the server.
             </Alert>
@@ -315,26 +317,26 @@ const Dashboard = () => {
           
           {/* Show info about historical data availability */}
           {historicalData.length > 0 && !latestData && (
-            <Alert severity="info" sx={{ mb: 3 }}>
+            <Alert severity="info" sx={{ mx: 2, mb: 3 }}>
               Device is currently offline. Showing {historicalData.length} historical records from the database.
             </Alert>
           )}
           
           {/* Historical Data Section with Tabs - Only show if we have data */}
           {historicalData.length > 0 && (
-          <Box sx={{ mt: 3 }}>
-            <Paper sx={{ p: 2 }}>
-              <Tabs value={viewMode} onChange={(e, newValue) => setViewMode(newValue)} sx={{ mb: 2 }}>
+          <Box sx={{ mt: 3, width: '100%' }}>
+            <Paper sx={{ p: 3 }}>
+              <Tabs value={viewMode} onChange={(e, newValue) => setViewMode(newValue)} sx={{ mb: 3 }}>
                 <Tab label="Charts View" />
                 <Tab label="Table View" />
               </Tabs>
 
               {/* Charts View - Dynamic based on available register categories */}
               {viewMode === 0 && (
-                <Grid container spacing={3}>
+                <Box sx={{ width: '100%' }}>
                   {/* AC Power Metrics Chart */}
                   {registersByCategory.ac_power.length > 0 && (
-                    <Grid item xs={12}>
+                    <Box sx={{ mb: 4, width: '100%' }}>
                       <TimeSeriesChart
                         title="AC Power Metrics"
                         data={historicalData}
@@ -343,15 +345,15 @@ const Dashboard = () => {
                           name: `${reg.name} (${reg.unit})`
                         }))}
                         colors={['#1976d2', '#dc004e', '#4caf50', '#ff9800']}
-                        height={350}
+                        height={450}
                         yAxisLabel="Value"
                       />
-                    </Grid>
+                    </Box>
                   )}
 
                   {/* PV Input Metrics Chart */}
                   {registersByCategory.pv_input.length > 0 && (
-                    <Grid item xs={12}>
+                    <Box sx={{ mb: 4, width: '100%' }}>
                       <TimeSeriesChart
                         title="PV Input Metrics"
                         data={historicalData}
@@ -360,15 +362,15 @@ const Dashboard = () => {
                           name: `${reg.name} (${reg.unit})`
                         }))}
                         colors={['#4caf50', '#8bc34a', '#ff9800', '#ffc107']}
-                        height={350}
+                        height={450}
                         yAxisLabel="Value"
                       />
-                    </Grid>
+                    </Box>
                   )}
 
                   {/* Power & Temperature Chart */}
                   {(registersByCategory.power.length > 0 || registersByCategory.temperature.length > 0) && (
-                    <Grid item xs={12}>
+                    <Box sx={{ mb: 4, width: '100%' }}>
                       <TimeSeriesChart
                         title="Power & Temperature"
                         data={historicalData}
@@ -383,15 +385,15 @@ const Dashboard = () => {
                           }))
                         ]}
                         colors={['#ff9800', '#f44336', '#9c27b0']}
-                        height={350}
+                        height={450}
                         yAxisLabel="Value"
                       />
-                    </Grid>
+                    </Box>
                   )}
 
                   {/* Other Metrics Chart */}
                   {registersByCategory.other.length > 0 && (
-                    <Grid item xs={12}>
+                    <Box sx={{ mb: 4, width: '100%' }}>
                       <TimeSeriesChart
                         title="Other Metrics"
                         data={historicalData}
@@ -400,21 +402,21 @@ const Dashboard = () => {
                           name: `${reg.name} (${reg.unit})`
                         }))}
                         colors={['#9c27b0', '#3f51b5', '#009688']}
-                        height={350}
+                        height={450}
                         yAxisLabel="Value"
                       />
-                    </Grid>
+                    </Box>
                   )}
 
                   {/* Show message if no data */}
                   {registerConfig.length === 0 && (
-                    <Grid item xs={12}>
+                    <Box sx={{ width: '100%' }}>
                       <Alert severity="info">
                         No register data available to display charts
                       </Alert>
-                    </Grid>
+                    </Box>
                   )}
-                </Grid>
+                </Box>
               )}
 
               {/* Table View - Dynamic columns based on available registers */}
