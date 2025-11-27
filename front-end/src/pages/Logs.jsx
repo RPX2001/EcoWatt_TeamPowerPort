@@ -1,46 +1,27 @@
 /**
  * Logs & Diagnostics Page
  * 
- * Main page for viewing diagnostic logs and system statistics
- * Features:
- * - System health summary
- * - Statistics dashboard (compression, security, OTA, commands)
- * - Real-time metrics
+ * Main page for viewing diagnostic logs and system information
  */
 
 import React, { useState } from 'react';
 import {
   Box,
-  Container,
   Typography,
-  Grid,
   Paper,
   Tabs,
-  Tab
+  Tab,
+  Alert
 } from '@mui/material';
 import {
-  Dashboard as DashboardIcon,
   HealthAndSafety as HealthIcon,
-  Article as LogIcon
+  Devices as DeviceLogIcon,
+  Storage as ServerLogIcon
 } from '@mui/icons-material';
-import {
-  Security as SecurityIcon,
-  CloudSync as OTAIcon,
-  Terminal as CommandIcon,
-  Compress as CompressionIcon
-} from '@mui/icons-material';
-import { useQuery } from '@tanstack/react-query';
-import {
-  getAllStats,
-  getCompressionStats,
-  getSecurityStats,
-  getOTAStats,
-  getCommandStats
-} from '../api/diagnostics';
 import DeviceSelector from '../components/dashboard/DeviceSelector';
-import StatisticsCard from '../components/common/StatisticsCard';
 import DiagnosticsSummary from '../components/diagnostics/DiagnosticsSummary';
 import LogViewer from '../components/diagnostics/LogViewer';
+import ServerLogViewer from '../components/diagnostics/ServerLogViewer';
 
 const Logs = () => {
   const [activeTab, setActiveTab] = useState(0);
@@ -50,70 +31,26 @@ const Logs = () => {
     setSelectedDevice(deviceId);
   };
 
-  // Fetch all statistics
-  const { data: allStatsData } = useQuery({
-    queryKey: ['allStats'],
-    queryFn: getAllStats,
-    refetchInterval: 30000 // Refresh every 30 seconds
-  });
-
-  // Fetch compression stats
-  const { data: compressionData } = useQuery({
-    queryKey: ['compressionStats'],
-    queryFn: getCompressionStats,
-    refetchInterval: 30000
-  });
-
-  // Fetch security stats
-  const { data: securityData } = useQuery({
-    queryKey: ['securityStats'],
-    queryFn: getSecurityStats,
-    refetchInterval: 30000
-  });
-
-  // Fetch OTA stats
-  const { data: otaData } = useQuery({
-    queryKey: ['otaStats'],
-    queryFn: getOTAStats,
-    refetchInterval: 30000
-  });
-
-  // Fetch command stats
-  const { data: commandData } = useQuery({
-    queryKey: ['commandStats'],
-    queryFn: getCommandStats,
-    refetchInterval: 30000
-  });
-
-  const allStats = allStatsData?.data?.statistics || {};
-  const compressionStats = compressionData?.data?.statistics || {};
-  const securityStats = securityData?.data?.statistics || {};
-  const otaStats = otaData?.data?.statistics || {};
-  const commandStats = commandData?.data?.statistics || {};
-
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue);
   };
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
-      {/* Page Header */}
+    <Box sx={{ width: '100%', py: 4, px: 3 }}>
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" component="h1" gutterBottom>
-          Diagnostics & Monitoring
+          Logs & Diagnostics
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          System health, statistics, and diagnostic information
+          View device diagnostics, system health, and server logs
         </Typography>
       </Box>
 
-      {/* Device Selector */}
       <DeviceSelector 
         selectedDevice={selectedDevice} 
         onDeviceChange={handleDeviceChange} 
       />
 
-      {/* Tabs */}
       <Paper sx={{ mb: 3 }}>
         <Tabs 
           value={activeTab} 
@@ -122,8 +59,8 @@ const Logs = () => {
           sx={{ borderBottom: 1, borderColor: 'divider' }}
         >
           <Tab 
-            icon={<DashboardIcon />} 
-            label="Overview"
+            icon={<DeviceLogIcon />} 
+            label="Device Logs"
             iconPosition="start"
           />
           <Tab 
@@ -132,193 +69,27 @@ const Logs = () => {
             iconPosition="start"
           />
           <Tab 
-            icon={<LogIcon />} 
-            label="Logs"
+            icon={<ServerLogIcon />} 
+            label="Server Logs"
             iconPosition="start"
           />
         </Tabs>
       </Paper>
 
-      {/* Tab Content */}
       <Box>
-        {/* Overview Tab */}
         {activeTab === 0 && (
-          <Box>
-            {/* Compression Statistics */}
-            <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
-              Compression Statistics
-            </Typography>
-            <Grid container spacing={3} sx={{ mb: 4 }}>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Total Decompressions"
-                  value={compressionStats.total_decompressions || 0}
-                  icon={CompressionIcon}
-                  color="primary"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Successful"
-                  value={compressionStats.successful_decompressions || 0}
-                  icon={CompressionIcon}
-                  color="success"
-                  subtitle={`${Math.round((compressionStats.success_rate || 0))}% success rate`}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Avg Compression"
-                  value={Math.round((compressionStats.average_ratio || 0) * 100)}
-                  unit="%"
-                  icon={CompressionIcon}
-                  color="info"
-                  subtitle="Space saved"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Total Savings"
-                  value={Math.round((compressionStats.bytes_saved || 0) / 1024)}
-                  unit=" KB"
-                  icon={CompressionIcon}
-                  color="primary"
-                />
-              </Grid>
-            </Grid>
-
-            {/* Security Statistics */}
-            <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
-              Security Statistics
-            </Typography>
-            <Grid container spacing={3} sx={{ mb: 4 }}>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Total Validations"
-                  value={securityStats.total_validations || 0}
-                  icon={SecurityIcon}
-                  color="primary"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Failed Validations"
-                  value={securityStats.failed_validations || 0}
-                  icon={SecurityIcon}
-                  color="error"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Success Rate"
-                  value={Math.round(securityStats.success_rate || 0)}
-                  unit="%"
-                  icon={SecurityIcon}
-                  color="success"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Replay Attacks Blocked"
-                  value={securityStats.replay_attacks_blocked || 0}
-                  icon={SecurityIcon}
-                  color="warning"
-                />
-              </Grid>
-            </Grid>
-
-            {/* OTA Statistics */}
-            <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
-              Firmware Update (OTA) Statistics
-            </Typography>
-            <Grid container spacing={3} sx={{ mb: 4 }}>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Total Updates"
-                  value={otaStats.total_updates_initiated || 0}
-                  icon={OTAIcon}
-                  color="primary"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Successful"
-                  value={otaStats.successful_updates || 0}
-                  icon={OTAIcon}
-                  color="success"
-                  subtitle={`${Math.round(otaStats.success_rate || 0)}% success`}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Failed"
-                  value={otaStats.failed_updates || 0}
-                  icon={OTAIcon}
-                  color="error"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Active Sessions"
-                  value={otaStats.active_sessions || 0}
-                  icon={OTAIcon}
-                  color="warning"
-                />
-              </Grid>
-            </Grid>
-
-            {/* Command Statistics */}
-            <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
-              Command Execution Statistics
-            </Typography>
-            <Grid container spacing={3} sx={{ mb: 4 }}>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Total Commands"
-                  value={commandStats.total_commands || 0}
-                  icon={CommandIcon}
-                  color="primary"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Completed"
-                  value={commandStats.completed_commands || 0}
-                  icon={CommandIcon}
-                  color="success"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Failed"
-                  value={commandStats.failed_commands || 0}
-                  icon={CommandIcon}
-                  color="error"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <StatisticsCard
-                  title="Pending"
-                  value={commandStats.pending_commands || 0}
-                  icon={CommandIcon}
-                  color="warning"
-                />
-              </Grid>
-            </Grid>
-          </Box>
+          <LogViewer deviceId={selectedDevice} />
         )}
 
-        {/* System Health Tab */}
         {activeTab === 1 && (
           <DiagnosticsSummary deviceId={selectedDevice} />
         )}
 
-        {/* Logs Tab */}
         {activeTab === 2 && (
-          <LogViewer deviceId={selectedDevice} />
+          <ServerLogViewer />
         )}
       </Box>
-    </Container>
+    </Box>
   );
 };
 

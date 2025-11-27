@@ -61,9 +61,32 @@ export const getUtilitiesInfo = () => {
   return api.get('/utilities/info');
 };
 
+/**
+ * Get server logs with filtering
+ * @param {number} limit - Number of log entries
+ * @param {string} level - Log level filter (all, info, warning, error)
+ * @param {string} search - Search term
+ * @returns {Promise} API response
+ */
+export const getServerLogs = (limit = 100, level = 'all', search = '') => {
+  return api.get('/utilities/logs/server', {
+    params: { limit, level, search }
+  });
+};
+
+/**
+ * List available log files
+ * @returns {Promise} API response
+ */
+export const listLogFiles = () => {
+  return api.get('/utilities/logs/files');
+};
+
 export default {
   prepareFirmware,
   generateKeys,
   runCompressionBenchmark,
-  getUtilitiesInfo
+  getUtilitiesInfo,
+  getServerLogs,
+  listLogFiles
 };

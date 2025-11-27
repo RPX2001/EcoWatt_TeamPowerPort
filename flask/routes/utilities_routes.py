@@ -371,3 +371,146 @@ def database_stats():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@utilities_bp.route('/utilities/logs/server', methods=['GET'])
+def get_server_logs():
+    """
+    Get recent server logs with filtering options
+    """
+    try:
+        # Get query parameters
+        limit = request.args.get('limit', default=100, type=int)
+        level = request.args.get('level', default='all', type=str)
+        search = request.args.get('search', default='', type=str)
+        
+        # Limit to reasonable values
+        limit = min(limit, 1000)
+        
+        # Get the logs directory
+        logs_dir = os.path.join(FLASK_DIR, 'logs')
+        current_log_file = os.path.join(logs_dir, 'ecowatt_server.log')
+        
+        if not os.path.exists(current_log_file):
+            return jsonify({
+                'success': True,
+                'logs': [],
+                'count': 0,
+                'message': 'No log file found'
+            }), 200
+        
+        # Read the log file
+        logs = []
+        try:
+            with open(current_log_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                
+            # Process lines from end (most recent first)
+            for line in reversed(lines[-limit*2:]):  # Read more than needed for filtering
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # Parse log level from line
+                log_level = 'INFO'
+                if 'ERROR' in line or '✗' in line:
+                    log_level = 'ERROR'
+                elif 'WARNING' in line or '⚠' in line:
+                    log_level = 'WARNING'
+                elif 'DEBUG' in line:
+                    log_level = 'DEBUG'
+                elif 'SUCCESS' in line or '✓' in line:
+                    log_level = 'SUCCESS'
+                
+                # Filter by level
+                if level != 'all' and log_level.lower() != level.lower():
+                    continue
+                
+                # Filter by search term
+                if search and search.lower() not in line.lower():
+                    continue
+                
+                # Extract timestamp if present
+                timestamp = None
+                try:
+                    # Try to parse timestamp from log line
+                    # Format: YYYY-MM-DD HH:MM:SS
+                    parts = line.split(' - ', 1)
+                    if len(parts) >= 2:
+                        timestamp_str = parts[0].strip()
+                        # Simple timestamp extraction (adjust based on your log format)
+                        if len(timestamp_str) > 10:
+                            timestamp = timestamp_str
+                except:
+                    pass
+                
+                logs.append({
+                    'level': log_level,
+                    'message': line,
+                    'timestamp': timestamp or datetime.now().isoformat()
+                })
+                
+                if len(logs) >= limit:
+                    break
+        
+        except Exception as e:
+            logger.error(f"Error reading log file: {e}")
+            return jsonify({
+                'success': False,
+                'error': f'Failed to read log file: {str(e)}'
+            }), 500
+        
+        return jsonify({
+            'success': True,
+            'logs': logs,
+            'count': len(logs),
+            'file': current_log_file
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Failed to get server logs: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@utilities_bp.route('/utilities/logs/files', methods=['GET'])
+def list_log_files():
+    """
+    List available log files
+    """
+    try:
+        logs_dir = os.path.join(FLASK_DIR, 'logs')
+        
+        if not os.path.exists(logs_dir):
+            return jsonify({
+                'success': True,
+                'files': []
+            }), 200
+        
+        log_files = []
+        for filename in os.listdir(logs_dir):
+            if filename.endswith('.log'):
+                filepath = os.path.join(logs_dir, filename)
+                file_stat = os.stat(filepath)
+                log_files.append({
+                    'name': filename,
+                    'size': file_stat.st_size,
+                    'modified': datetime.fromtimestamp(file_stat.st_mtime).isoformat()
+                })
+        
+        # Sort by modified time (newest first)
+        log_files.sort(key=lambda x: x['modified'], reverse=True)
+        
+        return jsonify({
+            'success': True,
+            'files': log_files
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Failed to list log files: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

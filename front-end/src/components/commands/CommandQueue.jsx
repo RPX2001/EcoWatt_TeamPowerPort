@@ -112,21 +112,20 @@ const CommandQueue = ({ deviceId }) => {
   };
 
   return (
-    <Box>
-      <Paper sx={{ p: 3 }}>
-        {/* Header */}
-        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Typography variant="h5">
-              Command Queue
-            </Typography>
-            <Chip 
-              icon={<TimerIcon />}
-              label={autoRefresh ? 'Auto-refresh: 10s' : 'Auto-refresh: OFF'}
-              color={autoRefresh ? 'success' : 'default'}
-              size="small"
-            />
-          </Stack>
+    <Paper sx={{ p: 3, width: '100%' }}>
+      {/* Header */}
+      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Typography variant="h5">
+            Command Queue
+          </Typography>
+          <Chip 
+            icon={<TimerIcon />}
+            label={autoRefresh ? 'Auto-refresh: 10s' : 'Auto-refresh: OFF'}
+            color={autoRefresh ? 'success' : 'default'}
+            size="small"
+          />
+        </Stack>
           
           <Stack direction="row" spacing={2}>
             {/* Manual Refresh */}
