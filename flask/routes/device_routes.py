@@ -388,3 +388,223 @@ def update_device_last_seen(device_id: str):
     """
     if device_id in devices_registry:
         devices_registry[device_id]['last_seen'] = time.time()
+
+
+@device_bp.route('/devices/<device_id>/logs', methods=['GET'])
+def get_device_logs(device_id: str):
+    """
+    Get comprehensive device activity logs from all tables
+    Returns timestamped log entries showing data uploads, commands, config, OTA, faults, etc.
+    """
+    try:
+        limit = request.args.get('limit', default=100, type=int)
+        limit = min(limit, 1000)  # Cap at 1000
+        
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        all_logs = []
+        
+        # Get a balanced mix from each table
+        # Divide limit among 5 active tables (no fault_injections data)
+        per_table_limit = max(10, limit // 5)
+        
+        # 1. Sensor Data Uploads
+        cursor.execute('''
+            SELECT 
+                timestamp,
+                register_data,
+                compression_method,
+                compression_ratio,
+                created_at
+            FROM sensor_data
+            WHERE device_id = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        ''', (device_id, per_table_limit))
+        
+        for row in cursor.fetchall():
+            import json
+            register_data = json.loads(row['register_data'])
+            
+            all_logs.append({
+                'timestamp': row['timestamp'],
+                'level': 'INFO',
+                'type': 'DATA_UPLOAD',
+                'message': f"Data uploaded - {len(register_data)} registers",
+                'details': {
+                    'registers': list(register_data.keys()),
+                    'compression_method': row['compression_method'],
+                    'compression_ratio': row['compression_ratio'],
+                    'values': register_data
+                }
+            })
+        
+        # 2. Commands
+        cursor.execute('''
+            SELECT 
+                created_at,
+                command,
+                status,
+                result,
+                error_msg
+            FROM commands
+            WHERE device_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        ''', (device_id, per_table_limit))
+        
+        for row in cursor.fetchall():
+            level = 'SUCCESS' if row['status'] == 'completed' else 'ERROR' if row['status'] == 'failed' else 'WARNING'
+            all_logs.append({
+                'timestamp': row['created_at'],
+                'level': level,
+                'type': 'COMMAND',
+                'message': f"Command: {row['command']} - {row['status']}",
+                'details': {
+                    'command': row['command'],
+                    'status': row['status'],
+                    'result': row['result'],
+                    'error': row['error_msg']
+                }
+            })
+        
+        # 3. Configuration Changes
+        cursor.execute('''
+            SELECT 
+                created_at,
+                config,
+                status
+            FROM configurations
+            WHERE device_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        ''', (device_id, per_table_limit))
+        
+        for row in cursor.fetchall():
+            import json
+            config = json.loads(row['config']) if row['config'] else {}
+            all_logs.append({
+                'timestamp': row['created_at'],
+                'level': 'INFO',
+                'type': 'CONFIG_CHANGE',
+                'message': f"Configuration {row['status']}",
+                'details': {
+                    'status': row['status'],
+                    'config_keys': list(config.keys())
+                }
+            })
+        
+        # 4. OTA Updates
+        cursor.execute('''
+            SELECT 
+                initiated_at,
+                download_completed_at,
+                from_version,
+                to_version,
+                status,
+                chunks_downloaded,
+                chunks_total,
+                error_msg
+            FROM ota_updates
+            WHERE device_id = ?
+            ORDER BY initiated_at DESC
+            LIMIT ?
+        ''', (device_id, per_table_limit))
+        
+        for row in cursor.fetchall():
+            level = 'SUCCESS' if row['status'] == 'completed' else 'ERROR' if row['status'] == 'failed' else 'WARNING'
+            # Safe progress calculation - handle None values
+            if row['chunks_total'] and row['chunks_total'] > 0 and row['chunks_downloaded'] is not None:
+                progress = (row['chunks_downloaded'] / row['chunks_total'] * 100)
+            else:
+                progress = 0
+            
+            all_logs.append({
+                'timestamp': row['initiated_at'],
+                'level': level,
+                'type': 'OTA_UPDATE',
+                'message': f"OTA Update: {row['from_version']} → {row['to_version']} - {row['status']}",
+                'details': {
+                    'from_version': row['from_version'],
+                    'to_version': row['to_version'],
+                    'status': row['status'],
+                    'progress': round(progress, 1),
+                    'error': row['error_msg']
+                }
+            })
+        
+        # 5. Fault Injections (Testing)
+        cursor.execute('''
+            SELECT 
+                created_at,
+                fault_type,
+                backend,
+                success
+            FROM fault_injections
+            WHERE device_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        ''', (device_id, per_table_limit))
+        
+        for row in cursor.fetchall():
+            all_logs.append({
+                'timestamp': row['created_at'],
+                'level': 'WARNING',
+                'type': 'FAULT_INJECTION',
+                'message': f"Fault Test: {row['fault_type']} - {'Success' if row['success'] else 'Failed'}",
+                'details': {
+                    'fault_type': row['fault_type'],
+                    'backend': row['backend'],
+                    'success': bool(row['success'])
+                }
+            })
+        
+        # 6. Fault Recovery Events
+        cursor.execute('''
+            SELECT 
+                timestamp,
+                fault_type,
+                recovery_action,
+                success
+            FROM fault_recovery_events
+            WHERE device_id = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        ''', (device_id, per_table_limit))
+        
+        for row in cursor.fetchall():
+            level = 'SUCCESS' if row['success'] else 'ERROR'
+            all_logs.append({
+                'timestamp': row['timestamp'],
+                'level': level,
+                'type': 'FAULT_RECOVERY',
+                'message': f"Recovery: {row['fault_type']} - {row['recovery_action']} - {'Success' if row['success'] else 'Failed'}",
+                'details': {
+                    'fault_type': row['fault_type'],
+                    'recovery_action': row['recovery_action'],
+                    'success': bool(row['success'])
+                }
+            })
+        
+        # Sort all logs by timestamp (newest first)
+        # Convert all timestamps to strings for consistent sorting
+        all_logs.sort(key=lambda x: str(x['timestamp']) if x['timestamp'] else '', reverse=True)
+        
+        # Limit to requested number
+        all_logs = all_logs[:limit]
+        
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'logs': all_logs,
+            'count': len(all_logs)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"✗ Error getting logs for device {device_id}: {e}")
+        logger.exception(e)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

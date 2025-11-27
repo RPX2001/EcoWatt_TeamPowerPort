@@ -14,12 +14,10 @@ import {
   Alert
 } from '@mui/material';
 import {
-  HealthAndSafety as HealthIcon,
   Devices as DeviceLogIcon,
   Storage as ServerLogIcon
 } from '@mui/icons-material';
 import DeviceSelector from '../components/dashboard/DeviceSelector';
-import DiagnosticsSummary from '../components/diagnostics/DiagnosticsSummary';
 import LogViewer from '../components/diagnostics/LogViewer';
 import ServerLogViewer from '../components/diagnostics/ServerLogViewer';
 
@@ -42,7 +40,7 @@ const Logs = () => {
           Logs & Diagnostics
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          View device diagnostics, system health, and server logs
+          View device activity logs and server logs
         </Typography>
       </Box>
 
@@ -64,11 +62,6 @@ const Logs = () => {
             iconPosition="start"
           />
           <Tab 
-            icon={<HealthIcon />} 
-            label="System Health"
-            iconPosition="start"
-          />
-          <Tab 
             icon={<ServerLogIcon />} 
             label="Server Logs"
             iconPosition="start"
@@ -82,10 +75,6 @@ const Logs = () => {
         )}
 
         {activeTab === 1 && (
-          <DiagnosticsSummary deviceId={selectedDevice} />
-        )}
-
-        {activeTab === 2 && (
           <ServerLogViewer />
         )}
       </Box>

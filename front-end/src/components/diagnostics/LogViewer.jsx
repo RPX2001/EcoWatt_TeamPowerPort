@@ -30,65 +30,50 @@ import {
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
-  Download as DownloadIcon,
-  Delete as DeleteIcon
+  Download as DownloadIcon
 } from '@mui/icons-material';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getAllDiagnostics, getDeviceDiagnostics, clearAllDiagnostics, clearDeviceDiagnostics } from '../../api/diagnostics';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getDeviceLogs } from '../../api/devices';
 import LogFilters from './LogFilters';
 
 const LogViewer = ({ deviceId = null }) => {
   const [filters, setFilters] = useState({
-    level: 'all',
-    search: '',
-    startDate: '',
-    endDate: ''
+    type: 'all',
+    search: ''
   });
   const [autoScroll, setAutoScroll] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const logEndRef = useRef(null);
   const queryClient = useQueryClient();
 
-  // Fetch diagnostics based on filters
+  // Fetch device logs from database
   const {
-    data: diagnosticsData,
+    data: logsData,
     isLoading,
     isError,
     refetch
   } = useQuery({
-    queryKey: ['diagnostics', deviceId],
+    queryKey: ['deviceLogs', deviceId],
     queryFn: () => {
       if (!deviceId) {
-        return getAllDiagnostics(100);
-      } else {
-        return getDeviceDiagnostics(deviceId, 100);
+        throw new Error('Device ID is required');
       }
+      return getDeviceLogs(deviceId, 200);
     },
-    enabled: true,
-    refetchInterval: autoRefresh ? 5000 : false,
-    staleTime: 3000
+    enabled: !!deviceId,
+    refetchInterval: autoRefresh ? 10000 : false,
+    staleTime: 5000
   });
 
-  // Clear diagnostics mutation
-  const clearMutation = useMutation({
-    mutationFn: () => {
-      if (!deviceId) {
-        return clearAllDiagnostics();
-      } else {
-        return clearDeviceDiagnostics(deviceId);
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries(['diagnostics']);
-    }
-  });
+  // Remove clear mutation since we don't want to delete sensor data
+  // const clearMutation = useMutation({...});
 
   // Auto-scroll to bottom
   useEffect(() => {
     if (autoScroll && logEndRef.current) {
       logEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [diagnosticsData, autoScroll]);
+  }, [logsData, autoScroll]);
 
   const handleFilterChange = (newFilters) => {
     setFilters(newFilters);
@@ -96,18 +81,13 @@ const LogViewer = ({ deviceId = null }) => {
 
   const handleClearFilters = () => {
     setFilters({
-      level: 'all',
-      search: '',
-      startDate: '',
-      endDate: ''
+      type: 'all',
+      search: ''
     });
   };
 
-  const handleClearLogs = () => {
-    if (window.confirm('Are you sure you want to clear all logs?')) {
-      clearMutation.mutate();
-    }
-  };
+  // Remove clear logs handler since we don't want to delete sensor data
+  // const handleClearLogs = () => {...};
 
   const handleExport = (format) => {
     const logs = getFilteredLogs();
@@ -118,19 +98,20 @@ const LogViewer = ({ deviceId = null }) => {
       const url = URL.createObjectURL(dataBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `diagnostics_${new Date().toISOString()}.json`;
+      link.download = `device_logs_${deviceId}_${new Date().toISOString()}.json`;
       link.click();
     } else if (format === 'csv') {
-      const headers = ['Timestamp', 'Device ID', 'Level', 'Message', 'Details'];
+      const headers = ['Timestamp', 'Level', 'Type', 'Message', 'Details'];
       const csvRows = [headers.join(',')];
       
       logs.forEach(log => {
+        const detailsStr = log.details ? JSON.stringify(log.details).replace(/"/g, '""') : '';
         const row = [
           log.timestamp,
-          log.device_id || 'N/A',
           log.level || 'INFO',
+          log.type || 'ACTIVITY',
           `"${(log.message || '').replace(/"/g, '""')}"`,
-          `"${JSON.stringify(log.data || {}).replace(/"/g, '""')}"`
+          `"${detailsStr}"`
         ];
         csvRows.push(row.join(','));
       });
@@ -140,7 +121,7 @@ const LogViewer = ({ deviceId = null }) => {
       const url = URL.createObjectURL(dataBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `diagnostics_${new Date().toISOString()}.csv`;
+      link.download = `device_logs_${deviceId}_${new Date().toISOString()}.csv`;
       link.click();
     }
   };
@@ -151,6 +132,8 @@ const LogViewer = ({ deviceId = null }) => {
         return 'error.main';
       case 'warning':
         return 'warning.main';
+      case 'success':
+        return 'success.main';
       case 'info':
         return 'info.main';
       case 'debug':
@@ -160,12 +143,33 @@ const LogViewer = ({ deviceId = null }) => {
     }
   };
 
-  const getLogIcon = (level) => {
+  const getLogIcon = (type, level) => {
+    // First check type for specific icons
+    switch (type?.toUpperCase()) {
+      case 'DATA_UPLOAD':
+        return '📊';
+      case 'COMMAND':
+        return '⚡';
+      case 'CONFIG_CHANGE':
+        return '⚙️';
+      case 'OTA_UPDATE':
+        return '🔄';
+      case 'FAULT_INJECTION':
+        return '🧪';
+      case 'FAULT_RECOVERY':
+        return '🔧';
+      default:
+        break;
+    }
+    
+    // Fallback to level-based icons
     switch (level?.toLowerCase()) {
       case 'error':
         return '❌';
       case 'warning':
         return '⚠️';
+      case 'success':
+        return '✅';
       case 'info':
         return 'ℹ️';
       case 'debug':
@@ -175,56 +179,49 @@ const LogViewer = ({ deviceId = null }) => {
     }
   };
 
+  const getTypeChipColor = (type) => {
+    switch (type?.toUpperCase()) {
+      case 'DATA_UPLOAD':
+        return 'primary';
+      case 'COMMAND':
+        return 'secondary';
+      case 'CONFIG_CHANGE':
+        return 'info';
+      case 'OTA_UPDATE':
+        return 'warning';
+      case 'FAULT_INJECTION':
+        return 'error';
+      case 'FAULT_RECOVERY':
+        return 'success';
+      default:
+        return 'default';
+    }
+  };
+
   const getFilteredLogs = () => {
-    let logs = [];
-
-    if (!deviceId) {
-      // All devices
-      const allDiagnostics = diagnosticsData?.data?.diagnostics || {};
-      Object.keys(allDiagnostics).forEach(devId => {
-        const deviceLogs = allDiagnostics[devId] || [];
-        logs = [...logs, ...deviceLogs.map(log => ({ ...log, device_id: devId }))];
-      });
-    } else {
-      // Specific device
-      logs = diagnosticsData?.data?.diagnostics || [];
-    }
-
-    // Ensure logs is an array
-    if (!Array.isArray(logs)) {
-      logs = [];
-    }
-
-    // Sort by timestamp (newest first)
-    logs.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+    const logs = logsData?.data?.logs || [];
 
     // Apply filters
-    if (filters.level && filters.level !== 'all') {
-      logs = logs.filter(log => 
-        (log.level || 'info').toLowerCase() === filters.level.toLowerCase()
+    let filtered = logs;
+
+    // Filter by activity type
+    if (filters.type && filters.type !== 'all') {
+      filtered = filtered.filter(log => 
+        log.type === filters.type
       );
     }
 
+    // Filter by search text
     if (filters.search) {
       const searchLower = filters.search.toLowerCase();
-      logs = logs.filter(log => 
+      filtered = filtered.filter(log => 
         (log.message || '').toLowerCase().includes(searchLower) ||
-        (log.device_id || '').toLowerCase().includes(searchLower) ||
-        JSON.stringify(log.data || {}).toLowerCase().includes(searchLower)
+        (log.type || '').toLowerCase().includes(searchLower) ||
+        (log.details?.registers || []).join(' ').toLowerCase().includes(searchLower)
       );
     }
 
-    if (filters.startDate) {
-      const startTime = new Date(filters.startDate).getTime();
-      logs = logs.filter(log => new Date(log.timestamp).getTime() >= startTime);
-    }
-
-    if (filters.endDate) {
-      const endTime = new Date(filters.endDate).getTime();
-      logs = logs.filter(log => new Date(log.timestamp).getTime() <= endTime);
-    }
-
-    return logs;
+    return filtered;
   };
 
   const filteredLogs = getFilteredLogs();
@@ -258,7 +255,7 @@ const LogViewer = ({ deviceId = null }) => {
                 onChange={(e) => setAutoRefresh(e.target.checked)}
               />
             }
-            label="Auto-refresh (5s)"
+            label="Auto-refresh (10s)"
           />
 
           <Divider orientation="vertical" flexItem />
@@ -288,16 +285,6 @@ const LogViewer = ({ deviceId = null }) => {
             disabled={filteredLogs.length === 0}
           >
             Export CSV
-          </Button>
-
-          <Button
-            size="small"
-            color="error"
-            startIcon={<DeleteIcon />}
-            onClick={handleClearLogs}
-            disabled={clearMutation.isPending}
-          >
-            Clear Logs
           </Button>
 
           <Box sx={{ flexGrow: 1 }} />
@@ -349,26 +336,27 @@ const LogViewer = ({ deviceId = null }) => {
                 >
                   <ListItemText
                     primary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                         <Typography component="span" sx={{ fontSize: '1.2rem' }}>
-                          {getLogIcon(log.level)}
+                          {getLogIcon(log.type, log.level)}
                         </Typography>
+                        <Chip 
+                          label={log.type || 'ACTIVITY'} 
+                          size="small"
+                          color={getTypeChipColor(log.type)}
+                          variant="outlined"
+                          sx={{ fontWeight: 'bold' }}
+                        />
                         <Chip 
                           label={log.level || 'INFO'} 
                           size="small"
                           sx={{ 
-                            minWidth: 80,
+                            minWidth: 70,
                             bgcolor: getLogColor(log.level),
                             color: 'white',
                             fontWeight: 'bold'
                           }}
                         />
-                        <Typography variant="body2" color="text.secondary">
-                          {log.device_id || 'System'}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          •
-                        </Typography>
                         <Typography variant="body2" color="text.secondary">
                           {new Date(log.timestamp).toLocaleString()}
                         </Typography>
@@ -376,23 +364,99 @@ const LogViewer = ({ deviceId = null }) => {
                     }
                     secondary={
                       <Box sx={{ mt: 1 }}>
-                        <Typography variant="body1" sx={{ color: 'text.primary', mb: 1 }}>
-                          {log.message || 'No message'}
+                        <Typography variant="body1" color="text.primary" sx={{ mb: 0.5 }}>
+                          {log.message}
                         </Typography>
-                        {log.data && Object.keys(log.data).length > 0 && (
+                        {log.details && Object.keys(log.details).length > 0 && (
                           <Box 
                             sx={{ 
-                              bgcolor: 'grey.100', 
+                              mt: 1, 
                               p: 1, 
+                              bgcolor: 'background.default',
                               borderRadius: 1,
                               fontFamily: 'monospace',
-                              fontSize: '0.875rem',
-                              overflow: 'auto'
+                              fontSize: '0.85rem'
                             }}
                           >
-                            <pre style={{ margin: 0 }}>
-                              {JSON.stringify(log.data, null, 2)}
-                            </pre>
+                            {/* Show relevant details based on activity type */}
+                            {log.type === 'DATA_UPLOAD' && (
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  Registers: {log.details.registers?.join(', ')}
+                                </Typography>
+                                {log.details.compression_method && (
+                                  <>
+                                    <br />
+                                    <Typography variant="caption" color="text.secondary">
+                                      Compression: {log.details.compression_method} 
+                                      {log.details.compression_ratio && ` (${log.details.compression_ratio}x)`}
+                                    </Typography>
+                                  </>
+                                )}
+                              </Box>
+                            )}
+                            
+                            {log.type === 'COMMAND' && (
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  Type: {log.details.command_type}
+                                </Typography>
+                                {log.details.result && (
+                                  <>
+                                    <br />
+                                    <Typography variant="caption" color="text.secondary">
+                                      Result: {log.details.result}
+                                    </Typography>
+                                  </>
+                                )}
+                              </Box>
+                            )}
+                            
+                            {log.type === 'OTA_UPDATE' && (
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  Version: {log.details.from_version} → {log.details.to_version}
+                                </Typography>
+                                {log.details.progress !== undefined && (
+                                  <>
+                                    <br />
+                                    <Typography variant="caption" color="text.secondary">
+                                      Progress: {log.details.progress}%
+                                    </Typography>
+                                  </>
+                                )}
+                                {log.details.error && (
+                                  <>
+                                    <br />
+                                    <Typography variant="caption" color="error">
+                                      Error: {log.details.error}
+                                    </Typography>
+                                  </>
+                                )}
+                              </Box>
+                            )}
+                            
+                            {log.type === 'CONFIG_CHANGE' && (
+                              <Typography variant="caption" color="text.secondary">
+                                Keys: {log.details.config_keys?.join(', ')}
+                              </Typography>
+                            )}
+                            
+                            {(log.type === 'FAULT_INJECTION' || log.type === 'FAULT_RECOVERY') && (
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  Fault: {log.details.fault_type}
+                                </Typography>
+                                {log.details.recovery_action && (
+                                  <>
+                                    <br />
+                                    <Typography variant="caption" color="text.secondary">
+                                      Action: {log.details.recovery_action}
+                                    </Typography>
+                                  </>
+                                )}
+                              </Box>
+                            )}
                           </Box>
                         )}
                       </Box>

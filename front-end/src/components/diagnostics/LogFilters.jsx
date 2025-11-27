@@ -34,36 +34,28 @@ const LogFilters = ({
   onFilterChange, 
   onClearFilters 
 }) => {
-  const logLevels = [
-    { value: 'all', label: 'All Levels' },
-    { value: 'info', label: 'INFO' },
-    { value: 'warning', label: 'WARNING' },
-    { value: 'error', label: 'ERROR' },
-    { value: 'debug', label: 'DEBUG' }
+  const logTypes = [
+    { value: 'all', label: 'All Types' },
+    { value: 'DATA_UPLOAD', label: '📊 Data Upload' },
+    { value: 'COMMAND', label: '⚡ Command' },
+    { value: 'CONFIG_CHANGE', label: '⚙️ Config Change' },
+    { value: 'OTA_UPDATE', label: '🔄 OTA Update' },
+    { value: 'FAULT_INJECTION', label: '🧪 Fault Test' },
+    { value: 'FAULT_RECOVERY', label: '🔧 Recovery' }
   ];
 
-  const handleLevelChange = (event) => {
-    onFilterChange({ ...filters, level: event.target.value });
+  const handleTypeChange = (event) => {
+    onFilterChange({ ...filters, type: event.target.value });
   };
 
   const handleSearchChange = (event) => {
     onFilterChange({ ...filters, search: event.target.value });
   };
 
-  const handleStartDateChange = (event) => {
-    onFilterChange({ ...filters, startDate: event.target.value });
-  };
-
-  const handleEndDateChange = (event) => {
-    onFilterChange({ ...filters, endDate: event.target.value });
-  };
-
   const getActiveFilterCount = () => {
     let count = 0;
-    if (filters.level && filters.level !== 'all') count++;
+    if (filters.type && filters.type !== 'all') count++;
     if (filters.search) count++;
-    if (filters.startDate) count++;
-    if (filters.endDate) count++;
     return count;
   };
 
@@ -72,48 +64,22 @@ const LogFilters = ({
   return (
     <Paper sx={{ p: 2, mb: 2 }}>
       <Grid container spacing={2} alignItems="center">
-        {/* Log Level Filter */}
-        <Grid item xs={12} sm={6} md={3}>
+        {/* Log Type Filter */}
+        <Grid item xs={12} sm={6} md={4}>
           <FormControl fullWidth size="small">
-            <InputLabel>Log Level</InputLabel>
+            <InputLabel>Activity Type</InputLabel>
             <Select
-              value={filters.level || 'all'}
-              label="Log Level"
-              onChange={handleLevelChange}
+              value={filters.type || 'all'}
+              label="Activity Type"
+              onChange={handleTypeChange}
             >
-              {logLevels.map((level) => (
-                <MenuItem key={level.value} value={level.value}>
-                  {level.label}
+              {logTypes.map((type) => (
+                <MenuItem key={type.value} value={type.value}>
+                  {type.label}
                 </MenuItem>
               ))}
             </Select>
           </FormControl>
-        </Grid>
-
-        {/* Start Date Filter */}
-        <Grid item xs={12} sm={6} md={2}>
-          <TextField
-            fullWidth
-            size="small"
-            type="datetime-local"
-            label="Start Date"
-            value={filters.startDate || ''}
-            onChange={handleStartDateChange}
-            InputLabelProps={{ shrink: true }}
-          />
-        </Grid>
-
-        {/* End Date Filter */}
-        <Grid item xs={12} sm={6} md={2}>
-          <TextField
-            fullWidth
-            size="small"
-            type="datetime-local"
-            label="End Date"
-            value={filters.endDate || ''}
-            onChange={handleEndDateChange}
-            InputLabelProps={{ shrink: true }}
-          />
         </Grid>
 
         {/* Clear Filters Button */}
@@ -125,7 +91,7 @@ const LogFilters = ({
             disabled={activeFilterCount === 0}
             startIcon={<ClearIcon />}
           >
-            Clear Filters
+            Clear
             {activeFilterCount > 0 && (
               <Chip 
                 label={activeFilterCount} 
@@ -138,7 +104,7 @@ const LogFilters = ({
         </Grid>
 
         {/* Search Filter */}
-        <Grid item xs={12}>
+        <Grid item xs={12} md={6}>
           <TextField
             fullWidth
             size="small"
@@ -156,17 +122,10 @@ const LogFilters = ({
       {activeFilterCount > 0 && (
         <Box sx={{ mt: 2 }}>
           <Stack direction="row" spacing={1} flexWrap="wrap">
-            {filters.deviceId && filters.deviceId !== 'all' && (
+            {filters.type && filters.type !== 'all' && (
               <Chip
-                label={`Device: ${filters.deviceId}`}
-                onDelete={() => onFilterChange({ ...filters, deviceId: 'all' })}
-                size="small"
-              />
-            )}
-            {filters.level && filters.level !== 'all' && (
-              <Chip
-                label={`Level: ${filters.level.toUpperCase()}`}
-                onDelete={() => onFilterChange({ ...filters, level: 'all' })}
+                label={`Type: ${filters.type}`}
+                onDelete={() => onFilterChange({ ...filters, type: 'all' })}
                 size="small"
               />
             )}
@@ -174,20 +133,6 @@ const LogFilters = ({
               <Chip
                 label={`Search: "${filters.search}"`}
                 onDelete={() => onFilterChange({ ...filters, search: '' })}
-                size="small"
-              />
-            )}
-            {filters.startDate && (
-              <Chip
-                label={`From: ${new Date(filters.startDate).toLocaleString()}`}
-                onDelete={() => onFilterChange({ ...filters, startDate: '' })}
-                size="small"
-              />
-            )}
-            {filters.endDate && (
-              <Chip
-                label={`To: ${new Date(filters.endDate).toLocaleString()}`}
-                onDelete={() => onFilterChange({ ...filters, endDate: '' })}
                 size="small"
               />
             )}
