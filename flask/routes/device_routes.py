@@ -41,6 +41,61 @@ def load_devices_from_database():
     return len(devices_registry)
 
 
+def ensure_device_registered(device_id: str, firmware_version: str = None) -> bool:
+    """
+    Ensure device is registered in database and memory cache.
+    This function auto-registers devices when they communicate with the server.
+    
+    Args:
+        device_id: Device identifier
+        firmware_version: Optional firmware version to update
+        
+    Returns:
+        True if device was newly registered, False if already existed
+    """
+    try:
+        logger.info(f"[Auto-Register] Checking device: {device_id}")
+        
+        # Check if device exists in database
+        db_device = Database.get_device(device_id)
+        
+        if not db_device:
+            # New device - auto-register it
+            logger.info(f"[Auto-Register] Device {device_id} not found in database - registering now")
+            Database.save_device(
+                device_id=device_id,
+                device_name=f'EcoWatt {device_id}',
+                location='Auto-registered',
+                description=f'Automatically registered on first communication',
+                status='active',
+                firmware_version=firmware_version or 'unknown'
+            )
+            logger.info(f"✓ Auto-registered new device: {device_id}")
+            
+            # Reload devices into memory cache
+            load_devices_from_database()
+            return True
+        else:
+            # Device exists - update last_seen and firmware version if provided
+            logger.info(f"[Auto-Register] Device {device_id} exists - updating last_seen")
+            Database.update_device_last_seen(device_id)
+            
+            if firmware_version and firmware_version != db_device.get('firmware_version'):
+                Database.update_device_firmware(device_id, firmware_version)
+                logger.info(f"Updated firmware version for {device_id}: {firmware_version}")
+            
+            # Update memory cache last_seen
+            if device_id in devices_registry:
+                devices_registry[device_id]['last_seen'] = time.time()
+                if firmware_version:
+                    devices_registry[device_id]['firmware_version'] = firmware_version
+            
+            return False
+    except Exception as e:
+        logger.error(f"[Auto-Register] Error ensuring device registered: {e}", exc_info=True)
+        return False
+
+
 def initialize_mock_devices():
     """Initialize a single mock device for testing (DEPRECATED - using database)"""
     import time

@@ -38,8 +38,8 @@ from routes import (
     fault_bp,
     power_bp
 )
-from routes.device_routes import device_bp
-from routes.config_routes import config_bp
+from routes.device_routes import device_bp, load_devices_from_database
+from routes.config_routes import config_bp, load_configs_from_database
 from routes.utilities_routes import utilities_bp
 
 # Initialize Flask app
@@ -129,6 +129,12 @@ def print_startup_banner():
 
 # Initialize database schema (must be before blueprints for imports)
 Database.init_database()
+
+# Load existing devices from database into memory cache
+load_devices_from_database()
+
+# Load existing device configurations from database into memory cache
+load_configs_from_database()
 
 # Register blueprints (must be outside __main__ for Flask reloader)
 register_blueprints()

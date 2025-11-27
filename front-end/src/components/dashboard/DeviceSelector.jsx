@@ -24,10 +24,14 @@ const DeviceSelector = ({ selectedDevice, onDeviceChange }) => {
       setLoading(true);
       setError(null);
       const response = await getDevices();
+      console.log('DeviceSelector - Full API Response:', response);
+      console.log('DeviceSelector - Devices array:', response.data.devices);
+      console.log('DeviceSelector - Devices count:', response.data.devices?.length);
       setDevices(response.data.devices || []);
       
       // Auto-select first device if none selected
       if (!selectedDevice && response.data.devices?.length > 0) {
+        console.log('DeviceSelector - Auto-selecting device:', response.data.devices[0].device_id);
         onDeviceChange(response.data.devices[0].device_id);
       }
     } catch (err) {

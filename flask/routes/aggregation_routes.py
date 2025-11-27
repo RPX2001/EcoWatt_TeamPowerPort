@@ -75,30 +75,20 @@ def receive_aggregated_data(device_id: str):
                 }), 400
         
         # Auto-register device if not already registered (save to database)
-        from routes.device_routes import devices_registry, load_devices_from_database
-        from database import Database
+        from routes.device_routes import ensure_device_registered
         
-        # Check database first
-        db_device = Database.get_device(device_id)
-        if not db_device:
-            # New device - save to database
-            Database.save_device(
-                device_id=device_id,
-                device_name=f'EcoWatt {device_id}',
-                location='Auto-registered',
-                description='Automatically registered on first data upload',
-                status='active',
-                firmware_version='unknown'
-            )
-            logger.info(f"Auto-registered new device: {device_id}")
-            # Reload devices into memory cache
-            load_devices_from_database()
+        # Extract firmware version if present in data
+        firmware_version = data.get('firmware_version') or data.get('version')
+        
+        logger.info(f"[Aggregation] About to call ensure_device_registered for {device_id}, firmware={firmware_version}")
+        
+        # Ensure device is registered and update last_seen
+        newly_registered = ensure_device_registered(device_id, firmware_version)
+        
+        if newly_registered:
+            logger.info(f"✓ New device {device_id} auto-registered on first data upload")
         else:
-            # Update last_seen timestamp in database
-            Database.update_device_last_seen(device_id)
-            # Also update memory cache
-            if device_id in devices_registry:
-                devices_registry[device_id]['last_seen'] = time.time()
+            logger.info(f"[Aggregation] Device {device_id} already registered, last_seen updated")
         
         # Check if data contains compressed payload
         if 'compressed_data' in data:

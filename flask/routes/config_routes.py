@@ -8,7 +8,7 @@ from flask import Blueprint, jsonify, request
 import logging
 import time
 from typing import Dict, List
-from database import convert_utc_to_local
+from database import convert_utc_to_local, Database
 from utils.logger_utils import log_success
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,37 @@ config_bp = Blueprint('config', __name__)
 # In-memory configuration storage (in production, use database)
 device_configs: Dict[str, dict] = {}
 config_history: Dict[str, list] = {}
+
+
+def load_configs_from_database():
+    """
+    Load all device configurations from database into memory cache.
+    Loads the latest acknowledged configuration for each device.
+    Falls back to default config if no acknowledged config exists.
+    """
+    global device_configs
+    device_configs.clear()
+    
+    # Get all devices
+    devices = Database.get_all_devices()
+    
+    for device in devices:
+        device_id = device['device_id']
+        
+        # Try to load the latest acknowledged (active) configuration
+        active_config = Database.get_latest_active_config(device_id)
+        
+        if active_config:
+            device_configs[device_id] = active_config
+            logger.info(f"[Config] Loaded active config for {device_id} from database")
+        else:
+            # No active config found, use default
+            device_configs[device_id] = get_default_config()
+            logger.info(f"[Config] No active config for {device_id}, using default")
+    
+    logger.info(f"Loaded configurations for {len(device_configs)} device(s) from database")
+    return len(device_configs)
+
 
 # Available registers from Inverter SIM API Documentation
 # Based on Section 4: Modbus Data Registers

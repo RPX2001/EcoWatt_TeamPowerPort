@@ -562,6 +562,28 @@ class Database:
         return cursor.lastrowid
     
     @staticmethod
+    def get_latest_active_config(device_id: str) -> Optional[Dict]:
+        """Get the latest acknowledged/applied (active) configuration for a device"""
+        conn = Database.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM configurations 
+            WHERE device_id = ? AND status IN ('acknowledged', 'applied')
+            ORDER BY acknowledged_at DESC 
+            LIMIT 1
+        ''', (device_id,))
+        
+        row = cursor.fetchone()
+        if row:
+            config_data = json.loads(row['config'])
+            # The config is nested inside 'config_update' key, extract it
+            if 'config_update' in config_data:
+                return config_data['config_update']
+            return config_data
+        return None
+    
+    @staticmethod
     def get_pending_config(device_id: str) -> Optional[Dict]:
         """Get pending config for device (only ONE)"""
         conn = Database.get_connection()

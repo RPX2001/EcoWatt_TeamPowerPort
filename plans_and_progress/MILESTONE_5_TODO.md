@@ -99,6 +99,36 @@
 
 ## Part 2: Fault Recovery ✅ (COMPLETE)
 
+### Device Auto-Registration on Server Reconnection ✅ (Nov 27, 2025)
+- [x] ✅ **SERVER-SIDE SOLUTION**: Automatic device re-registration
+  - **Problem**: ESP32 only registered on ESP32 restart, not when server restarted
+  - **Solution**: Server-side auto-registration when device communicates
+  - **Implementation**:
+    - Created `ensure_device_registered()` helper function in `device_routes.py`
+    - Auto-registers devices on ANY communication with server (not just initial registration)
+    - Updates last_seen timestamp on every data upload
+    - Updates firmware version if provided
+    - Persists to SQLite database (survives server restarts)
+  - **Files Modified**:
+    - `flask/routes/device_routes.py` - Added ensure_device_registered() helper
+    - `flask/routes/aggregation_routes.py` - Uses helper on data upload
+  - **Behavior**:
+    1. Device sends data to `/aggregated/<device_id>` endpoint
+    2. Server checks if device exists in database
+    3. If not exists: auto-register with device_id, location="Auto-registered"
+    4. If exists: update last_seen timestamp and firmware version
+    5. Process data normally
+  - **Benefits**:
+    - Works even after server restarts (database persists)
+    - No ESP32 code changes needed
+    - Handles any device communication endpoint
+    - Automatic firmware version tracking
+  - **Testing**: Just restart server - devices re-register on next data upload
+
+---
+
+## Part 2: Fault Recovery ✅ (COMPLETE - Previous Items)
+
 ### Inverter SIM Fault Injection ✅ (COMPLETE - ALIGNED WITH MILESTONE 5)
 
 **Backend Implementation (Flask):**
