@@ -173,15 +173,19 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     const SystemConfig& config = ConfigManager::getCurrentConfig();
     (*doc)["sampling_interval"] = (uint32_t)(config.pollFrequency / 1000000);  // Convert μs to seconds
     
-    // Build register mapping from first entry
+    // Build register mapping from most recent entry (reflects current config)
+    // NOTE: Changed from first to last entry to handle config changes correctly
+    // When config changes mid-queue, older packets may have different register counts
     JsonObject registerMapping = (*doc)["register_mapping"].to<JsonObject>();
     if (!allData.empty()) {
-        const auto& firstEntry = allData[0];
-        for (size_t i = 0; i < firstEntry.registerCount && i < REGISTER_COUNT; i++) {
+        const auto& lastEntry = allData[allData.size() - 1];  // Use MOST RECENT packet
+        for (size_t i = 0; i < lastEntry.registerCount && i < REGISTER_COUNT; i++) {
             char key[8];
             snprintf(key, sizeof(key), "%zu", i);
-            registerMapping[key] = REGISTER_MAP[firstEntry.registers[i]].name;
+            registerMapping[key] = REGISTER_MAP[lastEntry.registers[i]].name;
         }
+        LOG_INFO(LOG_TAG_UPLOAD, "Global register_mapping: %zu registers (from most recent packet)",
+                 lastEntry.registerCount);
     }
     
     // Compressed data packets
@@ -190,9 +194,19 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     size_t totalOriginalBytes = 0;
     size_t totalCompressedBytes = 0;
     
+    // Track register count changes across packets (for diagnostics)
+    size_t minRegisterCount = SIZE_MAX;
+    size_t maxRegisterCount = 0;
+    bool heterogeneousPackets = false;
+    
     for (const auto& entry : allData) {
         // Feed watchdog during packet processing
         yield();
+        
+        // Track register count variations
+        if (entry.registerCount < minRegisterCount) minRegisterCount = entry.registerCount;
+        if (entry.registerCount > maxRegisterCount) maxRegisterCount = entry.registerCount;
+        if (minRegisterCount != maxRegisterCount) heterogeneousPackets = true;
         
         JsonObject packet = compressedPackets.createNestedObject();
         
@@ -244,6 +258,15 @@ bool DataUploader::attemptUpload(const std::vector<SmartCompressedData>& allData
     LOG_INFO(LOG_TAG_COMPRESS, "Compression: %zu → %zu bytes (%.1f%% savings)", 
           totalOriginalBytes, totalCompressedBytes, savingsPercent);
     LOG_DEBUG(LOG_TAG_UPLOAD, "Sending %zu packets", allData.size());
+    
+    // Log register count information (helpful for debugging config changes)
+    if (heterogeneousPackets) {
+        LOG_WARN(LOG_TAG_UPLOAD, "Heterogeneous upload: packets have %zu-%zu registers (config changed mid-queue)",
+                 minRegisterCount, maxRegisterCount);
+    } else if (maxRegisterCount > 0) {
+        LOG_DEBUG(LOG_TAG_UPLOAD, "Homogeneous upload: all packets have %zu registers",
+                  maxRegisterCount);
+    }
     
     // INDUSTRY STANDARD APPROACH:
     // Send the JSON with compressed data embedded (base64 encoded)

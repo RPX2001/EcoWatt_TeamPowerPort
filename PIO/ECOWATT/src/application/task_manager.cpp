@@ -85,6 +85,11 @@ TaskStats TaskManager::stats_powerReport = {0};
 TaskStats TaskManager::stats_ota = {0};
 TaskStats TaskManager::stats_watchdog = {0};
 
+// Deadline Monitors
+DeadlineMonitor TaskManager::deadlineMonitor_sensorPoll;
+DeadlineMonitor TaskManager::deadlineMonitor_upload;
+DeadlineMonitor TaskManager::deadlineMonitor_compression;
+
 // System state
 bool TaskManager::systemInitialized = false;
 bool TaskManager::systemSuspended = false;
@@ -396,7 +401,8 @@ void TaskManager::sensorPollTask(void* parameter) {
             // Send to compression queue (non-blocking to avoid deadline miss)
             if (xQueueSend(sensorDataQueue, &sample, 0) != pdTRUE) {
                 LOG_WARN(LOG_TAG_DATA, "Queue full! Sample dropped");
-                stats_sensorPoll.deadlineMisses++;
+                // Record as deadline miss (network/queue issue)
+                deadlineMonitor_sensorPoll.recordMiss(true);
             }
         } else {
             LOG_ERROR(LOG_TAG_DATA, "Modbus read failed (%zu/%zu regs)", 
@@ -437,6 +443,17 @@ void TaskManager::checkDeadline(const char* taskName, uint32_t executionTimeUs,
         LOG_ERROR(LOG_TAG_WATCHDOG, "[%s] DEADLINE MISS! Execution: %lu us, Deadline: %lu us",
               taskName, executionTimeUs, deadlineUs);
         stats.deadlineMisses++;
+        
+        // Record in appropriate deadline monitor
+        bool isNetworkRelated = false;
+        if (strcmp(taskName, "SensorPoll") == 0) {
+            deadlineMonitor_sensorPoll.recordMiss(isNetworkRelated);
+        } else if (strcmp(taskName, "Upload") == 0) {
+            isNetworkRelated = (WiFi.status() != WL_CONNECTED);
+            deadlineMonitor_upload.recordMiss(isNetworkRelated);
+        } else if (strcmp(taskName, "Compression") == 0) {
+            deadlineMonitor_compression.recordMiss(isNetworkRelated);
+        }
     }
 }
 
@@ -1109,11 +1126,25 @@ void TaskManager::watchdogTask(void* parameter) {
     LOG_INFO(LOG_TAG_WATCHDOG, "Check interval: %lu ms", WATCHDOG_CHECK_INTERVAL_MS);
     LOG_INFO(LOG_TAG_WATCHDOG, "Max task idle time: %lu ms", maxTaskIdleTime);
     
+    // Track WiFi state for network recovery detection
+    static bool wasWiFiConnected = (WiFi.status() == WL_CONNECTED);
+    
     while (1) {
         vTaskDelay(xCheckInterval);
         
         uint32_t currentTime = millis();
         uint32_t startTime = micros();
+        
+        // Check for WiFi reconnection and clear network-related deadline misses
+        bool isWiFiConnected = (WiFi.status() == WL_CONNECTED);
+        if (isWiFiConnected && !wasWiFiConnected) {
+            // WiFi just reconnected - reset network-related deadline counters
+            LOG_INFO(LOG_TAG_WATCHDOG, "WiFi reconnected - clearing network-related deadline misses");
+            deadlineMonitor_sensorPoll.onNetworkRestored();
+            deadlineMonitor_upload.onNetworkRestored();
+            deadlineMonitor_compression.onNetworkRestored();
+        }
+        wasWiFiConnected = isWiFiConnected;
         
         // Check sensor poll task (CRITICAL)
         if (currentTime - stats_sensorPoll.lastRunTime > maxTaskIdleTime) {
@@ -1136,10 +1167,16 @@ void TaskManager::watchdogTask(void* parameter) {
                   currentTime - stats_compression.lastRunTime);
         }
         
-        // Check for excessive deadline misses (using centralized threshold)
-        if (stats_sensorPoll.deadlineMisses > MAX_DEADLINE_MISSES) {
-            LOG_ERROR(LOG_TAG_WATCHDOG, "CRITICAL: Excessive sensor deadline misses (%lu > %d)! Resetting...",
-                  stats_sensorPoll.deadlineMisses, MAX_DEADLINE_MISSES);
+        // Check for excessive deadline misses (using intelligent monitoring)
+        if (deadlineMonitor_sensorPoll.shouldRestart()) {
+            uint8_t recentMisses = deadlineMonitor_sensorPoll.getRecentMisses();
+            uint32_t lifetimeMisses = deadlineMonitor_sensorPoll.getLifetimeMisses();
+            uint32_t networkMisses = deadlineMonitor_sensorPoll.getNetworkMisses();
+            
+            LOG_ERROR(LOG_TAG_WATCHDOG, "CRITICAL: Excessive sensor deadline misses!");
+            LOG_ERROR(LOG_TAG_WATCHDOG, "Recent: %d, Lifetime: %lu, Network-related: %lu",
+                     recentMisses, lifetimeMisses, networkMisses);
+            
             vTaskDelay(pdMS_TO_TICKS(1000));
             ESP.restart();
         }

@@ -21,6 +21,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "peripheral/acquisition.h"
+#include "application/deadline_monitor.h"
 
 // ============================================
 // Task Configuration
@@ -254,6 +255,11 @@ private:
     static TaskStats stats_powerReport;
     static TaskStats stats_ota;
     static TaskStats stats_watchdog;
+    
+    // Deadline Monitors (intelligent deadline tracking with sliding window)
+    static DeadlineMonitor deadlineMonitor_sensorPoll;
+    static DeadlineMonitor deadlineMonitor_upload;
+    static DeadlineMonitor deadlineMonitor_compression;
     
     // System state
     static bool systemInitialized;

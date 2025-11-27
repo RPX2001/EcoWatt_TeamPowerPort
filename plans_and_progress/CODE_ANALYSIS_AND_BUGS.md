@@ -1197,7 +1197,404 @@ xTaskNotify(sensorPollTask_h, newFreqMs, eSetValueWithOverwrite);
 
 ---
 
-#### 3. Hardcoded Semaphore Count
+#### 3. Deadline Miss Counter Never Resets - Causes Inevitable System Restart
+**Location:** `task_manager.cpp:399,437,1140`
+
+```cpp
+// Deadline miss accumulation (Line 399 - SensorPoll Task)
+if (xQueueSend(sensorDataQueue, &sample, 0) != pdTRUE) {
+    stats_sensorPoll.deadlineMisses++;  // ← Accumulates forever
+}
+
+// Deadline checking (Line 437 - checkDeadline)
+if (executionTimeUs > deadlineUs) {
+    stats.deadlineMisses++;  // ← No reset mechanism
+}
+
+// Watchdog enforcement (Line 1140 - Watchdog Task)
+if (stats_sensorPoll.deadlineMisses > MAX_DEADLINE_MISSES) {
+    LOG_ERROR(LOG_TAG_WATCHDOG, "CRITICAL: Excessive sensor deadline misses (%lu > %d)! Resetting...",
+              stats_sensorPoll.deadlineMisses, MAX_DEADLINE_MISSES);
+    ESP.restart();  // ← Forced restart after 20 misses
+}
+```
+
+**Problem:**
+- **Deadline miss counters accumulate indefinitely** and are NEVER reset
+- Once 20 misses occur (MAX_DEADLINE_MISSES), system forcibly restarts
+- Temporary network issues (WiFi down, server unavailable) cause permanent deadline accumulation
+- After WiFi/server recovery, old deadline misses still count toward the 20 limit
+- System eventually restarts even if current operation is healthy
+
+**Current Behavior (Your Log Example):**
+```
+[00:02:52] [WATCHDOG  ] ✗    CRITICAL: Excessive sensor deadline misses (22 > 20)! Resetting...
+[173361][W][WiFiGeneric.cpp:1062] _eventCallback(): Reason: 8 - ASSOC_LEAVE
+rst:0xc (SW_CPU_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)
+```
+
+**Root Cause Analysis:**
+1. WiFi temporarily disconnected or server was down
+2. Upload task couldn't send data → queue filled up
+3. Sensor poll task dropped samples → incremented `deadlineMisses`
+4. Counter accumulated to 22 over time
+5. Watchdog triggered restart even though WiFi was back online
+
+**Why This Happens:**
+- Statistics are initialized once at startup: `TaskStats TaskManager::stats_sensorPoll = {0};`
+- No mechanism to reset counters during normal operation
+- No distinction between:
+  - **Transient failures** (WiFi temporarily down) 
+  - **Persistent failures** (actual hardware/software malfunction)
+
+**Impact:** **CRITICAL** - Production systems will experience unnecessary restarts
+
+**Is Current Behavior Preferable?**
+❌ **NO** - The current approach has major flaws:
+
+**Problems with Never Resetting:**
+1. **False Positives:** Temporary network glitches cause restarts
+2. **No Recovery:** System can't heal itself after transient issues
+3. **Cumulative Damage:** One bad hour permanently damages the counter
+4. **Misleading Metrics:** Old deadline misses don't represent current health
+5. **Unnecessary Downtime:** Restart interrupts legitimate operations
+
+**Recommended Solutions:**
+
+**Option 1: Sliding Window Counter (BEST)**
+```cpp
+// Track deadline misses in a time window
+#define DEADLINE_WINDOW_MS      300000  // 5 minutes
+#define MAX_MISSES_PER_WINDOW   20      // 20 misses in 5 min = restart
+
+struct DeadlineTracker {
+    uint32_t missTimestamps[MAX_MISSES_PER_WINDOW];
+    uint8_t writeIndex = 0;
+    
+    void recordMiss() {
+        missTimestamps[writeIndex] = millis();
+        writeIndex = (writeIndex + 1) % MAX_MISSES_PER_WINDOW;
+    }
+    
+    uint8_t getRecentMisses() {
+        uint32_t now = millis();
+        uint8_t count = 0;
+        for (int i = 0; i < MAX_MISSES_PER_WINDOW; i++) {
+            if (now - missTimestamps[i] < DEADLINE_WINDOW_MS) {
+                count++;
+            }
+        }
+        return count;
+    }
+};
+
+// In watchdog task:
+if (deadlineTracker.getRecentMisses() > MAX_MISSES_PER_WINDOW) {
+    LOG_ERROR(LOG_TAG_WATCHDOG, "CRITICAL: %d deadline misses in %d sec!", 
+              MAX_MISSES_PER_WINDOW, DEADLINE_WINDOW_MS/1000);
+    ESP.restart();
+}
+```
+
+**Option 2: Periodic Decay/Reset**
+```cpp
+// Reset counters periodically if system is healthy
+static uint32_t lastCounterReset = 0;
+#define COUNTER_RESET_INTERVAL_MS  600000  // 10 minutes
+
+if (millis() - lastCounterReset > COUNTER_RESET_INTERVAL_MS) {
+    // Only reset if WiFi is connected and recent operations succeeded
+    if (WiFi.status() == WL_CONNECTED && lastUploadSuccess) {
+        LOG_INFO(LOG_TAG_WATCHDOG, "Resetting deadline miss counters (system healthy)");
+        stats_sensorPoll.deadlineMisses = 0;
+        stats_upload.deadlineMisses = 0;
+        stats_compression.deadlineMisses = 0;
+        lastCounterReset = millis();
+    }
+}
+```
+
+**Option 3: Rate-Based Threshold**
+```cpp
+// Only restart if deadline miss RATE exceeds threshold
+#define MAX_MISS_RATE_PERCENT   30      // 30% of samples can miss
+#define EVALUATION_PERIOD_MS    300000  // Evaluate over 5 minutes
+
+if (stats_sensorPoll.executionCount > 100) {  // Need enough samples
+    float missRate = (stats_sensorPoll.deadlineMisses * 100.0f) / 
+                     stats_sensorPoll.executionCount;
+    
+    if (missRate > MAX_MISS_RATE_PERCENT) {
+        LOG_ERROR(LOG_TAG_WATCHDOG, "CRITICAL: Deadline miss rate %.1f%% exceeds %d%%",
+                  missRate, MAX_MISS_RATE_PERCENT);
+        ESP.restart();
+    }
+}
+```
+
+**Option 4: Contextual Reset**
+```cpp
+// Reset counters when WiFi reconnects (network was the issue)
+void onWiFiConnected() {
+    LOG_INFO(LOG_TAG_WIFI, "WiFi reconnected - clearing deadline misses from network outage");
+    stats_sensorPoll.deadlineMisses = 0;
+    stats_upload.deadlineMisses = 0;
+}
+
+// In WiFi event handler
+void WiFiEvent(WiFiEvent_t event) {
+    switch(event) {
+        case SYSTEM_EVENT_STA_GOT_IP:
+            onWiFiConnected();
+            break;
+    }
+}
+```
+
+**Recommended Hybrid Approach:**
+```cpp
+// Combine sliding window + contextual reset
+class DeadlineMonitor {
+private:
+    uint32_t missTimestamps[MAX_DEADLINE_MISSES];
+    uint8_t writeIndex = 0;
+    uint32_t lastNetworkIssue = 0;
+    
+public:
+    void recordMiss(bool isNetworkRelated) {
+        if (isNetworkRelated) {
+            lastNetworkIssue = millis();
+        }
+        missTimestamps[writeIndex] = millis();
+        writeIndex = (writeIndex + 1) % MAX_DEADLINE_MISSES;
+    }
+    
+    bool shouldRestart() {
+        uint32_t now = millis();
+        uint8_t recentMisses = 0;
+        
+        // Count misses in last 5 minutes
+        for (int i = 0; i < MAX_DEADLINE_MISSES; i++) {
+            if (now - missTimestamps[i] < 300000) {
+                recentMisses++;
+            }
+        }
+        
+        // If recent network issue, be more lenient
+        if (now - lastNetworkIssue < 60000) {  // 1 min grace period
+            return recentMisses > (MAX_DEADLINE_MISSES * 2);  // Double threshold
+        }
+        
+        return recentMisses > MAX_DEADLINE_MISSES;
+    }
+    
+    void onNetworkRestored() {
+        // Clear misses older than 2 minutes
+        uint32_t cutoff = millis() - 120000;
+        for (int i = 0; i < MAX_DEADLINE_MISSES; i++) {
+            if (missTimestamps[i] < cutoff) {
+                missTimestamps[i] = 0;
+            }
+        }
+    }
+};
+```
+
+**Immediate Fix (Minimal Change):**
+```cpp
+// Add to watchdog task - reset if WiFi was down but is now up
+static bool wasWiFiDown = false;
+
+if (WiFi.status() != WL_CONNECTED) {
+    wasWiFiDown = true;
+} else if (wasWiFiDown) {
+    // WiFi just recovered - reset network-related deadline misses
+    LOG_INFO(LOG_TAG_WATCHDOG, "Network recovered - resetting deadline counters");
+    stats_sensorPoll.deadlineMisses = min(stats_sensorPoll.deadlineMisses, 5);  // Keep some history
+    stats_upload.deadlineMisses = 0;  // Upload misses definitely network-related
+    wasWiFiDown = false;
+}
+```
+
+**Testing Strategy:**
+1. Simulate WiFi outage for 2 minutes
+2. Verify counters don't cause restart after recovery
+3. Test actual deadline violations (infinite loop in sensor task)
+4. Verify restart DOES occur for real issues
+5. Test boundary conditions (exactly 20 misses)
+
+**Metrics to Add:**
+```cpp
+struct ImprovedTaskStats {
+    uint32_t totalDeadlineMisses;           // Lifetime count
+    uint32_t recentDeadlineMisses;          // Sliding window
+    uint32_t networkRelatedMisses;          // Classified by cause
+    uint32_t hardwareRelatedMisses;         // Hardware failures
+    uint32_t lastMissTimestamp;             // For debugging
+    uint32_t longestMissFreeStreak;         // Track improvements
+};
+```
+
+---
+
+#### 4. Config Update Register Mismatch - Frontend Shows Wrong Register Count
+**Location:** `data_uploader.cpp:177-186`, Frontend display logic
+
+```cpp
+// ESP32: data_uploader.cpp:177-186
+// Build register mapping from first entry
+JsonObject registerMapping = (*doc)["register_mapping"].to<JsonObject>();
+if (!allData.empty()) {
+    const auto& firstEntry = allData[0];  // ← Uses FIRST packet
+    for (size_t i = 0; i < firstEntry.registerCount && i < REGISTER_COUNT; i++) {
+        char key[8];
+        snprintf(key, sizeof(key), "%zu", i);
+        registerMapping[key] = REGISTER_MAP[firstEntry.registers[i]].name;
+    }
+}
+
+// But each packet has its own metadata:
+decompMeta["register_count"] = entry.registerCount;  // Per-packet
+JsonArray regLayout = decompMeta["register_layout"].to<JsonArray>();
+for (size_t i = 0; i < entry.registerCount; i++) {
+    regLayout.add(entry.registers[i]);  // Per-packet register list
+}
+```
+
+**Problem:**
+- Global `register_mapping` is built from **first packet** in upload queue
+- When config changes (4→6 registers), old packets (4 regs) are still in queue
+- Upload contains mixed packets: old (4 regs) + new (6 regs)
+- Global `register_mapping` uses old 4-register layout
+- Frontend/server uses global mapping instead of per-packet `register_layout`
+- **Result**: New 6-register data incorrectly mapped to old 4-register layout
+
+**Timeline of the Bug:**
+```
+T=0s:  Device polls 4 registers (Vac1, Iac1, Fac1, Vp v1)
+T=0s:  Packets with 4 registers queued
+T=0s:  Upload → Global register_mapping = {0: "Vac1", 1: "Iac1", 2: "Fac1", 3: "Vpv1"}
+T=0s:  Frontend changes config to 6 registers (adds Vpv2, Ipv1)
+T=5s:  Config reload → Device now polls 6 registers
+T=5s-15s: New packets with 6 registers queued
+T=15s: Upload → Global register_mapping STILL uses first packet (old 4 regs)
+T=15s: Frontend displays: Shows 4 register names but 6 register values
+T=15s: **MISMATCH**: Values[4] and Values[5] have no labels, or wrong labels
+T=30s: All old packets flushed → Next upload has correct 6-register mapping
+```
+
+**Why This Happens:**
+1. Ring buffer can hold 20 packets (~60 seconds of data)
+2. Config changes between uploads (not between samples in a batch - batches are homogeneous)
+3. Upload drains queue containing both old and new packets
+4. ESP32 correctly includes per-packet metadata (`register_layout`)
+5. But global `register_mapping` uses first (oldest) packet's layout
+6. Frontend assumes all packets use global `register_mapping`
+
+**Impact:** **MEDIUM** - Frontend displays incorrect register labels for one upload cycle after config change
+
+**Correct Behavior:**
+- All samples in ONE batch have same register count (config reloads between batches)
+- Config reload happens AFTER upload, BEFORE next sensor poll cycle
+- One upload can contain MULTIPLE batches with DIFFERENT register counts
+- Each batch has correct per-packet metadata
+
+**Fix Options:**
+
+**Option 1: Frontend - Use Per-Packet Register Layout (RECOMMENDED)**
+```javascript
+// Frontend should use decompression_metadata.register_layout per packet
+compressed_data.forEach(packet => {
+    const register_layout = packet.decompression_metadata.register_layout;
+    const register_count = packet.decompression_metadata.register_count;
+    
+    // Decompress using THIS packet's layout
+    const values = decompress(packet.compressed_binary);
+    
+    // Map using THIS packet's register list
+    for (let i = 0; i < register_count; i++) {
+        registerData[register_layout[i]] = values[i];
+    }
+});
+```
+
+**Option 2: ESP32 - Use Most Recent Packet for Global Mapping**
+```cpp
+// data_uploader.cpp:177-186
+// Build register mapping from LAST entry (most recent config)
+JsonObject registerMapping = (*doc)["register_mapping"].to<JsonObject>();
+if (!allData.empty()) {
+    const auto& lastEntry = allData[allData.size() - 1];  // ← Use LAST packet
+    for (size_t i = 0; i < lastEntry.registerCount && i < REGISTER_COUNT; i++) {
+        char key[8];
+        snprintf(key, sizeof(key), "%zu", i);
+        registerMapping[key] = REGISTER_MAP[lastEntry.registers[i]].name;
+    }
+    LOG_INFO(LOG_TAG_UPLOAD, "Global register_mapping built from most recent packet (%zu registers)",
+             lastEntry.registerCount);
+}
+```
+
+**Option 3: ESP32 - Flush Old Packets on Config Change**
+```cpp
+// In sensor poll task, after config reload:
+if (newRegisterCount != registerCount) {
+    // Clear sensor data queue (old samples with old register count)
+    SensorSample dummy;
+    while (xQueueReceive(sensorDataQueue, &dummy, 0) == pdTRUE) {
+        // Drain queue
+    }
+    
+    // Clear compressed data queue (old packets with old register count)
+    CompressedPacket dummyPacket;
+    while (xQueueReceive(compressedDataQueue, &dummyPacket, 0) == pdTRUE) {
+        // Drain queue
+    }
+    
+    LOG_INFO(LOG_TAG_DATA, "Flushed queues due to register configuration change");
+    
+    registerCount = newRegisterCount;
+    registers = newRegisters;
+}
+```
+
+**Option 4: Hybrid - Mark Packets with Config Version**
+```cpp
+struct CompressedPacket {
+    uint8_t data[512];
+    size_t dataSize;
+    uint32_t timestamp;
+    size_t sampleCount;
+    size_t registerCount;
+    RegID registers[16];
+    uint32_t configVersion;  // ← NEW: Increments on config change
+};
+
+// Upload task can then group packets by configVersion
+// and create multiple register_mapping objects
+```
+
+**Recommended Solution:**
+Implement **Option 2** (use most recent packet) - simplest fix with minimal impact:
+- One-line change in data_uploader.cpp
+- Ensures global mapping reflects current configuration
+- Preserves per-packet metadata for accuracy
+- No data loss
+
+**Testing:**
+```python
+# Test case:
+1. Device running with 4 registers
+2. Upload at T=0s (4 registers)
+3. Change config to 6 registers via frontend
+4. Wait for next upload at T=15s
+5. Verify: Global register_mapping shows all 6 registers
+6. Verify: Frontend displays all 6 register values with correct labels
+```
+
+---
+
+#### 5. Hardcoded Semaphore Count
 **Location:** `task_manager.cpp:733-739`
 
 ```cpp
