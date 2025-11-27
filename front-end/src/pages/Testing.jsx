@@ -5,7 +5,6 @@
  * Features:
  * - Fault Injection Testing
  * - Security Testing
- * - System Testing
  */
 
 import React, { useState } from 'react';
@@ -20,12 +19,10 @@ import {
 } from '@mui/material';
 import {
   BugReport as FaultIcon,
-  Security as SecurityIcon,
-  Engineering as SystemIcon
+  Security as SecurityIcon
 } from '@mui/icons-material';
 import FaultInjection from '../components/testing/FaultInjection';
 import SecurityTests from '../components/testing/SecurityTests';
-import SystemTests from '../components/testing/SystemTests';
 
 // Tab panel component
 function TabPanel({ children, value, index }) {
@@ -55,7 +52,7 @@ const Testing = () => {
           Testing & Quality Assurance
         </Typography>
         <Typography variant="body1" color="text.secondary" gutterBottom>
-          Comprehensive testing tools for fault injection, security validation, and system diagnostics
+          Comprehensive testing tools for fault injection and security validation
         </Typography>
 
         <Paper sx={{ mt: 3 }}>
@@ -83,13 +80,6 @@ const Testing = () => {
               id="testing-tab-1"
               aria-controls="testing-tabpanel-1"
             />
-            <Tab
-              icon={<SystemIcon />}
-              iconPosition="start"
-              label="System Tests"
-              id="testing-tab-2"
-              aria-controls="testing-tabpanel-2"
-            />
           </Tabs>
 
           <TabPanel value={activeTab} index={0}>
@@ -98,10 +88,6 @@ const Testing = () => {
 
           <TabPanel value={activeTab} index={1}>
             <SecurityTests />
-          </TabPanel>
-
-          <TabPanel value={activeTab} index={2}>
-            <SystemTests />
           </TabPanel>
         </Paper>
       </Box>
