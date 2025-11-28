@@ -1178,7 +1178,14 @@ class Database:
             ''', (limit,))
         
         rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        # Convert timestamps to local time for proper display
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            if row_dict.get('created_at'):
+                row_dict['created_at'] = convert_utc_to_local(row_dict['created_at'])
+            result.append(row_dict)
+        return result
     
     @staticmethod
     def save_recovery_event(device_id: str, timestamp: int, fault_type: str, 
@@ -1243,7 +1250,14 @@ class Database:
             ''', (limit,))
         
         rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        # Convert received_at timestamps to local time for proper display
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            if row_dict.get('received_at'):
+                row_dict['received_at'] = convert_utc_to_local(row_dict['received_at'])
+            result.append(row_dict)
+        return result
     
     @staticmethod
     def get_recovery_statistics(device_id: Optional[str] = None) -> Dict:
