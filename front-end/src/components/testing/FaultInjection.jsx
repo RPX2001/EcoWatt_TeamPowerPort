@@ -50,7 +50,7 @@ import {
   Code as CodeIcon
 } from '@mui/icons-material';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { injectFault, clearFaults, getRecoveryEvents, getAllRecoveryEvents, clearRecoveryEvents, getInjectionHistory, getOTAFaultStatus, clearOTAFaults } from '../../api/faults';
+import { injectFault, clearFaults, getRecoveryEvents, getAllRecoveryEvents, clearRecoveryEvents, getInjectionHistory, getOTAFaultStatus, clearOTAFaults, getNetworkFaultStatus, clearNetworkFaults } from '../../api/faults';
 import { getDevices } from '../../api/devices';
 
 const FaultInjection = () => {
@@ -117,6 +117,17 @@ const FaultInjection = () => {
 
   const otaFaultStatus = otaFaultData?.data?.fault_injection || null;
 
+  // Fetch Network fault injection status (auto-refresh every 2s)
+  const { data: networkFaultData, refetch: refetchNetworkFault } = useQuery({
+    queryKey: ['networkFaultStatus'],
+    queryFn: getNetworkFaultStatus,
+    refetchInterval: 2000, // Auto-refresh every 2 seconds
+    staleTime: 1000
+  });
+
+  const networkFaultStatus = networkFaultData?.data?.network_fault || null;
+  const esp32Endpoints = networkFaultData?.data?.esp32_endpoints || [];
+
   // Inverter SIM fault types (from external API - Milestone 5)
   const inverterSimFaults = [
     { value: 'EXCEPTION', label: 'Modbus Exception', description: 'Modbus exception with error code', exceptionCode: true },
@@ -137,8 +148,7 @@ const FaultInjection = () => {
   const networkFaults = [
     { value: 'timeout', label: 'Connection Timeout', description: 'Connection timeout (504 error)', requiresDelay: true },
     { value: 'disconnect', label: 'Connection Drop', description: 'Immediate connection failure (503)' },
-    { value: 'slow', label: 'Slow Network', description: 'Add delay to responses', requiresDelay: true },
-    { value: 'intermittent', label: 'Intermittent Failures', description: 'Random failures', requiresFailureRate: true }
+    { value: 'slow', label: 'Slow Network', description: 'Add delay to responses', requiresDelay: true }
   ];
 
   const faultOptions = backend === 'inverter_sim' 
@@ -192,8 +202,6 @@ const FaultInjection = () => {
           payload.parameters.timeout_ms = delayMs;
         } else if (faultType === 'slow') {
           payload.parameters.delay_ms = delayMs;
-        } else if (faultType === 'intermittent') {
-          payload.parameters.failure_rate = failureRate;
         }
       }
       
@@ -205,6 +213,10 @@ const FaultInjection = () => {
       // Refetch OTA fault status if OTA backend
       if (backend === 'ota') {
         refetchOTAFault();
+      }
+      // Refetch Network fault status if network backend
+      if (backend === 'network') {
+        refetchNetworkFault();
       }
     },
     onError: () => {
@@ -226,6 +238,15 @@ const FaultInjection = () => {
     mutationFn: clearOTAFaults,
     onSuccess: () => {
       refetchOTAFault();
+      refetchInjections();
+    }
+  });
+
+  // Clear Network faults mutation
+  const clearNetworkMutation = useMutation({
+    mutationFn: clearNetworkFaults,
+    onSuccess: () => {
+      refetchNetworkFault();
       refetchInjections();
     }
   });
@@ -631,6 +652,92 @@ const FaultInjection = () => {
               ) : (
                 <Alert severity="info">
                   No OTA fault injection active. Select "OTA Faults" backend and inject a fault to enable.
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Network Fault Status Card */}
+        {networkFaultStatus && (
+          <Card 
+            variant="outlined" 
+            sx={{ 
+              mb: 3, 
+              bgcolor: networkFaultStatus.enabled ? 'error.50' : 'grey.50',
+              borderColor: networkFaultStatus.enabled ? 'error.main' : 'divider'
+            }}
+          >
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <ErrorIcon color={networkFaultStatus.enabled ? 'error' : 'disabled'} />
+                  <Typography variant="subtitle1" fontWeight="bold">
+                    Network Fault Injection Status
+                  </Typography>
+                </Box>
+                <Chip 
+                  label={networkFaultStatus.enabled ? 'ACTIVE' : 'DISABLED'} 
+                  color={networkFaultStatus.enabled ? 'error' : 'default'}
+                  size="small"
+                />
+              </Box>
+              
+              {networkFaultStatus.enabled ? (
+                <>
+                  <Grid container spacing={2} sx={{ mb: 2 }}>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="caption" color="text.secondary">Fault Type</Typography>
+                      <Typography variant="body2" fontWeight="bold">
+                        {networkFaultStatus.fault_type}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="caption" color="text.secondary">Target Endpoint</Typography>
+                      <Typography variant="body2" fontWeight="bold">
+                        {networkFaultStatus.target_endpoint || 'All ESP32 Endpoints'}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="caption" color="text.secondary">Probability</Typography>
+                      <Typography variant="body2" fontWeight="bold">
+                        {networkFaultStatus.probability}%
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="caption" color="text.secondary">Faults Injected</Typography>
+                      <Typography variant="body2" fontWeight="bold" color="error.main">
+                        {networkFaultStatus.faults_injected}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+                  
+                  {networkFaultStatus.parameters && Object.keys(networkFaultStatus.parameters).length > 0 && (
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                      Parameters: {Object.entries(networkFaultStatus.parameters).map(([k, v]) => `${k}=${v}`).join(', ')}
+                    </Alert>
+                  )}
+
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    <strong>Affected Endpoints:</strong> {esp32Endpoints.join(', ')}
+                  </Alert>
+                  
+                  <Button
+                    variant="contained"
+                    color="error"
+                    onClick={() => clearNetworkMutation.mutate()}
+                    disabled={clearNetworkMutation.isPending}
+                    startIcon={clearNetworkMutation.isPending ? <CircularProgress size={16} /> : <ClearIcon />}
+                    fullWidth
+                  >
+                    {clearNetworkMutation.isPending ? 'Disabling...' : 'Disable Network Fault Injection'}
+                  </Button>
+                </>
+              ) : (
+                <Alert severity="info">
+                  No network fault injection active. Select "Network Faults" backend and inject a fault to enable.
+                  <br />
+                  <strong>Note:</strong> Network faults only affect ESP32 endpoints: {esp32Endpoints.join(', ')}
                 </Alert>
               )}
             </CardContent>

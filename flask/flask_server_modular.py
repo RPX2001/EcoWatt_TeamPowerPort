@@ -15,7 +15,7 @@ Architecture:
     Routes → Handlers → Utilities
 """
 
-from flask import Flask
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
 import time
@@ -42,6 +42,9 @@ from routes.device_routes import device_bp, load_devices_from_database
 from routes.config_routes import config_bp, load_configs_from_database
 from routes.utilities_routes import utilities_bp
 
+# Import network fault injection
+from handlers.fault_handler import inject_network_fault, get_network_fault_status
+
 # Initialize Flask app
 app = Flask(__name__)
 
@@ -61,6 +64,62 @@ CORS(app, resources={
 # Configure logging
 init_logging()
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# NETWORK FAULT INJECTION MIDDLEWARE
+# ============================================================================
+# This middleware intercepts ESP32-related requests and applies network faults if enabled.
+# Supports: timeout, disconnect, slow (delay)
+# 
+# ESP32 Endpoints (faults applied):
+#   /aggregated/*  - Data upload
+#   /power/*       - Power metrics upload
+#   /ota/*         - OTA updates (manifest, chunks)
+#   /device/*      - Device registration/status
+#   /command/*     - Command endpoints
+#
+# Excluded Endpoints (no faults):
+#   /fault/*       - Fault management (prevent lockout)
+#   /health        - Health check
+#   /config/*      - Configuration (frontend)
+#   /diagnostics/* - Diagnostics (frontend)
+#   /utilities/*   - Utilities (frontend)
+#   /security/*    - Security (frontend)
+# ============================================================================
+
+# ESP32 endpoint prefixes that should receive network faults
+ESP32_ENDPOINT_PREFIXES = ['/aggregated', '/power', '/ota', '/device', '/command']
+
+@app.before_request
+def apply_network_fault():
+    """
+    Middleware to apply network fault injection to ESP32-related requests.
+    Called before every request is processed.
+    """
+    # Skip fault injection for fault management endpoints
+    if request.path.startswith('/fault'):
+        return None
+    
+    # Skip for health check endpoint
+    if request.path == '/health':
+        return None
+    
+    # Only apply faults to ESP32 endpoints
+    is_esp32_endpoint = any(request.path.startswith(prefix) for prefix in ESP32_ENDPOINT_PREFIXES)
+    if not is_esp32_endpoint:
+        return None
+    
+    # Check if network fault should be injected
+    fault_result = inject_network_fault(request.path)
+    
+    if fault_result is not None:
+        # Fault was injected - return the error response
+        error_response, status_code = fault_result
+        return jsonify(error_response), status_code
+    
+    # No fault or continue normal processing
+    return None
 
 
 def register_blueprints():

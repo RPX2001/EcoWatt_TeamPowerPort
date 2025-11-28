@@ -78,6 +78,22 @@ export const clearOTAFaults = () => {
 };
 
 /**
+ * Get network fault injection status
+ * @returns {Promise} API response with network fault status
+ */
+export const getNetworkFaultStatus = () => {
+  return apiClient.get('/fault/network/status');
+};
+
+/**
+ * Disable/Clear network fault injection
+ * @returns {Promise} API response
+ */
+export const clearNetworkFaults = () => {
+  return apiClient.post('/fault/network/clear');
+};
+
+/**
  * Get available fault types
  * @returns {Promise} API response with fault types
  */
@@ -244,6 +260,8 @@ export default {
   getFaultTypes,
   getOTAFaultStatus,
   clearOTAFaults,
+  getNetworkFaultStatus,
+  clearNetworkFaults,
   getRecoveryEvents,
   getAllRecoveryEvents,
   clearRecoveryEvents,

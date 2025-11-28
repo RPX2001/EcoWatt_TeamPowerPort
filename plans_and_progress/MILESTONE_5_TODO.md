@@ -186,18 +186,27 @@
 - [x] ✅ `verification_failed` → status = `failed` in database
 
 **Network Fault Injection (`fault_handler.py`):**
-- [x] ✅ **Connection Faults**
-  - `timeout`: Connection timeout (delay then 504 error)
-  - `disconnect`: Connection drop (immediate 503 error)
+- [x] ✅ **Connection Faults** (Applied via Flask Middleware)
+  - `timeout`: Connection timeout (delay then 504 Gateway Timeout)
+  - `disconnect`: Connection drop (immediate 503 Service Unavailable)
   - **Parameters:** `timeout_ms` (default: 30000ms)
 - [x] ✅ **Performance Faults**
-  - `slow`: Slow network speed (adds delay to responses)
-  - `intermittent`: Random intermittent failures
-  - **Parameters:** `delay_ms`, `failure_rate` (0.0-1.0)
+  - `slow`: Slow network speed (adds configurable delay without error)
+  - **Parameters:** `delay_ms` (default: 3000ms)
 - [x] ✅ **Endpoint Targeting**
   - Can target specific endpoints (e.g., `/power/upload`, `/ota/chunk`)
   - Configurable probability (0-100%)
   - **Parameters:** `target_endpoint`, `probability`
+- [x] ✅ **Flask Middleware Integration** (Nov 28, 2025)
+  - `@app.before_request` intercepts ESP32-related requests ONLY
+  - **ESP32 Endpoints:** `/aggregated/*`, `/power/*`, `/ota/*`, `/device/*`, `/command/*`
+  - Excludes `/fault/*`, `/health`, `/config/*`, `/diagnostics/*`, `/utilities/*`, `/security/*`
+  - Applies faults probabilistically per request
+  - ❌ **REMOVED:** `intermittent` fault type (redundant - use probability on any fault type)
+- [x] ✅ **Clear Network Faults** (Nov 28, 2025)
+  - Added `POST /fault/network/clear` endpoint
+  - Added `GET /fault/network/status` endpoint
+  - Frontend has "Disable Network Fault Injection" button (similar to OTA)
 
 **API Endpoints:**
 - [x] ✅ `POST /fault/inject` - Inject fault (routes to correct backend)
@@ -205,6 +214,8 @@
 - [x] ✅ `GET /fault/status` - Get active faults status
 - [x] ✅ `POST /fault/clear` - Clear all or specific faults
 - [x] ✅ `GET /fault/history` - Get fault injection history
+- [x] ✅ `GET /fault/network/status` - Get network fault injection status
+- [x] ✅ `POST /fault/network/clear` - Clear/disable network fault injection
 
 ### ESP32 Fault Detection ⏳ (NEEDS IMPLEMENTATION)
 

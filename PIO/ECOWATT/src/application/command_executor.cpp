@@ -99,7 +99,7 @@ void CommandExecutor::checkAndExecuteCommands() {
                 if (!m4Command.isNull()) {
                     const char* action = m4Command["action"] | "";
                     
-                    LOG_DEBUG(LOG_TAG_COMMAND, "Received M4 command: %s (ID: %s)", action, commandId);
+                    LOG_DEBUG(LOG_TAG_COMMAND, "Received command: %s (ID: %s)", action, commandId);
                     
                     // Parse M4 parameters
                     const char* targetRegister = m4Command["target_register"] | "";
@@ -123,7 +123,7 @@ void CommandExecutor::checkAndExecuteCommands() {
                         LOG_ERROR(LOG_TAG_COMMAND, "Command execution failed");
                     }
                 } else {
-                    LOG_ERROR(LOG_TAG_COMMAND, "Invalid M4 format - missing 'command' object");
+                    LOG_ERROR(LOG_TAG_COMMAND, "Invalid Command format - missing 'command' object");
                 }
             }
         } else if (error) {
@@ -151,7 +151,7 @@ void CommandExecutor::checkAndExecuteCommands() {
 
 bool CommandExecutor::executeCommand(const char* commandId, const char* action, 
                                      JsonObject& m4Command) {
-    LOG_DEBUG(LOG_TAG_COMMAND, "Executing M4 action: %s", action);
+    LOG_DEBUG(LOG_TAG_COMMAND, "Executing command action: %s", action);
     
     commandsExecuted++;
     bool success = false;
@@ -172,7 +172,7 @@ bool CommandExecutor::executeCommand(const char* commandId, const char* action,
     } else if (strcmp(action, "reset_peripheral_stats") == 0) {
         success = executeResetPeripheralStatsCommand();
     } else {
-        LOG_DEBUG(LOG_TAG_COMMAND, " Unknown M4 action: %s", action);
+        LOG_DEBUG(LOG_TAG_COMMAND, " Unknown command action: %s", action);
         success = false;
     }
     
@@ -310,7 +310,7 @@ bool CommandExecutor::executeResetPeripheralStatsCommand() {
 }
 
 void CommandExecutor::sendCommandResult(const char* commandId, bool success) {
-    LOG_DEBUG(LOG_TAG_COMMAND, " Sending M4 command result to server...");
+    LOG_DEBUG(LOG_TAG_COMMAND, " Sending command result to server...");
     
     if (WiFi.status() != WL_CONNECTED) {
         LOG_DEBUG(LOG_TAG_COMMAND, " WiFi not connected. Cannot send result.");
@@ -345,7 +345,7 @@ void CommandExecutor::sendCommandResult(const char* commandId, bool success) {
     String prettyResult;
     serializeJsonPretty(resultDoc, prettyResult);
     
-    LOG_DEBUG(LOG_TAG_COMMAND, "M4 result payload:");
+    LOG_DEBUG(LOG_TAG_COMMAND, "command result payload:");
     int startPos = 0;
     int endPos = prettyResult.indexOf('\n');
     while (endPos != -1) {
@@ -364,7 +364,7 @@ void CommandExecutor::sendCommandResult(const char* commandId, bool success) {
     int httpResponseCode = http.POST((uint8_t*)resultBody, strlen(resultBody));
 
     if (httpResponseCode == 200) {
-        LOG_DEBUG(LOG_TAG_COMMAND, " ✓ M4 command result sent successfully");
+        LOG_DEBUG(LOG_TAG_COMMAND, " ✓ Command result sent successfully");
     } else {
         LOG_DEBUG(LOG_TAG_COMMAND, " ✗ Failed to send result (HTTP %d)\n", httpResponseCode);
     }

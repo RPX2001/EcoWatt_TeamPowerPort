@@ -537,6 +537,90 @@ def clear_faults():
         }), 500
 
 
+@fault_bp.route('/fault/network/clear', methods=['POST', 'DELETE'])
+def clear_network_faults():
+    """
+    Clear/disable network fault injection
+    
+    This endpoint disables any active network fault injection.
+    Network faults (timeout, disconnect, slow) are applied via Flask middleware
+    to ESP32-related endpoints only:
+        - /aggregated/*
+        - /power/*
+        - /ota/*
+        - /device/*
+        - /command/*
+    """
+    try:
+        from handlers.fault_handler import disable_network_fault, get_network_fault_status
+        
+        # Get status before clearing
+        status_before = get_network_fault_status()
+        was_enabled = status_before.get('enabled', False)
+        fault_type = status_before.get('fault_type')
+        faults_injected = status_before.get('faults_injected', 0)
+        
+        # Clear network faults
+        success, message = disable_network_fault()
+        
+        if success:
+            logger.info(f"✓ Network fault injection cleared (was: {fault_type}, injected: {faults_injected})")
+            return jsonify({
+                'success': True,
+                'message': message,
+                'was_enabled': was_enabled,
+                'fault_type_cleared': fault_type,
+                'faults_injected': faults_injected
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': message
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"✗ Error clearing network faults: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@fault_bp.route('/fault/network/status', methods=['GET'])
+def get_network_fault_status_route():
+    """
+    Get current network fault injection status
+    
+    Returns information about active network faults including:
+        - enabled: Whether network fault injection is active
+        - fault_type: Type of fault (timeout, disconnect, slow)
+        - target_endpoint: Endpoint pattern being targeted (optional)
+        - probability: Probability of fault occurring per request
+        - parameters: Additional parameters (timeout_ms, delay_ms)
+        - faults_injected: Count of faults injected
+        - requests_processed: Count of requests processed
+        - statistics: Detailed stats by fault type
+    """
+    try:
+        from handlers.fault_handler import get_network_fault_status
+        
+        status = get_network_fault_status()
+        
+        return jsonify({
+            'success': True,
+            'network_fault': status,
+            'esp32_endpoints': ['/aggregated', '/power', '/ota', '/device', '/command'],
+            'note': 'Network faults only apply to ESP32-related endpoints'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"✗ Error getting network fault status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @fault_bp.route('/fault/types', methods=['GET'])
 def get_available_fault_types():
     """
@@ -592,18 +676,16 @@ def get_available_fault_types():
                         }
                     },
                     'network': {
-                        'description': 'Network connectivity issues',
+                        'description': 'Network connectivity issues - Applied via Flask middleware to intercept requests',
                         'subtypes': {
-                            'timeout': 'Connection timeout (delay then fail with 504)',
-                            'disconnect': 'Connection drop (immediate 503 failure)',
-                            'slow': 'Slow network speed (add delay to responses)',
-                            'intermittent': 'Random intermittent failures'
+                            'timeout': 'Connection timeout (delay then fail with 504 Gateway Timeout)',
+                            'disconnect': 'Connection drop (immediate 503 Service Unavailable)',
+                            'slow': 'Slow network speed (add configurable delay to responses without error)'
                         },
                         'parameters': {
-                            'timeout_ms': 'Timeout duration (default: 30000ms)',
-                            'delay_ms': 'Delay duration for slow network (default: 3000ms)',
-                            'failure_rate': 'Failure rate for intermittent (0.0-1.0, default: 0.5)',
-                            'probability': 'Probability of fault (0-100%, default: 100)'
+                            'timeout_ms': 'Timeout duration for timeout fault (default: 30000ms)',
+                            'delay_ms': 'Delay duration for slow fault (default: 3000ms)',
+                            'probability': 'Probability of fault occurring per request (0-100%, default: 100)'
                         },
                         'example': {
                             'fault_type': 'network',

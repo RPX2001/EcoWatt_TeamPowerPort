@@ -520,22 +520,20 @@ def enable_network_fault(fault_type: str, target_endpoint: Optional[str] = None,
     
     Args:
         fault_type: Type of network fault to inject
-            - 'timeout': Simulate connection timeout (delay then fail)
-            - 'disconnect': Simulate connection drop (immediate failure)
-            - 'slow': Slow network speed (add delay to responses)
-            - 'intermittent': Random intermittent failures
+            - 'timeout': Simulate connection timeout (delay then fail with 504)
+            - 'disconnect': Simulate connection drop (immediate 503 failure)
+            - 'slow': Slow network speed (add delay to responses, then continue)
         target_endpoint: Optional endpoint pattern to target (e.g., '/power', '/ota')
         probability: Probability of fault occurring (0-100%)
         **kwargs: Additional parameters
-            - timeout_ms: Timeout duration for 'timeout' type (default: 30000)
-            - delay_ms: Delay duration for 'slow' type (default: 3000)
-            - failure_rate: Failure rate for 'intermittent' type (0.0-1.0, default: 0.5)
+            - timeout_ms: Timeout duration for 'timeout' type (default: 5000ms)
+            - delay_ms: Delay duration for 'slow' type (default: 3000ms)
     
     Returns:
         tuple: (success, message)
     """
     with network_fault_lock:
-        valid_types = ['timeout', 'disconnect', 'slow', 'intermittent']
+        valid_types = ['timeout', 'disconnect', 'slow']
         
         if fault_type not in valid_types:
             return False, f"Invalid fault type. Must be one of: {valid_types}"
@@ -639,7 +637,7 @@ def inject_network_fault(endpoint: str) -> Optional[Tuple[Dict, int]]:
     
     if fault_type == 'timeout':
         # Simulate timeout: delay then return error
-        timeout_ms = network_fault_state['parameters'].get('timeout_ms', 30000)
+        timeout_ms = network_fault_state['parameters'].get('timeout_ms', 5000)
         logger.warning(f"   Simulating timeout: {timeout_ms}ms delay then 504")
         time.sleep(timeout_ms / 1000.0)
         
@@ -678,22 +676,6 @@ def inject_network_fault(endpoint: str) -> Optional[Tuple[Dict, int]]:
         
         # Return None to continue with normal processing after delay
         return None
-    
-    elif fault_type == 'intermittent':
-        # Random intermittent failures
-        failure_rate = network_fault_state['parameters'].get('failure_rate', 0.5)
-        if random.random() < failure_rate:
-            logger.warning(f"   Intermittent failure triggered (rate: {failure_rate})")
-            
-            with network_stats_lock:
-                network_fault_stats['failures_triggered'] += 1
-            
-            return {
-                'success': False,
-                'error': 'Network error',
-                'fault_injection': True,
-                'fault_type': 'intermittent'
-            }, 500
     
     # No fault or continue normal processing
     return None
