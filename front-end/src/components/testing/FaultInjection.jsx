@@ -609,7 +609,7 @@ const FaultInjection = () => {
                     <Grid item xs={6} sm={3}>
                       <Typography variant="caption" color="text.secondary">Fault Type</Typography>
                       <Typography variant="body2" fontWeight="bold">
-                        {otaFaultStatus.fault_type}
+                        {(otaFaultStatus.fault_type || '').toUpperCase()}
                       </Typography>
                     </Grid>
                     <Grid item xs={6} sm={3}>
@@ -689,7 +689,7 @@ const FaultInjection = () => {
                     <Grid item xs={6} sm={3}>
                       <Typography variant="caption" color="text.secondary">Fault Type</Typography>
                       <Typography variant="body2" fontWeight="bold">
-                        {networkFaultStatus.fault_type}
+                        {(networkFaultStatus.fault_type || '').toUpperCase()}
                       </Typography>
                     </Grid>
                     <Grid item xs={6} sm={3}>
@@ -770,10 +770,10 @@ const FaultInjection = () => {
                             size="small"
                           />
                           <Typography variant="body2" fontWeight="bold">
-                            {injection.fault_type || injection.error_type}
+                            {(injection.fault_type || injection.error_type || 'UNKNOWN').toUpperCase()}
                           </Typography>
                           <Typography variant="body2" color="text.secondary">
-                            on {injection.backend}
+                            on {(injection.backend || 'UNKNOWN').toUpperCase()}
                           </Typography>
                           {injection.device_id && (
                             <Typography variant="body2" color="text.secondary">
@@ -947,10 +947,10 @@ const FaultInjection = () => {
                               size="small"
                             />
                             <Typography variant="body2" fontWeight="bold">
-                              {event.fault_type}
+                              {(event.fault_type || '').toUpperCase()}
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
-                              → {event.recovery_action}
+                              → {(event.recovery_action || '').toUpperCase()}
                             </Typography>
                             {event.retry_count > 0 && (
                               <Chip

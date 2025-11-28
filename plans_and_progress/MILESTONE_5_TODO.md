@@ -208,6 +208,26 @@
   - Added `GET /fault/network/status` endpoint
   - Frontend has "Disable Network Fault Injection" button (similar to OTA)
 
+### Security Fault Injection ✅ (Nov 28, 2025)
+- [x] ✅ **6 Security Test Types Implemented:**
+  - `REPLAY`: Sends same nonce twice (two-step test)
+  - `INVALID_HMAC`: Sends payload with all-zeros HMAC
+  - `TAMPERED_PAYLOAD`: Modifies payload after HMAC calculation
+  - `OLD_NONCE`: Sends payload with nonce from 1 hour ago
+  - `MISSING_NONCE`: Sends payload without nonce field
+  - `INVALID_FORMAT`: Sends completely malformed payload
+- [x] ✅ **Frontend SecurityTests.jsx:** Individual test cards with run buttons
+- [x] ✅ **API Endpoints:**
+  - `POST /fault/security/inject` - Run security fault test
+  - `GET /fault/security/types` - Get available security fault types
+  - `GET /fault/security/status` - Get current security fault status
+  - `POST /fault/security/clear` - Clear security fault results
+- [x] ✅ **Fault History Display:** All fault types shown in CAPITAL LETTERS
+  - OTA faults: `OTA_CORRUPT_CHUNK`, `OTA_BAD_HASH`, `OTA_BAD_SIGNATURE`
+  - Network faults: `NETWORK_TIMEOUT`, `NETWORK_DISCONNECT`, `NETWORK_SLOW`
+  - Security faults: `SECURITY_REPLAY`, `SECURITY_INVALID_HMAC`, etc.
+  - Backend types: `LOCAL_FLASK`, `INVERTER_SIM`
+
 **API Endpoints:**
 - [x] ✅ `POST /fault/inject` - Inject fault (routes to correct backend)
 - [x] ✅ `GET /fault/types` - Get available fault types with examples

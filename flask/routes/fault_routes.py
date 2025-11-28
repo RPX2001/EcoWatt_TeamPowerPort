@@ -164,12 +164,12 @@ def inject_inverter_sim_fault(data):
             fault_statistics['total_injected'] += 1
             fault_statistics['inverter_sim_faults'] += 1
             
-            # Save to database
+            # Save to database (uppercase for consistency)
             Database.save_fault_injection(
                 device_id=None,  # Affects all ESP32s
-                fault_type=error_type,
-                backend='inverter_sim',
-                error_type=error_type,
+                fault_type=error_type.upper(),
+                backend='INVERTER_SIM',
+                error_type=error_type.upper(),
                 exception_code=data.get('exceptionCode'),
                 delay_ms=data.get('delayMs'),
                 success=True
@@ -189,9 +189,9 @@ def inject_inverter_sim_fault(data):
             # Save failed injection to database
             Database.save_fault_injection(
                 device_id=None,
-                fault_type=error_type,
-                backend='inverter_sim',
-                error_type=error_type,
+                fault_type=error_type.upper(),
+                backend='INVERTER_SIM',
+                error_type=error_type.upper(),
                 exception_code=data.get('exceptionCode'),
                 delay_ms=data.get('delayMs'),
                 success=False,
@@ -344,14 +344,13 @@ def inject_network_fault_handler(data):
             fault_statistics['total_injected'] += 1
             fault_statistics['local_faults'] += 1
             
-            # Save to database
+            # Save to database (uppercase for consistency)
             Database.save_fault_injection(
                 device_id=None,  # Network faults affect all devices
-                fault_type='network',
-                backend='local_flask',
-                error_type=network_fault_subtype,
-                success=True,
-                parameters=parameters
+                fault_type=f'NETWORK_{network_fault_subtype.upper()}',
+                backend='LOCAL_FLASK',
+                error_type=network_fault_subtype.upper(),
+                success=True
             )
             
             logger.info(f"[Fault] Network fault injected: {network_fault_subtype}")
@@ -423,13 +422,13 @@ def inject_ota_fault(data):
             fault_statistics['total_injected'] += 1
             fault_statistics['local_faults'] += 1
             
-            # Save to database with actual OTA fault type (e.g., corrupt_chunk, bad_hash, bad_signature)
+            # Save to database with actual OTA fault type (uppercase for consistency)
             try:
                 Database.save_fault_injection(
                     device_id=target_device,
-                    fault_type=f'ota_{ota_fault_subtype}',  # Save as ota_corrupt_chunk, ota_bad_hash, etc.
-                    backend='local_flask',
-                    error_type=ota_fault_subtype,
+                    fault_type=f'OTA_{ota_fault_subtype.upper()}',  # Save as OTA_CORRUPT_CHUNK, OTA_BAD_HASH, etc.
+                    backend='LOCAL_FLASK',
+                    error_type=ota_fault_subtype.upper(),
                     success=True
                 )
             except Exception as db_err:
@@ -682,12 +681,12 @@ def inject_security_fault():
             'result': result
         }
         
-        # Save to database (use error_msg for result details)
+        # Save to database - include specific security fault type in fault_type field
         Database.save_fault_injection(
             device_id=target_device,
-            fault_type='security',
-            backend='local_flask',
-            error_type=fault_type,
+            fault_type=f'SECURITY_{fault_type.upper()}',
+            backend='LOCAL_FLASK',
+            error_type=fault_type.upper(),
             success=result.get('test_passed', False),
             error_msg=result.get('actual_error')
         )
