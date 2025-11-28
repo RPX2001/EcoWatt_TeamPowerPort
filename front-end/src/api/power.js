@@ -4,13 +4,7 @@ import api from './axios';
  * Power Management API Client
  * Handles power configuration and energy reporting
  * 
- * Power Techniques Bitmask:
- * - 0x01 (bit 0): WiFi Modem Sleep
- * - 0x02 (bit 1): CPU Frequency Scaling
- * - 0x04 (bit 2): Light Sleep
- * - 0x08 (bit 3): Peripheral Gating
- * 
- * Example: techniques = 0x05 means WiFi Modem Sleep + Light Sleep enabled
+ * Power Technique: Peripheral Gating (0x08)
  */
 
 /**
@@ -22,8 +16,8 @@ import api from './axios';
  *   device_id: "ESP32_TEST_DEVICE",
  *   power_management: {
  *     enabled: false,
- *     techniques: "0x01",
- *     techniques_list: ["wifi_modem_sleep"],
+ *     techniques: "0x08",
+ *     techniques_list: ["peripheral_gating"],
  *     energy_poll_freq: 300000
  *   }
  * }
@@ -60,8 +54,8 @@ export const updatePowerConfig = (deviceId, config) => {
  *     {
  *       timestamp: "2025-10-30T12:00:00+05:30",
  *       enabled: true,
- *       techniques: "0x05",
- *       techniques_list: ["wifi_modem_sleep", "light_sleep"],
+ *       techniques: "0x08",
+ *       techniques_list: ["peripheral_gating"],
  *       avg_current_ma: 123.45,
  *       energy_saved_mah: 67.89,
  *       uptime_ms: 3600000,
@@ -84,14 +78,11 @@ export const getEnergyHistory = (deviceId, period = '24h', limit = 100) => {
 
 /**
  * Convert techniques bitmask to array of technique names
- * @param {number} techniques - Bitmask value (0x00-0x0F)
+ * @param {number} techniques - Bitmask value
  * @returns {Array<string>} Array of technique names
  */
 export const decodeTechniques = (techniques) => {
   const result = [];
-  if (techniques & 0x01) result.push('wifi_modem_sleep');
-  if (techniques & 0x02) result.push('cpu_freq_scaling');
-  if (techniques & 0x04) result.push('light_sleep');
   if (techniques & 0x08) result.push('peripheral_gating');
   return result;
 };
@@ -103,9 +94,6 @@ export const decodeTechniques = (techniques) => {
  */
 export const encodeTechniques = (techniquesList) => {
   let bitmask = 0;
-  if (techniquesList.includes('wifi_modem_sleep')) bitmask |= 0x01;
-  if (techniquesList.includes('cpu_freq_scaling')) bitmask |= 0x02;
-  if (techniquesList.includes('light_sleep')) bitmask |= 0x04;
   if (techniquesList.includes('peripheral_gating')) bitmask |= 0x08;
   return bitmask;
 };
@@ -114,9 +102,6 @@ export const encodeTechniques = (techniquesList) => {
  * Get human-readable technique names
  */
 export const TECHNIQUE_NAMES = {
-  wifi_modem_sleep: 'WiFi Modem Sleep',
-  cpu_freq_scaling: 'CPU Frequency Scaling',
-  light_sleep: 'Light Sleep',
   peripheral_gating: 'Peripheral Gating'
 };
 
@@ -124,8 +109,5 @@ export const TECHNIQUE_NAMES = {
  * Get technique descriptions
  */
 export const TECHNIQUE_DESCRIPTIONS = {
-  wifi_modem_sleep: 'Puts WiFi modem to sleep between packets, reducing power by ~20-30mA',
-  cpu_freq_scaling: 'Dynamically adjusts CPU frequency based on load (Future feature)',
-  light_sleep: 'Enters light sleep mode during idle periods (Future feature)',
-  peripheral_gating: 'Powers down unused peripherals (Future feature)'
+  peripheral_gating: 'Powers down unused peripherals to save energy'
 };

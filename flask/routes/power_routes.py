@@ -26,7 +26,7 @@ def get_default_power_config():
     """Get default power configuration for new devices"""
     return {
         'enabled': False,                # Power management disabled by default
-        'techniques': 0x01,              # WiFi modem sleep only (0x01)
+        'techniques': 0x08,              # Peripheral Gating (0x08)
         'energy_poll_freq': 300000       # 5 minutes in milliseconds
     }
 
@@ -54,15 +54,9 @@ def get_power_config(device_id):
         
         config = power_configs[device_id]
         
-        # Decode techniques bitmask into list of active techniques
+        # Decode techniques bitmask - only peripheral_gating (0x08) is supported
         techniques_list = []
         techniques_val = config['techniques']
-        if techniques_val & 0x01:
-            techniques_list.append('wifi_modem_sleep')
-        if techniques_val & 0x02:
-            techniques_list.append('cpu_freq_scaling')
-        if techniques_val & 0x04:
-            techniques_list.append('light_sleep')
         if techniques_val & 0x08:
             techniques_list.append('peripheral_gating')
         
@@ -150,14 +144,8 @@ def update_power_config(device_id):
                    f"techniques=0x{current_config['techniques']:02X}, "
                    f"freq={current_config['energy_poll_freq']}ms")
         
-        # Decode techniques for response
+        # Decode techniques for response - only peripheral_gating (0x08) is supported
         techniques_list = []
-        if current_config['techniques'] & 0x01:
-            techniques_list.append('wifi_modem_sleep')
-        if current_config['techniques'] & 0x02:
-            techniques_list.append('cpu_freq_scaling')
-        if current_config['techniques'] & 0x04:
-            techniques_list.append('light_sleep')
         if current_config['techniques'] & 0x08:
             techniques_list.append('peripheral_gating')
         
@@ -248,7 +236,8 @@ def receive_energy_report(device_id):
             high_perf_ms=pm_data.get('high_perf_ms', 0),
             normal_ms=pm_data.get('normal_ms', 0),
             low_power_ms=pm_data.get('low_power_ms', 0),
-            sleep_ms=pm_data.get('sleep_ms', 0)
+            sleep_ms=pm_data.get('sleep_ms', 0),
+            peripheral_savings_mah=pm_data.get('peripheral_savings_mah', 0.0)
         )
         
         logger.info(f"Received energy report from {device_id}: "
@@ -318,15 +307,9 @@ def get_energy_history(device_id):
         # Format reports
         reports = []
         for report in reports_raw:
-            # Decode techniques
+            # Decode techniques - only peripheral_gating (0x08) is supported
             techniques = report['techniques']
             techniques_list = []
-            if techniques & 0x01:
-                techniques_list.append('wifi_modem_sleep')
-            if techniques & 0x02:
-                techniques_list.append('cpu_freq_scaling')
-            if techniques & 0x04:
-                techniques_list.append('light_sleep')
             if techniques & 0x08:
                 techniques_list.append('peripheral_gating')
             
@@ -337,6 +320,7 @@ def get_energy_history(device_id):
                 'techniques_list': techniques_list,
                 'avg_current_ma': report['avg_current_ma'],
                 'energy_saved_mah': report['energy_saved_mah'],
+                'peripheral_savings_mah': report.get('peripheral_savings_mah', 0.0),
                 'uptime_ms': report['uptime_ms'],
                 'time_distribution': {
                     'high_perf_ms': report['high_perf_ms'],

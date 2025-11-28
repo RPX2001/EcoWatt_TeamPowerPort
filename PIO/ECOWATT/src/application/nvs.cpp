@@ -425,7 +425,7 @@ uint8_t nvs::getPowerTechniques()
 {
     // Open in read-only mode
     if (!esp_prefs_nvs.begin("power", true)) {
-        return DEFAULT_POWER_TECHNIQUES;  // Default: 0x01 (WiFi modem sleep only)
+        return DEFAULT_POWER_TECHNIQUES;  // Default: 0x08 (Peripheral Gating - only working technique)
     }
 
     if (!esp_prefs_nvs.isKey("techniques")) {

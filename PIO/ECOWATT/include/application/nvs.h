@@ -10,7 +10,7 @@
 
     // Power management defaults
     #define DEFAULT_POWER_ENABLED false
-    #define DEFAULT_POWER_TECHNIQUES 0x01  // POWER_TECH_WIFI_MODEM_SLEEP by default
+    #define DEFAULT_POWER_TECHNIQUES 0x08  // POWER_TECH_PERIPHERAL_GATING
     #define DEFAULT_ENERGY_POLL_FREQUENCY_US 300000000  // 5 minutes in microseconds
 
 extern Preferences esp_prefs_nvs;  // NVS storage instance

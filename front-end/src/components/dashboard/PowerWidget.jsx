@@ -134,9 +134,10 @@ const PowerWidget = ({ deviceId }) => {
   const currentColor = getColorForCurrent(currentPercentage);
   const chartData = formatChartData();
   
-  // Use config-based status if no report data, otherwise use report data
-  const isPowerManagementEnabled = powerData?.enabled ?? powerConfig?.enabled ?? false;
-  const activeTechniques = powerData?.techniques_list || powerConfig?.techniques_list || [];
+  // Use config-based status as primary (reflects intended state), fall back to report data
+  // Note: powerConfig reflects what user configured, powerData.enabled reflects what ESP32 last reported
+  const isPowerManagementEnabled = powerConfig?.enabled ?? powerData?.enabled ?? false;
+  const activeTechniques = powerConfig?.techniques_list || powerData?.techniques_list || [];
 
   return (
     <Card elevation={2} sx={{ height: '100%' }}>
@@ -202,12 +203,23 @@ const PowerWidget = ({ deviceId }) => {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                     <BatteryChargingFullIcon color="success" fontSize="small" />
                     <Typography variant="subtitle2" color="text.secondary">
-                      Energy Saved
+                      Energy Saved (Total)
                     </Typography>
                   </Box>
                   <Typography variant="h5" color="success.main" sx={{ fontWeight: 600 }}>
                     {powerData.energy_saved_mah.toFixed(2)} mAh
                   </Typography>
+                  {/* Peripheral Gating Savings Breakdown */}
+                  {powerData.peripheral_savings_mah > 0 && (
+                    <Box sx={{ mt: 1, pl: 1, borderLeft: '2px solid', borderColor: 'success.light' }}>
+                      <Typography variant="caption" color="text.secondary">
+                        └ Peripheral Gating: <strong>{powerData.peripheral_savings_mah.toFixed(2)} mAh</strong>
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        └ Other optimizations: <strong>{(powerData.energy_saved_mah - powerData.peripheral_savings_mah).toFixed(2)} mAh</strong>
+                      </Typography>
+                    </Box>
+                  )}
                 </Box>
 
                 {/* Uptime */}
@@ -373,6 +385,7 @@ const PowerWidget = ({ deviceId }) => {
                       <TableCell><strong>Timestamp</strong></TableCell>
                       <TableCell align="right"><strong>Current (mA)</strong></TableCell>
                       <TableCell align="right"><strong>Energy Saved (mAh)</strong></TableCell>
+                      <TableCell align="right"><strong>Peripheral (mAh)</strong></TableCell>
                       <TableCell align="right"><strong>Uptime</strong></TableCell>
                       <TableCell><strong>Techniques</strong></TableCell>
                       <TableCell align="center"><strong>Status</strong></TableCell>
@@ -384,6 +397,7 @@ const PowerWidget = ({ deviceId }) => {
                         <TableCell>{formatTimestamp(report.timestamp)}</TableCell>
                         <TableCell align="right">{report.avg_current_ma.toFixed(2)}</TableCell>
                         <TableCell align="right">{report.energy_saved_mah.toFixed(2)}</TableCell>
+                        <TableCell align="right">{(report.peripheral_savings_mah || 0).toFixed(2)}</TableCell>
                         <TableCell align="right">{formatUptime(report.uptime_ms)}</TableCell>
                         <TableCell>
                           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>

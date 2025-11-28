@@ -7,6 +7,7 @@
  */
 
 #include "application/power_management.h"
+#include "application/peripheral_power.h"
 #include "application/nvs.h"
 #include "peripheral/logger.h"
 #include <WiFi.h>
@@ -17,18 +18,13 @@ PowerStats PowerManagement::stats = {0};
 uint32_t PowerManagement::lastUpdateTime = 0;
 bool PowerManagement::autoPowerManagement = true;
 uint32_t PowerManagement::currentFrequency = 240;
-PowerTechniqueFlags PowerManagement::enabledTechniques = POWER_TECH_WIFI_MODEM_SLEEP;
+PowerTechniqueFlags PowerManagement::enabledTechniques = POWER_TECH_PERIPHERAL_GATING;  // Only peripheral gating works
 bool PowerManagement::powerManagementEnabled = false;
 
 /**
  * @brief Initialize power management system
  * 
- * Loads configuration from NVS and applies enabled techniques.
- * Supports power optimization requirements:
- * - WiFi Modem Sleep (POWER_TECH_WIFI_MODEM_SLEEP)
- * - Dynamic Clock Scaling (POWER_TECH_CPU_FREQ_SCALING): 240/160/80 MHz
- * - Light CPU Idle (POWER_TECH_LIGHT_SLEEP): delay() with CPU idle states
- * - Peripheral Gating (POWER_TECH_PERIPHERAL_GATING): UART on/off
+ * Loads configuration from NVS and applies Peripheral Gating.
  */
 void PowerManagement::init() {
     LOG_SECTION("POWER MANAGEMENT INITIALIZATION");
@@ -40,32 +36,17 @@ void PowerManagement::init() {
     powerManagementEnabled = nvs::getPowerEnabled();
     enabledTechniques = nvs::getPowerTechniques();
     
-    LOG_INFO(LOG_TAG_POWER, "Power optimization techniques supported:");
-    LOG_DEBUG(LOG_TAG_POWER, "  1. WiFi Modem Sleep (WIFI_PS_MAX_MODEM)");
-    LOG_DEBUG(LOG_TAG_POWER, "  2. Dynamic Clock Scaling (240/160/80 MHz)");
-    LOG_DEBUG(LOG_TAG_POWER, "  3. Light CPU Idle (delay with idle states)");
-    LOG_DEBUG(LOG_TAG_POWER, "  4. Peripheral Gating (UART power control)");
+    LOG_INFO(LOG_TAG_POWER, "Power optimization: Peripheral Gating (UART power control)");
     
     // Print loaded configuration
     LOG_INFO(LOG_TAG_POWER, "Configuration: %s | Techniques: 0x%02X", 
              powerManagementEnabled ? "ENABLED" : "DISABLED", enabledTechniques);
     
-    // List enabled techniques
-    if (enabledTechniques == POWER_TECH_NONE) {
-        LOG_INFO(LOG_TAG_POWER, "Mode: Full performance (no techniques)");
+    // Check if peripheral gating is enabled
+    if (enabledTechniques & POWER_TECH_PERIPHERAL_GATING) {
+        LOG_DEBUG(LOG_TAG_POWER, "Peripheral Gating: ENABLED");
     } else {
-        if (enabledTechniques & POWER_TECH_WIFI_MODEM_SLEEP) {
-            LOG_DEBUG(LOG_TAG_POWER, "Technique: WiFi Modem Sleep");
-        }
-        if (enabledTechniques & POWER_TECH_CPU_FREQ_SCALING) {
-            LOG_DEBUG(LOG_TAG_POWER, "Technique: CPU Frequency Scaling");
-        }
-        if (enabledTechniques & POWER_TECH_LIGHT_SLEEP) {
-            LOG_DEBUG(LOG_TAG_POWER, "Technique: Light CPU Idle");
-        }
-        if (enabledTechniques & POWER_TECH_PERIPHERAL_GATING) {
-            LOG_DEBUG(LOG_TAG_POWER, "Technique: Peripheral Gating");
-        }
+        LOG_INFO(LOG_TAG_POWER, "Mode: Full performance (no techniques)");
     }
     
     if (powerManagementEnabled) {
@@ -73,13 +54,12 @@ void PowerManagement::init() {
         applyTechniques();
     } else {
         LOG_INFO(LOG_TAG_POWER, "Power management disabled - full power mode");
-        WiFi.setSleep(false);  // WIFI_PS_NONE
     }
     
     // Reset statistics
     resetStats();
     
-    // Start at 240 MHz for WiFi stability
+    // Start at 240 MHz (fixed - no frequency scaling)
     setCpuFrequencyMhz(240);
     currentFrequency = 240;
     currentMode = POWER_HIGH_PERFORMANCE;
@@ -112,14 +92,8 @@ void PowerManagement::setCPUFrequency(PowerMode mode) {
             targetFreq = 160;  // 160 MHz for normal operations (Modbus, processing)
             break;
         case POWER_LOW:
-            // Check if CPU frequency scaling is enabled
-            if (enabledTechniques & POWER_TECH_CPU_FREQ_SCALING) {
-                // Use 80 MHz for idle/waiting (WiFi background still works at 80MHz with modem sleep)
-                targetFreq = 80;
-            } else {
-                // Without freq scaling, use WiFi-safe minimum
-                targetFreq = 160;
-            }
+            // Use WiFi-safe minimum frequency
+            targetFreq = 160;
             break;
         case POWER_SLEEP:
             // Sleep mode handled separately
@@ -200,6 +174,7 @@ void PowerManagement::recordModeTime() {
     uint32_t currentTime = millis();
     uint32_t elapsed = currentTime - lastUpdateTime;
     
+    // Update time for current mode
     switch (currentMode) {
         case POWER_HIGH_PERFORMANCE:
             stats.high_perf_time_ms += elapsed;
@@ -215,7 +190,12 @@ void PowerManagement::recordModeTime() {
             break;
     }
     
-    stats.total_time_ms = currentTime;
+    // Update last update time
+    lastUpdateTime = currentTime;
+    
+    // Total time is the SUM of all mode times (not millis())
+    stats.total_time_ms = stats.high_perf_time_ms + stats.normal_time_ms + 
+                          stats.low_power_time_ms + stats.sleep_time_ms;
 }
 
 /**
@@ -223,6 +203,7 @@ void PowerManagement::recordModeTime() {
  * 
  * Calculates average current consumption and energy saved based on time
  * spent in each power mode and ESP32 datasheet current consumption values.
+ * Also includes peripheral gating savings when enabled.
  */
 PowerStats PowerManagement::getStats() {
     updateStats();
@@ -234,24 +215,18 @@ PowerStats PowerManagement::getStats() {
     // Estimated current consumption (based on ESP32 datasheet)
     // High performance (240 MHz, WiFi active): ~160-240 mA
     // Normal (160 MHz, WiFi active): ~120-160 mA
-    // Low power (80-160 MHz, WiFi modem sleep): ~80-120 mA (depends on freq scaling)
-    // Light sleep with delay() (CPU idle, WiFi modem sleep): ~40-60 mA
+    // Low power (160 MHz): ~120 mA
+    // Sleep with delay() (CPU idle): ~50 mA
     
     float high_perf_mah = (stats.high_perf_time_ms / 3600000.0f) * 200.0f;  // 200mA avg @ 240MHz
     float normal_mah = (stats.normal_time_ms / 3600000.0f) * 140.0f;        // 140mA avg @ 160MHz
     
-    // Low power consumption depends on whether freq scaling is enabled
-    float low_power_current = 120.0f;  // Default 120mA @ 160MHz
-    if (enabledTechniques & POWER_TECH_CPU_FREQ_SCALING) {
-        low_power_current = 80.0f;  // 80mA @ 80MHz with freq scaling
-    }
+    // Low power consumption
+    float low_power_current = 120.0f;  // 120mA @ 160MHz
     float low_power_mah = (stats.low_power_time_ms / 3600000.0f) * low_power_current;
     
-    // Sleep mode uses delay() which allows CPU idle + WiFi modem sleep
-    float sleep_current = 50.0f;  // 50mA avg (CPU idle + WiFi modem sleep)
-    if (enabledTechniques & POWER_TECH_WIFI_MODEM_SLEEP) {
-        sleep_current = 40.0f;  // 40mA with WiFi modem sleep enabled
-    }
+    // Sleep mode uses delay() which allows CPU idle
+    float sleep_current = 50.0f;  // 50mA avg (CPU idle)
     float sleep_mah = (stats.sleep_time_ms / 3600000.0f) * sleep_current;
     
     float total_mah = high_perf_mah + normal_mah + low_power_mah + sleep_mah;
@@ -259,8 +234,20 @@ PowerStats PowerManagement::getStats() {
     // Calculate what it would have been without power management (always 240MHz, no modem sleep)
     float baseline_mah = (stats.total_time_ms / 3600000.0f) * 200.0f;
     
+    // Add peripheral gating savings if enabled
+    float peripheral_savings_mah = 0.0f;
+    if (powerManagementEnabled && (enabledTechniques & POWER_TECH_PERIPHERAL_GATING)) {
+        // Get actual peripheral power statistics
+        PeripheralPowerStats pStats = PeripheralPower::getStats();
+        // Convert estimated_uart_savings_ma to mAh based on total uptime
+        peripheral_savings_mah = (stats.total_time_ms / 3600000.0f) * pStats.estimated_uart_savings_ma;
+        // Subtract peripheral savings from total consumption
+        total_mah -= peripheral_savings_mah;
+    }
+    
     stats.avg_current_ma = (total_mah / (stats.total_time_ms / 3600000.0f));
     stats.energy_saved_mah = baseline_mah - total_mah;
+    stats.peripheral_savings_mah = peripheral_savings_mah;  // Store for reporting
     
     return stats;
 }
@@ -290,6 +277,13 @@ void PowerManagement::printStats() {
     
     // Power consumption
     LOG_INFO(LOG_TAG_POWER, "Avg Current: %.2f mA | Energy Saved: %.2f mAh", s.avg_current_ma, s.energy_saved_mah);
+    
+    // Peripheral gating statistics (if enabled)
+    if (powerManagementEnabled && (enabledTechniques & POWER_TECH_PERIPHERAL_GATING)) {
+        PeripheralPowerStats pStats = PeripheralPower::getStats();
+        LOG_INFO(LOG_TAG_POWER, "Peripheral Gating: UART duty=%.1f%%, savings=%.2f mA", 
+                 pStats.uart_duty_cycle, pStats.estimated_uart_savings_ma);
+    }
     
     if (s.energy_saved_mah > 0) {
         float savings_percent = (s.energy_saved_mah / 
@@ -323,11 +317,6 @@ float PowerManagement::estimateCurrent(uint32_t frequency) {
         base_current = 80.0f;   // 80 mA at 80 MHz
     } else {
         base_current = 50.0f;   // ~50 mA at lower frequencies
-    }
-    
-    // Apply WiFi modem sleep savings if enabled
-    if (enabledTechniques & POWER_TECH_WIFI_MODEM_SLEEP) {
-        base_current *= 0.7f;  // ~30% reduction with WiFi modem sleep
     }
     
     return base_current;
@@ -394,6 +383,7 @@ bool PowerManagement::isEnabled() {
 
 /**
  * @brief Set power management techniques
+ * Only Peripheral Gating (0x08) is supported.
  */
 void PowerManagement::setTechniques(PowerTechniqueFlags techniques) {
     enabledTechniques = techniques;
@@ -403,22 +393,11 @@ void PowerManagement::setTechniques(PowerTechniqueFlags techniques) {
     
     LOG_INFO(LOG_TAG_POWER, "Power techniques: 0x%02X", techniques);
     
-    // List what was enabled
-    if (techniques == POWER_TECH_NONE) {
-        LOG_DEBUG(LOG_TAG_POWER, "  - NONE");
+    // Check peripheral gating
+    if (techniques & POWER_TECH_PERIPHERAL_GATING) {
+        LOG_DEBUG(LOG_TAG_POWER, "  - Peripheral Gating: ENABLED");
     } else {
-        if (techniques & POWER_TECH_WIFI_MODEM_SLEEP) {
-            LOG_DEBUG(LOG_TAG_POWER, "  - WiFi Modem Sleep");
-        }
-        if (techniques & POWER_TECH_CPU_FREQ_SCALING) {
-            LOG_DEBUG(LOG_TAG_POWER, "  - CPU Frequency Scaling");
-        }
-        if (techniques & POWER_TECH_LIGHT_SLEEP) {
-            LOG_DEBUG(LOG_TAG_POWER, "  - Light Sleep");
-        }
-        if (techniques & POWER_TECH_PERIPHERAL_GATING) {
-            LOG_DEBUG(LOG_TAG_POWER, "  - Peripheral Gating");
-        }
+        LOG_DEBUG(LOG_TAG_POWER, "  - Peripheral Gating: DISABLED");
     }
     
     // Apply if power management is enabled
@@ -461,39 +440,21 @@ bool PowerManagement::isTechniqueEnabled(PowerTechnique technique) {
 
 /**
  * @brief Apply currently enabled techniques
+ * Only Peripheral Gating is supported - controls UART power via PeripheralPower class.
  */
 void PowerManagement::applyTechniques() {
     LOG_INFO(LOG_TAG_POWER, "Applying power management techniques");
     
-    // 1. WiFi Modem Sleep (POWER_TECH_WIFI_MODEM_SLEEP = 0x01)
-    if (enabledTechniques & POWER_TECH_WIFI_MODEM_SLEEP) {
-        LOG_INFO(LOG_TAG_POWER, "WiFi modem sleep: ENABLED (WIFI_PS_MAX_MODEM)");
-        WiFi.setSleep(WIFI_PS_MAX_MODEM);
-    } else {
-        LOG_DEBUG(LOG_TAG_POWER, "WiFi modem sleep: disabled");
-        WiFi.setSleep(WIFI_PS_NONE);
-    }
-    
-    // 2. CPU Frequency Scaling (POWER_TECH_CPU_FREQ_SCALING = 0x02)
-    if (enabledTechniques & POWER_TECH_CPU_FREQ_SCALING) {
-        LOG_INFO(LOG_TAG_POWER, "CPU frequency scaling: ENABLED (240/160/80 MHz)");
-    } else {
-        LOG_DEBUG(LOG_TAG_POWER, "CPU frequency scaling: disabled (fixed 240 MHz)");
-    }
-    
-    // 3. Light Sleep (POWER_TECH_LIGHT_SLEEP = 0x04)
-    if (enabledTechniques & POWER_TECH_LIGHT_SLEEP) {
-        LOG_INFO(LOG_TAG_POWER, "Light CPU Idle: ENABLED (delay with idle states)");
-    } else {
-        LOG_DEBUG(LOG_TAG_POWER, "Light CPU Idle: disabled");
-    }
-    
-    // 4. Peripheral Gating (POWER_TECH_PERIPHERAL_GATING = 0x08)
+    // Peripheral Gating - actually control UART power
     if (enabledTechniques & POWER_TECH_PERIPHERAL_GATING) {
-        LOG_INFO(LOG_TAG_POWER, "Peripheral gating: ENABLED");
+        // Peripheral gating is enabled - UART will be controlled by acquisition tasks
+        // (enableUART() before poll, disableUART() after poll)
+        LOG_SUCCESS(LOG_TAG_POWER, "Peripheral gating: ENABLED (UART power control active)");
     } else {
-        LOG_DEBUG(LOG_TAG_POWER, "Peripheral gating: disabled");
+        // Peripheral gating disabled - keep UART always on
+        PeripheralPower::enableUART();
+        LOG_DEBUG(LOG_TAG_POWER, "Peripheral gating: DISABLED (UART always on)");
     }
     
-    LOG_SUCCESS(LOG_TAG_POWER, "Techniques applied successfully");
+    LOG_SUCCESS(LOG_TAG_POWER, "Techniques applied");
 }

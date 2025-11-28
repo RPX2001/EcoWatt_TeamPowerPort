@@ -182,6 +182,7 @@ class Database:
                 techniques INTEGER NOT NULL,
                 avg_current_ma REAL NOT NULL,
                 energy_saved_mah REAL NOT NULL,
+                peripheral_savings_mah REAL DEFAULT 0,
                 uptime_ms INTEGER NOT NULL,
                 high_perf_ms INTEGER DEFAULT 0,
                 normal_ms INTEGER DEFAULT 0,
@@ -227,6 +228,14 @@ class Database:
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_recovery ON fault_recovery_events(device_id, received_at)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_recovery_success ON fault_recovery_events(success)')
+        
+        # Migration: Add peripheral_savings_mah column to existing power_reports table
+        try:
+            cursor.execute('ALTER TABLE power_reports ADD COLUMN peripheral_savings_mah REAL DEFAULT 0')
+            logger.info("Migration: Added peripheral_savings_mah column to power_reports")
+        except sqlite3.OperationalError:
+            # Column already exists, ignore
+            pass
         
         conn.commit()
         log_success(logger, "Database schema initialized successfully")
@@ -876,7 +885,8 @@ class Database:
     def save_power_report(device_id: str, timestamp: int, enabled: bool, techniques: int,
                          avg_current_ma: float, energy_saved_mah: float, uptime_ms: int,
                          high_perf_ms: int = 0, normal_ms: int = 0, 
-                         low_power_ms: int = 0, sleep_ms: int = 0) -> int:
+                         low_power_ms: int = 0, sleep_ms: int = 0,
+                         peripheral_savings_mah: float = 0.0) -> int:
         """
         Save power report from ESP32 to database
         
@@ -886,12 +896,13 @@ class Database:
             enabled: Power management enabled status
             techniques: Bitmask of active techniques (0x00-0x0F)
             avg_current_ma: Average current consumption in milliamps
-            energy_saved_mah: Energy saved in milliamp-hours
+            energy_saved_mah: Total energy saved in milliamp-hours
             uptime_ms: Device uptime in milliseconds
             high_perf_ms: Time spent in high performance mode
             normal_ms: Time spent in normal mode
             low_power_ms: Time spent in low power mode
             sleep_ms: Time spent in sleep mode
+            peripheral_savings_mah: Energy saved by peripheral gating (subset of total)
             
         Returns:
             Row ID of inserted report
@@ -905,10 +916,11 @@ class Database:
         cursor.execute('''
             INSERT INTO power_reports 
             (device_id, timestamp, enabled, techniques, avg_current_ma, energy_saved_mah, 
-             uptime_ms, high_perf_ms, normal_ms, low_power_ms, sleep_ms)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             peripheral_savings_mah, uptime_ms, high_perf_ms, normal_ms, low_power_ms, sleep_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (device_id, report_datetime, int(enabled), techniques, avg_current_ma, 
-              energy_saved_mah, uptime_ms, high_perf_ms, normal_ms, low_power_ms, sleep_ms))
+              energy_saved_mah, peripheral_savings_mah, uptime_ms, high_perf_ms, normal_ms, 
+              low_power_ms, sleep_ms))
         
         conn.commit()
         return cursor.lastrowid
@@ -933,7 +945,7 @@ class Database:
         if period == 'all':
             cursor.execute('''
                 SELECT device_id, timestamp, enabled, techniques, avg_current_ma, energy_saved_mah,
-                       uptime_ms, high_perf_ms, normal_ms, low_power_ms, sleep_ms, created_at
+                       peripheral_savings_mah, uptime_ms, high_perf_ms, normal_ms, low_power_ms, sleep_ms, created_at
                 FROM power_reports
                 WHERE device_id = ?
                 ORDER BY timestamp DESC
@@ -955,7 +967,7 @@ class Database:
             
             cursor.execute('''
                 SELECT device_id, timestamp, enabled, techniques, avg_current_ma, energy_saved_mah,
-                       uptime_ms, high_perf_ms, normal_ms, low_power_ms, sleep_ms, created_at
+                       peripheral_savings_mah, uptime_ms, high_perf_ms, normal_ms, low_power_ms, sleep_ms, created_at
                 FROM power_reports
                 WHERE device_id = ? AND timestamp >= ?
                 ORDER BY timestamp DESC
@@ -971,6 +983,7 @@ class Database:
                 'techniques': row['techniques'],
                 'avg_current_ma': row['avg_current_ma'],
                 'energy_saved_mah': row['energy_saved_mah'],
+                'peripheral_savings_mah': row['peripheral_savings_mah'] or 0.0,
                 'uptime_ms': row['uptime_ms'],
                 'high_perf_ms': row['high_perf_ms'],
                 'normal_ms': row['normal_ms'],
@@ -989,7 +1002,7 @@ class Database:
         
         cursor.execute('''
             SELECT device_id, timestamp, enabled, techniques, avg_current_ma, energy_saved_mah,
-                   uptime_ms, high_perf_ms, normal_ms, low_power_ms, sleep_ms, created_at
+                   peripheral_savings_mah, uptime_ms, high_perf_ms, normal_ms, low_power_ms, sleep_ms, created_at
             FROM power_reports
             WHERE device_id = ?
             ORDER BY timestamp DESC
@@ -1007,6 +1020,7 @@ class Database:
             'techniques': row['techniques'],
             'avg_current_ma': row['avg_current_ma'],
             'energy_saved_mah': row['energy_saved_mah'],
+            'peripheral_savings_mah': row['peripheral_savings_mah'] or 0.0,
             'uptime_ms': row['uptime_ms'],
             'high_perf_ms': row['high_perf_ms'],
             'normal_ms': row['normal_ms'],

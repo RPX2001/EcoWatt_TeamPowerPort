@@ -84,7 +84,7 @@ def get_default_config():
         'registers': ['Vac1', 'Iac1', 'Pac'],  # Default registers using actual names
         'power_management': {
             'enabled': False,             # Power management disabled by default
-            'techniques': 0x01            # WiFi modem sleep only (0x01)
+            'techniques': 0x08            # Peripheral Gating (0x08)
         }
     }
 

@@ -10,19 +10,6 @@
 **EcoWatt** is an IoT system for real-time monitoring and control of solar inverters. The system uses ESP32 hardware with secure cloud connectivity via Flask server, achieving **data compression** and supporting **secure over-the-air firmware updates** (FOTA).
 
 
-## 📚 Documentation
-
-> **🔍 For detailed system information, see the comprehensive documentation files:**
-
-| Document | Description | Size |
-|----------|-------------|------|
-| **[FLASK_ARCHITECTURE.md](plans_and_progress/FLASK_ARCHITECTURE.md)** | Complete Flask server architecture - handlers, routes, utilities, security, OTA, compression | 123KB |
-| **[FLASK_TESTS.md](plans_and_progress/FLASK_TESTS.md)** | Flask integration tests (M3/M4), test coordination, execution guide | 65KB |
-| **[ESP32_ARCHITECTURE.md](plans_and_progress/ESP32_ARCHITECTURE.md)** | ESP32 firmware architecture - Petri net state machine, modules, hardware abstraction | 112KB |
-| **[ESP32_TESTS.md](plans_and_progress/ESP32_TESTS.md)** | ESP32 test suites (M3/M4 integration, component tests), security, OTA validation | 68KB |
-
----
-
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -194,14 +181,7 @@ EcoWatt_TeamPowerPort/
 │   │   └── test_fota_*/            # OTA component tests
 │   ├── platformio.ini              # PlatformIO configuration
 │   └── justfile                    # ESP32 task automation
-│
-├── plans_and_progress/             # Comprehensive documentation
-│   ├── FLASK_ARCHITECTURE.md       # Flask server documentation (123KB)
-│   ├── FLASK_TESTS.md              # Flask test documentation (65KB)
-│   ├── ESP32_ARCHITECTURE.md       # ESP32 firmware documentation (112KB)
-│   ├── ESP32_TESTS.md              # ESP32 test documentation (68KB)
-│   └── MILESTONE_5_TODO.md         # M5 progress tracking
-│
+││
 ├── docs/                           # Project requirements & API specs
 ├── justfile                        # Root task automation (orchestrates all)
 └── README.md                       # This file
@@ -313,20 +293,6 @@ Boot to New Firmware
 
 ---
 
-## 🧪 Testing
-
-The system includes comprehensive test coverage:
-
-- **Flask M3 Tests** (8 tests): Compression, sensor acquisition, server upload
-- **Flask M4 Tests** (9 tests): Security, HMAC, commands, config, OTA
-- **ESP32 M3 Tests** (8 tests): Compression algorithms, Modbus, data upload
-- **ESP32 M4 Tests** (9 tests): Security validation, anti-replay, FOTA, commands
-- **Component Tests**: Compression benchmarks, acquisition, security primitives, FOTA components
-
-See [ESP32_TESTS.md](plans_and_progress/ESP32_TESTS.md) and [FLASK_TESTS.md](plans_and_progress/FLASK_TESTS.md) for details.
-
----
-
 ## 🔧 Configuration
 
 ### ESP32 WiFi & Server Configuration
@@ -336,24 +302,8 @@ Edit `PIO/ECOWATT/include/application/credentials.h`:
 #define WIFI_SSID "YourWiFi"
 #define WIFI_PASSWORD "YourPassword"
 #define SERVER_IP "192.168.1.100"
-#define SERVER_PORT 5000
+#define SERVER_PORT 5001
 ```
-
-### Flask Server Configuration
-
-Edit `flask/flask_server_modular.py`:
-```python
-app.config['SECRET_KEY'] = 'your-secret-key'
-app.config['MQTT_BROKER'] = 'your-mqtt-broker.cloud'
-```
-
----
-
-## 📝 Contributing
-
-This is an academic project for EN4440 - Embedded Systems and Design at University of Moratuwa. For questions or contributions, please contact the team.
-
----
 
 ## 📄 License
 
@@ -369,5 +319,5 @@ Academic project - University of Moratuwa, EN4440 Module
 
 ---
 
-**Last Updated**: November 5, 2025  
-**Current Version**: v1.2.0  
+**Last Updated**: November 28, 2025  
+**Current Version**: v1.3.1 

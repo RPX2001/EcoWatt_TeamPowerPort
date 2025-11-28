@@ -30,14 +30,11 @@ enum PowerMode {
 };
 
 /**
- * @brief Power management technique flags (can be combined with bitwise OR)
- * User can enable/disable individual techniques from frontend
+ * @brief Power management technique flags
+ * Currently only Peripheral Gating is supported.
  */
 enum PowerTechnique {
     POWER_TECH_NONE = 0,                    // No power management
-    POWER_TECH_WIFI_MODEM_SLEEP = (1 << 0), // WiFi modem sleep (WIFI_PS_MAX_MODEM)
-    POWER_TECH_CPU_FREQ_SCALING = (1 << 1), // Dynamic CPU frequency scaling (240/160/80 MHz)
-    POWER_TECH_LIGHT_SLEEP = (1 << 2),      // Light sleep in delays
     POWER_TECH_PERIPHERAL_GATING = (1 << 3) // UART/peripheral power gating
 };
 
@@ -58,7 +55,8 @@ struct PowerStats {
     uint32_t freq_changes;           // Number of frequency changes
     
     float avg_current_ma;            // Average current consumption (estimated)
-    float energy_saved_mah;          // Estimated energy saved
+    float energy_saved_mah;          // Total estimated energy saved
+    float peripheral_savings_mah;    // Energy saved by peripheral gating (subset of energy_saved_mah)
 };
 
 /**

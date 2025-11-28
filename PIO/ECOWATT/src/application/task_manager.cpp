@@ -950,7 +950,7 @@ void TaskManager::powerReportTask(void* parameter) {
         PowerTechniqueFlags techniques = PowerManagement::getTechniques();
         
         // Build JSON payload (always report, include actual enabled status)
-        char jsonBuffer[512];
+        char jsonBuffer[600];
         snprintf(jsonBuffer, sizeof(jsonBuffer),
             "{"
             "\"device_id\":\"%s\","
@@ -960,6 +960,7 @@ void TaskManager::powerReportTask(void* parameter) {
             "\"techniques\":\"0x%02X\","
             "\"avg_current_ma\":%.2f,"
             "\"energy_saved_mah\":%.2f,"
+            "\"peripheral_savings_mah\":%.2f,"
             "\"uptime_ms\":%lu,"
             "\"high_perf_ms\":%lu,"
             "\"normal_ms\":%lu,"
@@ -973,6 +974,7 @@ void TaskManager::powerReportTask(void* parameter) {
             techniques,
             stats.avg_current_ma,
             stats.energy_saved_mah,
+            stats.peripheral_savings_mah,
             stats.total_time_ms,
             stats.high_perf_time_ms,
             stats.normal_time_ms,

@@ -447,69 +447,6 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
             </Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
-                <Tooltip title={TECHNIQUE_DESCRIPTIONS.wifi_modem_sleep} arrow placement="right">
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={powerConfig.techniques.includes('wifi_modem_sleep')}
-                        onChange={() => handleTechniqueToggle('wifi_modem_sleep')}
-                        disabled={powerLoading || !powerConfig.enabled}
-                      />
-                    }
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body2">{TECHNIQUE_NAMES.wifi_modem_sleep}</Typography>
-                        <Chip label="Active" size="small" color="success" variant="outlined" />
-                      </Box>
-                    }
-                    sx={{ width: '100%' }}
-                  />
-                </Tooltip>
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <Tooltip title={TECHNIQUE_DESCRIPTIONS.cpu_freq_scaling} arrow placement="right">
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={powerConfig.techniques.includes('cpu_freq_scaling')}
-                        onChange={() => handleTechniqueToggle('cpu_freq_scaling')}
-                        disabled={powerLoading || !powerConfig.enabled}
-                      />
-                    }
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body2">{TECHNIQUE_NAMES.cpu_freq_scaling}</Typography>
-                        <Chip label="Future" size="small" color="warning" variant="outlined" />
-                      </Box>
-                    }
-                    sx={{ width: '100%' }}
-                  />
-                </Tooltip>
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <Tooltip title={TECHNIQUE_DESCRIPTIONS.light_sleep} arrow placement="right">
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={powerConfig.techniques.includes('light_sleep')}
-                        onChange={() => handleTechniqueToggle('light_sleep')}
-                        disabled={powerLoading || !powerConfig.enabled}
-                      />
-                    }
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body2">{TECHNIQUE_NAMES.light_sleep}</Typography>
-                        <Chip label="Future" size="small" color="warning" variant="outlined" />
-                      </Box>
-                    }
-                    sx={{ width: '100%' }}
-                  />
-                </Tooltip>
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
                 <Tooltip title={TECHNIQUE_DESCRIPTIONS.peripheral_gating} arrow placement="right">
                   <FormControlLabel
                     control={
@@ -522,7 +459,7 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
                     label={
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Typography variant="body2">{TECHNIQUE_NAMES.peripheral_gating}</Typography>
-                        <Chip label="Future" size="small" color="warning" variant="outlined" />
+                        <Chip label="Active" size="small" color="success" variant="outlined" />
                       </Box>
                     }
                     sx={{ width: '100%' }}

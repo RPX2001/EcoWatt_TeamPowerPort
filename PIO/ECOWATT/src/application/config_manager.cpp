@@ -258,17 +258,8 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                                     anyChanges = true;
                                     
                                     LOG_INFO(LOG_TAG_CONFIG, "  - Active Techniques (0x%02X):", techniques);
-                                    if (techniques & POWER_TECH_WIFI_MODEM_SLEEP) {
-                                        LOG_INFO(LOG_TAG_CONFIG, "      • WiFi Modem Sleep [ACTIVE]");
-                                    }
-                                    if (techniques & POWER_TECH_CPU_FREQ_SCALING) {
-                                        LOG_INFO(LOG_TAG_CONFIG, "      • CPU Frequency Scaling [FUTURE]");
-                                    }
-                                    if (techniques & POWER_TECH_LIGHT_SLEEP) {
-                                        LOG_INFO(LOG_TAG_CONFIG, "      • Light Sleep [FUTURE]");
-                                    }
                                     if (techniques & POWER_TECH_PERIPHERAL_GATING) {
-                                        LOG_INFO(LOG_TAG_CONFIG, "      • Peripheral Gating [FUTURE]");
+                                        LOG_INFO(LOG_TAG_CONFIG, "      • Peripheral Gating [ACTIVE]");
                                     }
                                     if (techniques == 0x00) {
                                         LOG_INFO(LOG_TAG_CONFIG, "      • None (full performance mode)");
