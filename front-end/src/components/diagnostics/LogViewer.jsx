@@ -5,13 +5,12 @@
  * Features:
  * - Scrollable log display
  * - Color coding by severity (INFO, WARNING, ERROR)
- * - Auto-scroll to bottom toggle
  * - Search functionality
  * - Export logs to CSV/JSON
- * - Real-time updates
+ * - Real-time updates (auto-refresh)
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Paper,
@@ -41,9 +40,7 @@ const LogViewer = ({ deviceId = null }) => {
     type: 'all',
     search: ''
   });
-  const [autoScroll, setAutoScroll] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(false);
-  const logEndRef = useRef(null);
   const queryClient = useQueryClient();
 
   // Fetch device logs from database
@@ -67,13 +64,6 @@ const LogViewer = ({ deviceId = null }) => {
 
   // Remove clear mutation since we don't want to delete sensor data
   // const clearMutation = useMutation({...});
-
-  // Auto-scroll to bottom
-  useEffect(() => {
-    if (autoScroll && logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [logsData, autoScroll]);
 
   const handleFilterChange = (newFilters) => {
     setFilters(newFilters);
@@ -238,16 +228,6 @@ const LogViewer = ({ deviceId = null }) => {
       {/* Controls */}
       <Paper sx={{ p: 2, mb: 2 }}>
         <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
-          <FormControlLabel
-            control={
-              <Switch
-                checked={autoScroll}
-                onChange={(e) => setAutoScroll(e.target.checked)}
-              />
-            }
-            label="Auto-scroll"
-          />
-          
           <FormControlLabel
             control={
               <Switch
@@ -466,7 +446,6 @@ const LogViewer = ({ deviceId = null }) => {
                 {index < filteredLogs.length - 1 && <Divider />}
               </React.Fragment>
             ))}
-            <div ref={logEndRef} />
           </List>
         )}
       </Paper>
