@@ -285,7 +285,7 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
   uint8_t expectedByteCount = count * 2; // Each register is 2 bytes
 
   // send request
-  char responseFrame[256];
+  char responseFrame[256] = {0}; // Initialize to empty string
   
   bool ok;
 
@@ -293,39 +293,34 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
   {
     LOG_WARN(LOG_TAG_MODBUS, "WiFi not connected");
     ok =  false;
+    // No response frame available - true timeout
+    
+    FaultRecoveryEvent event;
+    const char* deviceId = DataUploader::getDeviceID();
+    strncpy(event.device_id, deviceId ? deviceId : "ESP32_UNKNOWN", sizeof(event.device_id));
+    event.device_id[sizeof(event.device_id) - 1] = '\0';
+    event.timestamp = getCurrentTimestamp();
+    event.fault_type = FaultType::TIMEOUT;
+    event.recovery_action = RecoveryAction::RETRY_READ;
+    event.success = false;
+    event.retry_count = 0;
+    snprintf(event.details, sizeof(event.details), "WiFi not connected - network timeout");
+    
+    sendRecoveryEvent(event);
+    
+    result.values[0] = 0xFFFF;
+    result.count = 1;
+    return result;
   }
   else
   {
     ok = adapter.readRegister(frame, responseFrame, sizeof(responseFrame));
   }
 
-  //if response is error return error values to main code
-  if (!ok) 
-  {
-    LOG_ERROR(LOG_TAG_MODBUS, "Read request failed after retries");
-    
-    // MILESTONE 5: Report timeout fault
-    FaultRecoveryEvent event;
-    const char* deviceId = DataUploader::getDeviceID();
-    strncpy(event.device_id, deviceId ? deviceId : "ESP32_UNKNOWN", sizeof(event.device_id));
-    event.device_id[sizeof(event.device_id) - 1] = '\0';
-    event.timestamp = getCurrentTimestamp(); // Use proper Unix timestamp
-    event.fault_type = FaultType::TIMEOUT;
-    event.recovery_action = RecoveryAction::RETRY_READ;
-    event.success = false;
-    event.retry_count = 0;
-    snprintf(event.details, sizeof(event.details), "Modbus read timeout, WiFi or network error");
-    
-    sendRecoveryEvent(event);
-    
-    result.values[0] = 0xFFFF; // Indicate error
-    result.count = 1;
-    return result;
-  }
-  
   const char* response_frame = responseFrame;
   
   // MILESTONE 5: Detect faults in response
+  // NOTE: detectFault() works even if ok==false (corrupted frame is still copied to responseFrame)
   FaultType fault = detectFault(response_frame, expectedByteCount, sizeof(responseFrame));
   
   if (fault != FaultType::NONE) {

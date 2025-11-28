@@ -220,39 +220,41 @@ bool checkBufferOverflow(const char* frameHex, size_t bufferSize) {
 }
 
 FaultType detectFault(const char* frameHex, uint8_t expectedByteCount, size_t bufferSize) {
-    if (!frameHex) {
-        return FaultType::TIMEOUT; // NULL response = timeout
+    if (!frameHex || frameHex[0] == '\0') {
+        return FaultType::TIMEOUT; // NULL or empty response = timeout
     }
     
-    // Check in order of severity
+    // Check in order of reliability
     
-    // 1. Buffer overflow (most critical)
+    // 1. Buffer overflow (most critical safety issue)
     if (!checkBufferOverflow(frameHex, bufferSize)) {
         return FaultType::BUFFER_OVERFLOW;
     }
     
-    // 2. Garbage data (corrupt format)
+    // 2. Garbage data (invalid format - can't trust anything)
     if (!checkForGarbage(frameHex)) {
         return FaultType::GARBAGE_DATA;
     }
     
-    // 3. Truncated payload
-    if (!validatePayloadLength(frameHex, expectedByteCount)) {
-        return FaultType::TRUNCATED_PAYLOAD;
-    }
-    
-    // 4. CRC error
+    // 3. CRC error (frame corrupted - can't trust contents including function code)
+    // MUST check BEFORE exception, since bad CRC means we can't trust the function code
     if (!validateModbusCRC(frameHex)) {
         return FaultType::CRC_ERROR;
     }
     
-    // Check for Modbus exception response
+    // 4. Check for Modbus exception response (now we know CRC is valid)
+    // Exception responses are shorter (10 chars) and are VALID, not truncated
     if (strlen(frameHex) >= 4) {
         char funcHex[3] = {frameHex[2], frameHex[3], '\0'};
         uint8_t func = (uint8_t)strtol(funcHex, NULL, 16);
         if (func >= 0x80) { // Exception bit set
             return FaultType::MODBUS_EXCEPTION;
         }
+    }
+    
+    // 5. Truncated payload (check AFTER exception, since exceptions are legitimately shorter)
+    if (!validatePayloadLength(frameHex, expectedByteCount)) {
+        return FaultType::TRUNCATED_PAYLOAD;
     }
     
     return FaultType::NONE; // No fault detected

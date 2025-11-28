@@ -39,27 +39,9 @@ bool ProtocolAdapter::writeRegister(const char* frameHex, char* outFrameHex, siz
   bool state = sendRequest(writeURL, frameHex, responseJson, sizeof(responseJson));
   if (!state) return false;
 
+  // Parse response and return result immediately
+  // No retry here - let caller handle any failures
   state = parseResponse(responseJson, outFrameHex, outSize);
-  
-  // One-time retry for corrupted/failed packets
-  if (!state)
-  {
-    LOG_WARN(LOG_TAG_MODBUS, "Write operation failed. Attempting ONE retry...");
-    state = sendRequest(writeURL, frameHex, responseJson, sizeof(responseJson));
-    if (state)
-    {
-      state = parseResponse(responseJson, outFrameHex, outSize);
-    }
-    
-    if (!state)
-    {
-      LOG_ERROR(LOG_TAG_MODBUS, "Write retry failed. Packet DROPPED.");
-    }
-    else
-    {
-      LOG_SUCCESS(LOG_TAG_MODBUS, "Write operation successful on retry");
-    }
-  }
   
   return state;
 }
@@ -81,45 +63,10 @@ bool ProtocolAdapter::readRegister(const char* frameHex, char* outFrameHex, size
   bool state = sendRequest(readURL, frameHex, responseJson, sizeof(responseJson));
   if (!state) return false;
 
+  // Parse response and return result immediately
+  // No retry here - let acquisition.cpp handle fault detection and recovery
+  // This allows proper fault classification (CRC_ERROR, GARBAGE_DATA, etc.)
   state = parseResponse(responseJson, outFrameHex, outSize);
-  
-  // One-time retry for corrupted/failed packets
-  if (!state)
-  {
-    LOG_WARN(LOG_TAG_MODBUS, "Read operation failed. Attempting ONE retry...");
-    
-    // MILESTONE 5: Send recovery event for fault detection
-    FaultRecoveryEvent event;
-    const char* deviceId = DataUploader::getDeviceID();
-    strncpy(event.device_id, deviceId ? deviceId : "ESP32_UNKNOWN", sizeof(event.device_id));
-    event.device_id[sizeof(event.device_id) - 1] = '\0';
-    event.timestamp = getCurrentTimestamp(); // Use proper Unix timestamp
-    event.fault_type = FaultType::MODBUS_EXCEPTION; // Most likely cause of parseResponse failure
-    event.recovery_action = RecoveryAction::RETRY_READ;
-    event.retry_count = 1;
-    
-    state = sendRequest(readURL, frameHex, responseJson, sizeof(responseJson));
-    if (state)
-    {
-      state = parseResponse(responseJson, outFrameHex, outSize);
-    }
-    
-    if (!state)
-    {
-      LOG_ERROR(LOG_TAG_MODBUS, "Read retry failed. Packet DROPPED.");
-      event.success = false;
-      snprintf(event.details, sizeof(event.details), "Modbus read failed after 1 retry");
-    }
-    else
-    {
-      LOG_SUCCESS(LOG_TAG_MODBUS, "Read operation successful on retry");
-      event.success = true;
-      snprintf(event.details, sizeof(event.details), "Modbus read recovered after 1 retry");
-    }
-    
-    // Send recovery event to Flask
-    sendRecoveryEvent(event);
-  }
   
   return state;
 }
@@ -224,6 +171,7 @@ bool ProtocolAdapter::parseResponse(const char* response, char* outFrameHex, siz
   if (!response || response[0] == '\0') 
   {
     LOG_ERROR(LOG_TAG_MODBUS, "No response.");
+    outFrameHex[0] = '\0'; // Set output to empty string for detectFault()
     return false;
   }
 
@@ -231,6 +179,7 @@ bool ProtocolAdapter::parseResponse(const char* response, char* outFrameHex, siz
   DeserializationError err = deserializeJson(doc, response);
   if (err) {
     LOG_ERROR(LOG_TAG_MODBUS, "JSON parse failed: Malformed response from inverter");
+    outFrameHex[0] = '\0'; // Set output to empty string for detectFault()
     return false;
   }
   const char* frame = doc["frame"] | "";
@@ -240,15 +189,17 @@ bool ProtocolAdapter::parseResponse(const char* response, char* outFrameHex, siz
     return false;
   }
   
+  // ALWAYS copy frame to output buffer, even if corrupted
+  // This allows acquisition.cpp to detect fault type (CRC_ERROR, GARBAGE_DATA, etc.)
+  memcpy(outFrameHex, frame, len + 1);
+  
   // CHECK FOR CORRUPTION
   if (isFrameCorrupted(frame)) 
   {
     LOG_ERROR(LOG_TAG_MODBUS, "PACKET CORRUPTED - Frame integrity check failed");
     LOG_ERROR(LOG_TAG_MODBUS, "   Corrupted frame: %s", frame);
-    return false;  // Will trigger retry in caller
+    return false;  // Will trigger fault detection in acquisition.cpp
   }
-
-  memcpy(outFrameHex, frame, len + 1);
 
   // Use enhanced validation with CRC checking
   ParseResult validationResult = validateModbusFrame(frame);

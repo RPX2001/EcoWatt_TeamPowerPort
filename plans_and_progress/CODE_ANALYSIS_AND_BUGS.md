@@ -1,9 +1,62 @@
 # ECOWATT ESP32 Firmware - Comprehensive Code Analysis
 
 **Author:** AI Analysis  
-**Date:** November 26, 2025  
+**Date:** November 28, 2025  
 **Firmware Version:** 3.0.0 (FreeRTOS Dual-Core)  
 **Branch:** FreeRTIO
+
+---
+
+## Recent Bug Fixes
+
+### 2025-11-28: Fixed Fault Type Detection in Recovery Events (COMPLETE FIX)
+
+**Issue:** All fault recovery events were being logged as `modbus_exception` regardless of the actual fault type (CRC_ERROR, CORRUPT, PACKET_DROP, etc.).
+
+**Root Cause (3 separate issues):**
+1. `protocol_adapter.cpp::readRegister()` was creating recovery events with hardcoded `FaultType::MODBUS_EXCEPTION` (line 97)
+2. `protocol_adapter.cpp` was doing internal retries, hiding faults from `acquisition.cpp`
+3. `protocol_adapter.cpp::parseResponse()` was not copying corrupted frames to output buffer
+
+**Fix (3-part solution):**
+
+1. **Removed premature fault recovery events** - Deleted fault recovery event creation from `protocol_adapter.cpp` (lines 88-119)
+
+2. **Removed internal retry logic** - Deleted retry logic from both `readRegister()` and `writeRegister()` in `protocol_adapter.cpp`
+   - Previously: protocol_adapter would retry internally and return success, hiding the fault
+   - Now: Returns false immediately on fault, allowing acquisition.cpp to detect and classify it
+
+3. **Fixed frame copying** - Moved `memcpy(outFrameHex, frame, len + 1)` BEFORE corruption checks in `parseResponse()`
+   - Previously: Corrupted frames were NOT copied to output buffer
+   - Now: ALL frames (corrupted or not) are copied, allowing fault detection in acquisition.cpp
+
+**How It Works Now:**
+```
+protocol_adapter.cpp:
+  - Sends request to Inverter SIM
+  - Parses JSON response
+  - Copies frame to output buffer (ALWAYS, even if corrupted)
+  - Returns false if frame is invalid/corrupted
+  - NO retries, NO fault event creation
+
+acquisition.cpp:
+  - Calls adapter.readRegister()
+  - If returns false OR if frame has faults, calls detectFault()
+  - detectFault() properly classifies:
+    * CRC_ERROR - CRC checksum failures
+    * GARBAGE_DATA - Corrupted/invalid response format  
+    * TRUNCATED_PAYLOAD - Incomplete responses
+    * TIMEOUT - No response from inverter
+    * MODBUS_EXCEPTION - Actual Modbus exception codes
+  - Creates recovery event with CORRECT fault type
+  - Performs retry using executeRecovery()
+  - Sends recovery event to Flask server
+```
+
+**Impact:** 
+- Recovery events now show accurate fault types matching Inverter SIM injections
+- Proper separation of concerns: protocol_adapter handles communication, acquisition handles fault recovery
+- Testing and diagnosis now work correctly
 
 ---
 
