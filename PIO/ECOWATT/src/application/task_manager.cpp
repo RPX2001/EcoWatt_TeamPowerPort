@@ -66,6 +66,9 @@ SemaphoreHandle_t TaskManager::dataPipelineMutex = NULL;
 SemaphoreHandle_t TaskManager::batchReadySemaphore = NULL;
 SemaphoreHandle_t TaskManager::configReloadSemaphore = NULL;
 
+// Upload frequency reload flag (separate from semaphore since upload task gives the semaphore)
+static volatile bool uploadFrequencyChanged = false;
+
 // Configuration
 uint32_t TaskManager::pollFrequency = DEFAULT_POLL_FREQUENCY_US / 1000;        // Convert to ms
 uint32_t TaskManager::uploadFrequency = DEFAULT_UPLOAD_FREQUENCY_US / 1000;    // Convert to ms
@@ -644,16 +647,18 @@ void TaskManager::uploadTask(void* parameter) {
         // ALWAYS wait for the full interval before starting next cycle
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
-        // Check if configuration reload is needed (signaled by THIS task after successful upload)
-        if (xSemaphoreTake(configReloadSemaphore, 0) == pdTRUE) {
-            // Reload upload frequency from static variable (updated by ConfigManager)
+        // Check if upload frequency was changed by ConfigManager (uses dedicated flag, not semaphore)
+        // The semaphore is consumed by other tasks, so upload task uses its own flag
+        if (uploadFrequencyChanged) {
+            uploadFrequencyChanged = false;  // Clear the flag
             TickType_t newFrequency = pdMS_TO_TICKS(uploadFrequency);
+            LOG_DEBUG(LOG_TAG_UPLOAD, "Config reload: current=%lu ticks, new=%lu ticks (uploadFrequency=%lu ms)", 
+                      (unsigned long)xFrequency, (unsigned long)newFrequency, uploadFrequency);
             if (newFrequency != xFrequency) {
                 xFrequency = newFrequency;
                 xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
                 LOG_INFO(LOG_TAG_UPLOAD, "Upload frequency updated to %lu ms", uploadFrequency);
             }
-            // Semaphore consumed - do not give back
         }
         
         uint32_t startTime = micros();
@@ -1209,8 +1214,10 @@ void TaskManager::updatePollFrequency(uint32_t newFreqMs) {
 }
 
 void TaskManager::updateUploadFrequency(uint32_t newFreqMs) {
+    uint32_t oldFreq = uploadFrequency;
     uploadFrequency = newFreqMs;
-    LOG_INFO(LOG_TAG_BOOT, "Upload frequency updated to %lu ms", newFreqMs);
+    uploadFrequencyChanged = true;  // Signal the upload task to reload
+    LOG_INFO(LOG_TAG_BOOT, "Upload frequency static var updated: %lu ms -> %lu ms", oldFreq, newFreqMs);
 }
 
 void TaskManager::updateConfigFrequency(uint32_t newFreqMs) {

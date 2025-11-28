@@ -1,12 +1,11 @@
 /**
- * @file main_freertos.cpp
+ * @file main.cpp
  * @brief EcoWatt ESP32 Main Firmware - FreeRTOS Dual-Core Version
- * @version 3.0.0
+ * @version 1.3.2
  * 
- * @note Migrated to FreeRTOS dual-core architecture for guaranteed real-time deadlines
  * 
  * @author Team PowerPort
- * @date 2025-10-28
+ * @date 2025-11-28
  */
 
 #include <Arduino.h>
@@ -30,13 +29,15 @@
 #include "esp_task_wdt.h"
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <WiFi.h>// ============================================
+#include <WiFi.h>
+
+// ============================================
 // Global Objects
 // ============================================
 OTAManager* otaManager = nullptr;
 Arduino_Wifi Wifi;
 
-#define FIRMWARE_VERSION "1.2.0"
+#define FIRMWARE_VERSION "1.3.2"
 
 // ============================================
 // Helper Functions
