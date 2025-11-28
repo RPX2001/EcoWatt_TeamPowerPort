@@ -337,16 +337,6 @@ bool OTAManager::downloadAndApplyFirmware()
                                " of " + String(manifest.total_chunks);
             reportProgress("downloading", progress.percentage, progressMsg);
             
-            // Progress bar visualization
-            int barWidth = 30;
-            int filled = (progress.percentage * barWidth) / 100;
-            // Progress bar visual removed - use LOG_INFO instead
-            for (int i = 0; i < barWidth; i++) {
-                // Progress bar visual removed
-                // Progress bar visual removed
-            }
-            // Progress bar visual removed
-            
             lastProgressTime = currentTime;
             saveProgress(); // Save progress periodically
         }
