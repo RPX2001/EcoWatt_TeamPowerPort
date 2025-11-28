@@ -237,17 +237,17 @@ void setup()
     LOG_INFO(LOG_TAG_BOOT, "  - Energy Poll:  %lu ms (%.1f s, configurable via NVS)\n", 
           energyPollMs, energyPollMs / 1000.0);
     
-    // Initialize Data Uploader (M4 format: /aggregated/<device_id>)
+    // Initialize Data Uploader (/aggregated/<device_id>)
     DataUploader::init(FLASK_SERVER_URL "/aggregated/" DEVICE_ID, DEVICE_ID);
     
-    // Initialize Command Executor (M4 format: /commands/<device_id>/poll)
+    // Initialize Command Executor (/commands/<device_id>/poll)
     CommandExecutor::init(
         FLASK_SERVER_URL "/commands/" DEVICE_ID "/poll",
         FLASK_SERVER_URL "/commands/" DEVICE_ID "/result",
         DEVICE_ID
     );
     
-    // Initialize Config Manager (M4 format: /config/<device_id>)
+    // Initialize Config Manager (/config/<device_id>)
     ConfigManager::init(FLASK_SERVER_URL "/config/" DEVICE_ID, DEVICE_ID);
     
     // Send current config to server so frontend can display it

@@ -69,7 +69,7 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
     http.addHeader("Content-Type", "application/json");
     http.setTimeout(15000);  // 15 seconds HTTP timeout (in milliseconds)
 
-    // M4 Format: Use GET request (device_id is in URL)
+    // Use GET request (device_id is in URL)
     int httpResponseCode = http.GET();
 
     if (httpResponseCode > 0) {

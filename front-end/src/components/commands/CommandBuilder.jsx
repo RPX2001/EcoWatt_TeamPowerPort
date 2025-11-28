@@ -113,7 +113,7 @@ const CommandBuilder = ({ deviceId }) => {
       setSuccess(null);
 
       // Build command payload following Milestone 4 format
-      // M4 FORMAT: { "command": { "action": "...", "target_register": "...", "value": ... } }
+      // { "command": { "action": "...", "target_register": "...", "value": ... } }
       
       const action = commandType;
       let targetRegister = null;
@@ -129,7 +129,7 @@ const CommandBuilder = ({ deviceId }) => {
         value = parameters.power_w;
       }
 
-      // Send using M4 format: sendCommand(deviceId, action, targetRegister, value)
+      // Send using sendCommand(deviceId, action, targetRegister, value)
       const response = await sendCommand(deviceId, action, targetRegister, value);
       
       setSuccess(`✓ Command queued successfully! Will be executed at next communication window. Command ID: ${response.data.command_id || 'N/A'}`);

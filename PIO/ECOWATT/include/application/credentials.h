@@ -27,7 +27,7 @@
 // ============================================
 // PRODUCTION DEVICE IDENTIFICATION
 // ============================================
-// UNIFORM across all modules - single source of truth
+// UNIFORM across all modules
 #define DEVICE_ID "ESP32_001"
 #define DEVICE_NAME "EcoWatt Smart Monitor"
 

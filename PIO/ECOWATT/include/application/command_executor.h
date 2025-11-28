@@ -42,18 +42,18 @@ public:
     static void checkAndExecuteCommands();
 
     /**
-     * @brief Execute a specific command (M4 format)
+     * @brief Execute a specific command
      * 
      * @param commandId Unique identifier for this command
-     * @param action M4 action (e.g., "write_register")
-     * @param m4Command JsonObject containing M4 command fields (target_register, value, etc.)
+     * @param action (e.g., "write_register")
+     * @param Command JsonObject containing command fields (target_register, value, etc.)
      * @return true if execution successful, false otherwise
      */
     static bool executeCommand(const char* commandId, const char* action, 
                                JsonObject& m4Command);
 
     /**
-     * @brief Send command execution result back to server (M4 format)
+     * @brief Send command execution result back to server
      * 
      * @param commandId Command identifier
      * @param success Whether command succeeded
@@ -90,7 +90,7 @@ private:
     static unsigned long commandsSuccessful;
     static unsigned long commandsFailed;
 
-    // Command execution handlers (M4 format)
+    // Command execution handlers
     static bool executePowerCommand(JsonObject& m4Command);
     static bool executePowerPercentageCommand(JsonObject& m4Command);
     static bool executeWriteRegisterCommand(JsonObject& m4Command);

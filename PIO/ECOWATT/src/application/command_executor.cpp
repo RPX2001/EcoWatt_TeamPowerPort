@@ -77,7 +77,7 @@ void CommandExecutor::checkAndExecuteCommands() {
     // Feed watchdog before HTTP request
     yield();
 
-    // M4 Format: Use GET request (device_id is in URL)
+    // Use GET request (device_id is in URL)
     int httpResponseCode = http.GET();
 
     if (httpResponseCode == 200) {
@@ -94,14 +94,14 @@ void CommandExecutor::checkAndExecuteCommands() {
                 JsonObject commandObj = commands[0];
                 const char* commandId = commandObj["command_id"] | "";
                 
-                // M4 FORMAT: Extract command object with action, target_register, value
+                // Extract command object with action, target_register, value
                 JsonObject m4Command = commandObj["command"];
                 if (!m4Command.isNull()) {
                     const char* action = m4Command["action"] | "";
                     
                     LOG_DEBUG(LOG_TAG_COMMAND, "Received command: %s (ID: %s)", action, commandId);
                     
-                    // Parse M4 parameters
+                    // Parse parameters
                     const char* targetRegister = m4Command["target_register"] | "";
                     int value = m4Command["value"] | 0;
                     int regAddress = m4Command["register_address"] | -1;  // Flask adds this
@@ -114,7 +114,7 @@ void CommandExecutor::checkAndExecuteCommands() {
                     // Execute the command
                     bool success = executeCommand(commandId, action, m4Command);
                     
-                    // Send M4-compliant result back to server
+                    // Send result back to server
                     sendCommandResult(commandId, success);
                     
                     if (success) {
@@ -156,7 +156,7 @@ bool CommandExecutor::executeCommand(const char* commandId, const char* action,
     commandsExecuted++;
     bool success = false;
     
-    // Route to appropriate handler based on M4 action
+    // Route to appropriate handler based on action
     if (strcmp(action, "write_register") == 0) {
         success = executeWriteRegisterCommand(m4Command);
     } else if (strcmp(action, "set_power") == 0) {
@@ -230,7 +230,7 @@ bool CommandExecutor::executePowerPercentageCommand(JsonObject& m4Command) {
 }
 
 bool CommandExecutor::executeWriteRegisterCommand(JsonObject& m4Command) {
-    // M4 FORMAT: Extract target_register and value
+    // Extract target_register and value
     const char* targetRegister = m4Command["target_register"] | "";
     int regAddress = m4Command["register_address"] | -1;  // Flask adds this
     int value = m4Command["value"] | 0;
@@ -329,7 +329,7 @@ void CommandExecutor::sendCommandResult(const char* commandId, bool success) {
     http.setTimeout(5000);         // 5 seconds read timeout
     http.setReuse(false);          // Don't keep TCP connection alive
 
-    // M4 FORMAT: command_result wrapper with status and executed_at
+    // command_result wrapper with status and executed_at
     StaticJsonDocument<256> resultDoc;
     JsonObject commandResult = resultDoc.createNestedObject("command_result");
     commandResult["command_id"] = commandId;

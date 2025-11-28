@@ -1,6 +1,6 @@
 /**
  * @file deadline_monitor.h
- * @brief Intelligent deadline miss tracking with sliding window and contextual reset
+ * @brief Deadline miss tracking with sliding window and contextual reset
  * 
  * This monitor prevents false-positive restarts caused by transient network issues
  * by implementing:
@@ -18,7 +18,7 @@
 #include "system_config.h"
 
 /**
- * @brief Tracks deadline misses with intelligent reset logic
+ * @brief Tracks deadline misses with reset logic
  * 
  * Uses circular buffer to track miss timestamps in a sliding window.
  * Only misses within the evaluation window count toward restart threshold.
