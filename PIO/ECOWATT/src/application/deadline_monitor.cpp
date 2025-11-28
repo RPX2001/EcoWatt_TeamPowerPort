@@ -55,7 +55,7 @@ bool DeadlineMonitor::shouldRestart() {
         // During grace period, allow 2x normal threshold
         uint8_t gracePeriodThreshold = MAX_DEADLINE_MISSES * 2;
         
-        if (recentMisses > gracePeriodThreshold) {
+        if (recentMisses >= gracePeriodThreshold) {
             LOG_ERROR(LOG_TAG_WATCHDOG, 
                      "CRITICAL: %d deadline misses exceeds grace period threshold (%d)",
                      recentMisses, gracePeriodThreshold);
@@ -69,9 +69,9 @@ bool DeadlineMonitor::shouldRestart() {
     }
     
     // Normal operation - standard threshold
-    if (recentMisses > MAX_DEADLINE_MISSES) {
+    if (recentMisses >= MAX_DEADLINE_MISSES) {
         LOG_ERROR(LOG_TAG_WATCHDOG, 
-                 "CRITICAL: Excessive deadline misses (%d > %d) in %d sec window!",
+                 "CRITICAL: Excessive deadline misses (%d >= %d) in %d sec window!",
                  recentMisses, MAX_DEADLINE_MISSES, EVALUATION_WINDOW_MS / 1000);
         
         // Log breakdown for debugging

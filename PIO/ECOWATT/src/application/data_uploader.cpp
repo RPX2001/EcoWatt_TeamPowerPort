@@ -57,8 +57,15 @@ void DataUploader::init(const char* serverURL, const char* devID) {
 
 bool DataUploader::addToQueue(const SmartCompressedData& data) {
     if (ringBuffer.size() >= 20) {  // Buffer capacity is 20
-        LOG_WARN(LOG_TAG_UPLOAD, "Buffer full (%zu/20), cannot add data", ringBuffer.size());
-        return false;
+        // Drop oldest data to make room for new data (FIFO)
+        // Old data is less relevant than fresh sensor readings
+        LOG_WARN(LOG_TAG_UPLOAD, "Buffer full (%zu/20), dropping oldest packet", ringBuffer.size());
+        
+        // Drain one packet by using drain_all and re-adding all but the first
+        auto allData = ringBuffer.drain_all();
+        for (size_t i = 1; i < allData.size(); i++) {
+            ringBuffer.push(allData[i]);
+        }
     }
     
     ringBuffer.push(data);
@@ -80,8 +87,24 @@ bool DataUploader::uploadPendingData() {
     
     LOG_SECTION("DATA UPLOAD CYCLE");
     
-    // Drain all data from buffer
-    auto allData = ringBuffer.drain_all();
+    // Drain data from buffer with limit to prevent JSON overflow
+    // Max 8 packets = ~3200 bytes JSON (safely under 4096 limit)
+    const size_t MAX_PACKETS_PER_UPLOAD = 8;
+    size_t packetCount = std::min(ringBuffer.size(), MAX_PACKETS_PER_UPLOAD);
+    
+    std::vector<SmartCompressedData> allData;
+    allData.reserve(packetCount);  // Pre-allocate to avoid reallocations
+    
+    // Drain packets from buffer one at a time up to the limit
+    auto tempData = ringBuffer.drain_all();
+    for (size_t i = 0; i < std::min(packetCount, tempData.size()); i++) {
+        allData.push_back(tempData[i]);
+    }
+    
+    // Put back any remaining packets
+    for (size_t i = packetCount; i < tempData.size(); i++) {
+        ringBuffer.push(tempData[i]);
+    }
     
     LOG_INFO(LOG_TAG_UPLOAD, "Preparing %zu compressed batches", allData.size());
     
