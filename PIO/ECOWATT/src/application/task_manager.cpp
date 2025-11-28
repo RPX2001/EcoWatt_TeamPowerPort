@@ -65,9 +65,27 @@ SemaphoreHandle_t TaskManager::wifiClientMutex = NULL;
 SemaphoreHandle_t TaskManager::dataPipelineMutex = NULL;
 SemaphoreHandle_t TaskManager::batchReadySemaphore = NULL;
 SemaphoreHandle_t TaskManager::configReloadSemaphore = NULL;
+SemaphoreHandle_t TaskManager::rawSampleMutex = NULL;
+
+// Raw sample buffer for compress-on-upload architecture
+SensorSample TaskManager::rawSampleBuffer[RAW_SAMPLE_BUFFER_SIZE];
+size_t TaskManager::rawSampleHead = 0;
+size_t TaskManager::rawSampleCount = 0;
 
 // Upload frequency reload flag (separate from semaphore since upload task gives the semaphore)
 static volatile bool uploadFrequencyChanged = false;
+
+// Flags to indicate tasks should reload config (set by upload task AFTER buffer drain)
+// This ensures ALL config changes apply only after current data is uploaded
+static volatile bool sensorConfigReloadPending = false;
+static volatile bool commandConfigReloadPending = false;
+static volatile bool configTaskReloadPending = false;
+static volatile bool powerReportConfigReloadPending = false;
+static volatile bool otaConfigReloadPending = false;
+
+// Flag set by ConfigManager when cloud config change is detected (read by upload task)
+// This prevents unnecessary config reload after every upload when no change occurred
+static volatile bool cloudConfigChangePending = false;
 
 // Configuration
 uint32_t TaskManager::pollFrequency = DEFAULT_POLL_FREQUENCY_US / 1000;        // Convert to ms
@@ -168,6 +186,17 @@ bool TaskManager::init(uint32_t pollFreqMs, uint32_t uploadFreqMs,
         return false;
     }
     
+    // Create mutex for raw sample buffer access (compress-on-upload architecture)
+    rawSampleMutex = xSemaphoreCreateMutex();
+    if (!rawSampleMutex) {
+        LOG_ERROR(LOG_TAG_BOOT, "Failed to create raw sample mutex");
+        return false;
+    }
+    
+    // Initialize raw sample buffer
+    rawSampleHead = 0;
+    rawSampleCount = 0;
+    
     LOG_SUCCESS(LOG_TAG_BOOT, "Mutexes and semaphores created successfully");
     
     systemInitialized = true;
@@ -205,17 +234,10 @@ void TaskManager::startAllTasks(void* otaManager) {
     );
     LOG_SUCCESS(LOG_TAG_BOOT, "Created: SensorPoll (Core 1, Priority 24)");
     
-    // HIGH: Compression Task
-    xTaskCreatePinnedToCore(
-        compressionTask,
-        "Compression",
-        STACK_COMPRESSION,
-        NULL,
-        PRIORITY_COMPRESSION,
-        &compressionTask_h,
-        CORE_SENSORS              // Core 1
-    );
-    LOG_SUCCESS(LOG_TAG_BOOT, "Created: Compression (Core 1, Priority 18)");
+    // NOTE: Compression Task REMOVED - compression now happens inside Upload Task
+    // (compress-on-upload architecture to prevent register layout misalignment when config changes)
+    // This saves ~6KB of stack memory
+    LOG_INFO(LOG_TAG_BOOT, "Compression Task DISABLED (compress-on-upload architecture)");
     
     // LOWEST: Watchdog Task
     xTaskCreatePinnedToCore(
@@ -301,7 +323,7 @@ void TaskManager::suspendAllTasks() {
     LOG_INFO(LOG_TAG_BOOT, "Suspending all tasks (except OTA)...");
     
     if (sensorPollTask_h) vTaskSuspend(sensorPollTask_h);
-    if (compressionTask_h) vTaskSuspend(compressionTask_h);
+    // compressionTask removed - compression now in upload task
     if (uploadTask_h) vTaskSuspend(uploadTask_h);
     if (commandTask_h) vTaskSuspend(commandTask_h);
     if (configTask_h) vTaskSuspend(configTask_h);
@@ -317,7 +339,7 @@ void TaskManager::resumeAllTasks() {
     LOG_INFO(LOG_TAG_BOOT, "Resuming all tasks...");
     
     if (sensorPollTask_h) vTaskResume(sensorPollTask_h);
-    if (compressionTask_h) vTaskResume(compressionTask_h);
+    // compressionTask removed - compression now in upload task
     if (uploadTask_h) vTaskResume(uploadTask_h);
     if (commandTask_h) vTaskResume(commandTask_h);
     if (configTask_h) vTaskResume(configTask_h);
@@ -357,9 +379,11 @@ void TaskManager::sensorPollTask(void* parameter) {
         // ALWAYS wait for the full interval before starting next cycle
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
-        // Check if configuration reload is needed (signaled by upload task after successful upload)
-        if (xSemaphoreTake(configReloadSemaphore, 0) == pdTRUE) {
-            LOG_INFO(LOG_TAG_DATA, "Config reload signal received - updating configuration");
+        // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
+        // This ensures ALL samples in a buffer use the same config before any changes apply
+        if (sensorConfigReloadPending) {
+            sensorConfigReloadPending = false;  // Clear the flag
+            LOG_INFO(LOG_TAG_DATA, "Config reload after upload - applying pending changes");
             
             // Reload poll frequency from static variable (updated by ConfigManager)
             TickType_t newFrequency = pdMS_TO_TICKS(pollFrequency);
@@ -384,7 +408,6 @@ void TaskManager::sensorPollTask(void* parameter) {
                 LOG_INFO(LOG_TAG_DATA, "Register configuration updated - now monitoring %zu registers", registerCount);
             }
             xSemaphoreGive(nvsAccessMutex);
-            // Semaphore consumed - do not give back (counting semaphore will be given 6 times by upload task)
         }
         
         uint32_t startTime = micros();
@@ -401,10 +424,58 @@ void TaskManager::sensorPollTask(void* parameter) {
             memcpy(sample.values, result.values, registerCount * sizeof(uint16_t));
             sample.timestamp = getCurrentTimestampMs();  // Unix timestamp in milliseconds
             
-            // Send to compression queue (non-blocking to avoid deadline miss)
-            if (xQueueSend(sensorDataQueue, &sample, 0) != pdTRUE) {
-                LOG_WARN(LOG_TAG_DATA, "Queue full! Sample dropped");
-                // Record as deadline miss (network/queue issue)
+            // CRITICAL: Check if config changed DURING this Modbus read
+            // If so, discard this sample (it was read with old config) and apply new config immediately
+            if (sensorConfigReloadPending) {
+                sensorConfigReloadPending = false;
+                LOG_WARN(LOG_TAG_DATA, "Config changed during Modbus read - discarding sample, applying new config");
+                
+                // Apply new config immediately
+                TickType_t newFrequency = pdMS_TO_TICKS(pollFrequency);
+                if (newFrequency != xFrequency) {
+                    xFrequency = newFrequency;
+                    xLastWakeTime = xTaskGetTickCount();
+                    LOG_INFO(LOG_TAG_DATA, "Poll frequency updated to %lu ms", pollFrequency);
+                }
+                
+                xSemaphoreTake(nvsAccessMutex, portMAX_DELAY);
+                size_t newRegisterCount = nvs::getReadRegCount();
+                const RegID* newRegisters = nvs::getReadRegs();
+                if (newRegisterCount != registerCount || 
+                    memcmp(registers, newRegisters, registerCount * sizeof(RegID)) != 0) {
+                    registerCount = newRegisterCount;
+                    registers = newRegisters;
+                    LOG_INFO(LOG_TAG_DATA, "Register configuration updated - now monitoring %zu registers", registerCount);
+                }
+                xSemaphoreGive(nvsAccessMutex);
+                
+                // Don't store this sample - continue to next iteration with new config
+                uint32_t executionTime = micros() - startTime;
+                recordTaskExecution(stats_sensorPoll, executionTime);
+                esp_task_wdt_reset();
+                continue;
+            }
+            
+            // Store in raw sample buffer (compress-on-upload architecture)
+            // This ensures all samples in an upload batch have consistent register layout
+            if (xSemaphoreTake(rawSampleMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                if (rawSampleCount < RAW_SAMPLE_BUFFER_SIZE) {
+                    // Buffer has space - add sample
+                    rawSampleBuffer[rawSampleHead] = sample;
+                    rawSampleHead = (rawSampleHead + 1) % RAW_SAMPLE_BUFFER_SIZE;
+                    rawSampleCount++;
+                    LOG_DEBUG(LOG_TAG_DATA, "Sample stored in buffer (%zu/%d)", 
+                              rawSampleCount, RAW_SAMPLE_BUFFER_SIZE);
+                } else {
+                    // Buffer full - overwrite oldest (ring buffer behavior)
+                    LOG_WARN(LOG_TAG_DATA, "Raw sample buffer full! Overwriting oldest sample");
+                    rawSampleBuffer[rawSampleHead] = sample;
+                    rawSampleHead = (rawSampleHead + 1) % RAW_SAMPLE_BUFFER_SIZE;
+                    // Count stays at max
+                }
+                xSemaphoreGive(rawSampleMutex);
+            } else {
+                LOG_WARN(LOG_TAG_DATA, "Failed to acquire raw sample mutex");
                 deadlineMonitor_sensorPoll.recordMiss(true);
             }
         } else {
@@ -663,44 +734,128 @@ void TaskManager::uploadTask(void* parameter) {
         
         uint32_t startTime = micros();
         
-        // Clear any pending batch ready signals (non-blocking)
-        // This prevents signal accumulation from previous batches
-        while (xSemaphoreTake(batchReadySemaphore, 0) == pdTRUE) {
-            // Drain all signals
+        // =========================================================
+        // COMPRESS-ON-UPLOAD ARCHITECTURE
+        // Compress ALL raw samples just before upload to ensure
+        // consistent register layout (no mixing old/new configs)
+        // =========================================================
+        
+        size_t samplesToProcess = 0;
+        SensorSample* localSamples = nullptr;
+        
+        // Step 1: Drain raw sample buffer (under mutex protection)
+        if (xSemaphoreTake(rawSampleMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+            samplesToProcess = rawSampleCount;
+            
+            if (samplesToProcess > 0) {
+                // Allocate local copy of samples
+                localSamples = new SensorSample[samplesToProcess];
+                if (localSamples) {
+                    // Copy samples from ring buffer (in order: oldest to newest)
+                    size_t readPos = (rawSampleHead + RAW_SAMPLE_BUFFER_SIZE - rawSampleCount) % RAW_SAMPLE_BUFFER_SIZE;
+                    for (size_t i = 0; i < samplesToProcess; i++) {
+                        localSamples[i] = rawSampleBuffer[readPos];
+                        readPos = (readPos + 1) % RAW_SAMPLE_BUFFER_SIZE;
+                    }
+                    
+                    // Clear the buffer
+                    rawSampleCount = 0;
+                    rawSampleHead = 0;
+                    LOG_INFO(LOG_TAG_UPLOAD, "Drained %zu samples from raw buffer", samplesToProcess);
+                } else {
+                    LOG_ERROR(LOG_TAG_UPLOAD, "Failed to allocate memory for %zu samples", samplesToProcess);
+                    samplesToProcess = 0;
+                }
+            }
+            xSemaphoreGive(rawSampleMutex);
+        } else {
+            LOG_ERROR(LOG_TAG_UPLOAD, "Failed to acquire raw sample mutex");
         }
         
-        LOG_DEBUG(LOG_TAG_UPLOAD, "Checking compressed data queue...");
-        
-        // First, add all pending compressed packets to DataUploader queue
-        CompressedPacket packet;
+        // Step 2: Compress and queue all samples (if any)
         size_t queuedCount = 0;
         
-        while (xQueueReceive(compressedDataQueue, &packet, 0) == pdTRUE) {
-            // Feed watchdog during queue processing
+        if (samplesToProcess > 0 && localSamples != nullptr) {
+            // Feed watchdog during compression
             yield();
             
-            // Convert CompressedPacket to SmartCompressedData
-            SmartCompressedData smartData;
-            smartData.binaryData.assign(packet.data, packet.data + packet.dataSize);  // Copy fixed buffer to vector
-            smartData.timestamp = packet.timestamp;
-            smartData.sampleCount = packet.sampleCount;  // Number of samples in this packet
-            smartData.registerCount = packet.registerCount;  // Actual number of registers per sample
-            smartData.originalSize = packet.uncompressedSize;
-            smartData.academicRatio = (float)packet.compressedSize / (float)packet.uncompressedSize;
-            smartData.traditionalRatio = (float)packet.uncompressedSize / (float)packet.compressedSize;
-            strncpy(smartData.compressionMethod, packet.compressionMethod, sizeof(smartData.compressionMethod) - 1);
+            // Get register info from first sample (all samples have same layout in this batch)
+            size_t registerCount = localSamples[0].registerCount;
             
-            // Copy register layout
-            memcpy(smartData.registers, packet.registers, packet.registerCount * sizeof(RegID));
+            // Convert samples to linear array for compression
+            size_t totalRegisterCount = samplesToProcess * registerCount;
+            uint16_t* linearData = new uint16_t[totalRegisterCount];
+            RegID* linearRegs = new RegID[totalRegisterCount];
             
-            if (DataUploader::addToQueue(smartData)) {
-                queuedCount++;
+            if (linearData && linearRegs) {
+                for (size_t i = 0; i < samplesToProcess; i++) {
+                    memcpy(linearData + (i * registerCount), 
+                           localSamples[i].values, 
+                           registerCount * sizeof(uint16_t));
+                    memcpy(linearRegs + (i * registerCount),
+                           localSamples[i].registers,
+                           registerCount * sizeof(RegID));
+                }
+                
+                // Compress all samples together
+                LOG_INFO(LOG_TAG_UPLOAD, "Compressing %zu samples (%zu registers each)...", 
+                         samplesToProcess, registerCount);
+                
+                std::vector<uint8_t> compressedVec = DataCompression::compressWithSmartSelection(
+                    linearData, linearRegs, totalRegisterCount);
+                
+                // Create SmartCompressedData for upload
+                SmartCompressedData smartData;
+                smartData.binaryData = compressedVec;
+                smartData.timestamp = localSamples[samplesToProcess - 1].timestamp;  // Use last sample timestamp
+                smartData.sampleCount = samplesToProcess;
+                smartData.registerCount = registerCount;
+                smartData.originalSize = totalRegisterCount * sizeof(uint16_t);
+                smartData.academicRatio = (compressedVec.size() > 0) ? 
+                    (float)compressedVec.size() / (float)smartData.originalSize : 1.0f;
+                smartData.traditionalRatio = (compressedVec.size() > 0) ? 
+                    (float)smartData.originalSize / (float)compressedVec.size() : 0.0f;
+                
+                // Copy register layout from first sample
+                memcpy(smartData.registers, localSamples[0].registers, registerCount * sizeof(RegID));
+                
+                // Determine compression method from header
+                if (compressedVec.size() > 0) {
+                    switch (compressedVec[0]) {
+                        case 0xD0: strncpy(smartData.compressionMethod, "dictionary", sizeof(smartData.compressionMethod) - 1); break;
+                        case 0x70:
+                        case 0x71: strncpy(smartData.compressionMethod, "temporal", sizeof(smartData.compressionMethod) - 1); break;
+                        case 0x50: strncpy(smartData.compressionMethod, "semantic", sizeof(smartData.compressionMethod) - 1); break;
+                        default: strncpy(smartData.compressionMethod, "bitpack", sizeof(smartData.compressionMethod) - 1);
+                    }
+                } else {
+                    strncpy(smartData.compressionMethod, "raw", sizeof(smartData.compressionMethod) - 1);
+                }
+                
+                LOG_INFO(LOG_TAG_UPLOAD, "Compressed %zu samples -> %zu bytes (%.1f%% savings)", 
+                         samplesToProcess, compressedVec.size(),
+                         (1.0f - smartData.academicRatio) * 100.0f);
+                
+                // Add to upload queue
+                if (DataUploader::addToQueue(smartData)) {
+                    queuedCount = 1;  // One compressed packet containing all samples
+                } else {
+                    LOG_ERROR(LOG_TAG_UPLOAD, "Failed to queue compressed packet");
+                }
+                
+                delete[] linearData;
+                delete[] linearRegs;
             } else {
-                LOG_WARN(LOG_TAG_UPLOAD, "Failed to queue packet - buffer full");
+                LOG_ERROR(LOG_TAG_UPLOAD, "Failed to allocate compression buffers");
+                if (linearData) delete[] linearData;
+                if (linearRegs) delete[] linearRegs;
             }
+            
+            delete[] localSamples;
+            localSamples = nullptr;
         }
         
-        LOG_INFO(LOG_TAG_UPLOAD, "Queued %zu packets for upload", queuedCount);
+        LOG_INFO(LOG_TAG_UPLOAD, "Prepared %zu packet(s) for upload", queuedCount);
         
         // Now upload all pending data (if any)
         bool uploadSuccess = false;
@@ -724,18 +879,22 @@ void TaskManager::uploadTask(void* parameter) {
                 if (uploadSuccess) {
                     LOG_SUCCESS(LOG_TAG_UPLOAD, "Successfully uploaded %zu packets", queuedCount);
                     
-                    // Signal all tasks to reload configuration (after successful upload)
-                    // Give semaphore 6 times (once for each task that needs to reload config):
-                    // 1. Sensor Poll Task (registers + poll freq)
-                    // 2. Upload Task (upload freq)
-                    // 3. Command Task (command freq)
-                    // 4. Config Task (config freq)
-                    // 5. Power Report Task (power report freq)
-                    // 6. OTA Task (OTA freq)
-                    for (int i = 0; i < 6; i++) {
-                        xSemaphoreGive(configReloadSemaphore);
+                    // Only signal config reload if there's actually a pending cloud config change
+                    // This prevents unnecessary reload after every upload when no config changed
+                    if (cloudConfigChangePending) {
+                        cloudConfigChangePending = false;  // Clear the flag
+                        
+                        // Signal ALL tasks to reload config via flags (ensures changes apply AFTER buffer drain)
+                        // This prevents mixing old/new configs in the same upload batch
+                        sensorConfigReloadPending = true;
+                        commandConfigReloadPending = true;
+                        configTaskReloadPending = true;
+                        powerReportConfigReloadPending = true;
+                        otaConfigReloadPending = true;
+                        uploadFrequencyChanged = true;
+                        
+                        LOG_INFO(LOG_TAG_UPLOAD, "Config reload flags set for all tasks (cloud change detected)");
                     }
-                    LOG_DEBUG(LOG_TAG_UPLOAD, "Config reload signal sent to all 6 tasks");
                 } else {
                     LOG_ERROR(LOG_TAG_UPLOAD, "Upload failed for %zu packets", queuedCount);
                 }
@@ -786,8 +945,9 @@ void TaskManager::commandTask(void* parameter) {
         // This prevents rapid retries even if previous cycle missed deadline
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
-        // Check if configuration reload is needed (signaled by upload task after successful upload)
-        if (xSemaphoreTake(configReloadSemaphore, 0) == pdTRUE) {
+        // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
+        if (commandConfigReloadPending) {
+            commandConfigReloadPending = false;  // Clear the flag
             // Reload command frequency from static variable (updated by ConfigManager)
             TickType_t newFrequency = pdMS_TO_TICKS(commandFrequency);
             if (newFrequency != xFrequency) {
@@ -795,7 +955,6 @@ void TaskManager::commandTask(void* parameter) {
                 xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
                 LOG_INFO(LOG_TAG_COMMAND, "Command frequency updated to %lu ms", commandFrequency);
             }
-            // Semaphore consumed - do not give back
         }
         
         uint32_t startTime = micros();
@@ -861,8 +1020,9 @@ void TaskManager::configTask(void* parameter) {
         // ALWAYS wait for the full interval before starting next cycle
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
-        // Check if configuration reload is needed (signaled by upload task after successful upload)
-        if (xSemaphoreTake(configReloadSemaphore, 0) == pdTRUE) {
+        // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
+        if (configTaskReloadPending) {
+            configTaskReloadPending = false;  // Clear the flag
             // Reload config check frequency from static variable (updated by ConfigManager)
             TickType_t newFrequency = pdMS_TO_TICKS(configFrequency);
             if (newFrequency != xFrequency) {
@@ -870,7 +1030,6 @@ void TaskManager::configTask(void* parameter) {
                 xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
                 LOG_INFO(LOG_TAG_CONFIG, "Config check frequency updated to %lu ms", configFrequency);
             }
-            // Semaphore consumed - do not give back
         }
         
         uint32_t startTime = micros();
@@ -932,8 +1091,9 @@ void TaskManager::powerReportTask(void* parameter) {
         // Wait for power report interval
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
-        // Check if configuration reload is needed (signaled by upload task after successful upload)
-        if (xSemaphoreTake(configReloadSemaphore, 0) == pdTRUE) {
+        // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
+        if (powerReportConfigReloadPending) {
+            powerReportConfigReloadPending = false;  // Clear the flag
             // Reload power report frequency from static variable (updated by ConfigManager)
             TickType_t newFrequency = pdMS_TO_TICKS(powerReportFrequency);
             if (newFrequency != xFrequency) {
@@ -941,7 +1101,6 @@ void TaskManager::powerReportTask(void* parameter) {
                 xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
                 LOG_INFO(LOG_TAG_POWER, "Power report frequency updated to %lu ms", powerReportFrequency);
             }
-            // Semaphore consumed - do not give back
         }
         
         uint32_t startTime = micros();
@@ -1054,8 +1213,9 @@ void TaskManager::otaTask(void* parameter) {
         // Wait for OTA check interval
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
-        // Check if configuration reload is needed (signaled by upload task after successful upload)
-        if (xSemaphoreTake(configReloadSemaphore, 0) == pdTRUE) {
+        // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
+        if (otaConfigReloadPending) {
+            otaConfigReloadPending = false;  // Clear the flag
             // Reload OTA frequency from static variable (updated by ConfigManager)
             TickType_t newFrequency = pdMS_TO_TICKS(otaFrequency);
             if (newFrequency != xFrequency) {
@@ -1063,7 +1223,6 @@ void TaskManager::otaTask(void* parameter) {
                 xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
                 LOG_INFO(LOG_TAG_FOTA, "OTA check frequency updated to %lu ms", otaFrequency);
             }
-            // Semaphore consumed - do not give back
         }
         
         uint32_t startTime = micros();
@@ -1168,11 +1327,8 @@ void TaskManager::watchdogTask(void* parameter) {
                   currentTime - stats_upload.lastRunTime);
         }
         
-        // Check compression task (HIGH)
-        if (currentTime - stats_compression.lastRunTime > pollFrequency * 10) {
-            LOG_WARN(LOG_TAG_WATCHDOG, "Compression task delayed! Last run: %lu ms ago",
-                  currentTime - stats_compression.lastRunTime);
-        }
+        // NOTE: Compression task monitoring removed - compression now happens inside upload task
+        // (compress-on-upload architecture to prevent register layout misalignment)
         
         // Check for excessive deadline misses (using intelligent monitoring)
         if (deadlineMonitor_sensorPoll.shouldRestart()) {
@@ -1238,4 +1394,32 @@ void TaskManager::updateOtaFrequency(uint32_t newFreqMs) {
 void TaskManager::updatePowerReportFrequency(uint32_t newFreqMs) {
     powerReportFrequency = newFreqMs;
     LOG_INFO(LOG_TAG_BOOT, "Power report frequency updated to %lu ms", newFreqMs);
+}
+
+void TaskManager::setCloudConfigChangePending(bool pending) {
+    cloudConfigChangePending = pending;
+    if (pending) {
+        LOG_INFO(LOG_TAG_BOOT, "Cloud config change detected - will apply after next upload");
+    }
+}
+
+// ============================================
+// Raw Sample Buffer Access Functions
+// ============================================
+
+SensorSample* TaskManager::getRawSampleBuffer() {
+    return rawSampleBuffer;
+}
+
+size_t TaskManager::getRawSampleCount() {
+    return rawSampleCount;
+}
+
+void TaskManager::clearRawSampleBuffer() {
+    rawSampleHead = 0;
+    rawSampleCount = 0;
+}
+
+SemaphoreHandle_t TaskManager::getRawSampleMutex() {
+    return rawSampleMutex;
 }

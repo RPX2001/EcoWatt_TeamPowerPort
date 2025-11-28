@@ -54,9 +54,14 @@
 #define STACK_WATCHDOG          2048
 
 // Queue Sizes
-#define QUEUE_SENSOR_DATA_SIZE      10  // 10 sensor samples
+#define QUEUE_SENSOR_DATA_SIZE      10  // 10 sensor samples (legacy - now using ring buffer)
 #define QUEUE_COMPRESSED_DATA_SIZE  5   // 5 compressed packets
 #define QUEUE_COMMAND_SIZE          5   // 5 pending commands
+
+// Raw Sample Ring Buffer Size (stores samples until upload time)
+// Size = (upload_interval / poll_interval) with margin
+// Example: 15s upload / 3s poll = 5 samples, with 4x margin = 20
+#define RAW_SAMPLE_BUFFER_SIZE      50  // Max samples between uploads
 
 // ============================================
 // Data Structures
@@ -176,6 +181,15 @@ public:
     static void updatePowerReportFrequency(uint32_t newFreqMs);
     
     /**
+     * @brief Set cloud config change pending flag
+     * @param pending true when cloud config change detected, false after applying
+     * 
+     * Called by ConfigManager when it detects a pending config from cloud.
+     * Upload task checks this flag to decide whether to signal config reload.
+     */
+    static void setCloudConfigChangePending(bool pending);
+    
+    /**
      * @brief Get current configuration frequencies (in milliseconds)
      */
     static uint32_t getConfigFrequency() { return configFrequency; }
@@ -196,6 +210,15 @@ public:
      * @brief Check if system is healthy (no deadline misses)
      */
     static bool isSystemHealthy();
+    
+    /**
+     * @brief Get raw sample buffer for direct access by upload task
+     * Returns pointer to the ring buffer and current count
+     */
+    static SensorSample* getRawSampleBuffer();
+    static size_t getRawSampleCount();
+    static void clearRawSampleBuffer();
+    static SemaphoreHandle_t getRawSampleMutex();
 
 private:
     // Task entry points
@@ -236,6 +259,14 @@ private:
     static SemaphoreHandle_t dataPipelineMutex;
     static SemaphoreHandle_t batchReadySemaphore;  // Signals when compression batch is ready for upload
     static SemaphoreHandle_t configReloadSemaphore;  // Signals all tasks to reload config after successful upload
+    static SemaphoreHandle_t rawSampleMutex;  // Protects raw sample buffer access
+    
+    // Raw sample ring buffer (NEW: compress-on-upload architecture)
+    // Stores raw sensor samples until upload time, then compresses all at once
+    // This prevents mixing old/new register layouts when config changes mid-cycle
+    static SensorSample rawSampleBuffer[RAW_SAMPLE_BUFFER_SIZE];
+    static size_t rawSampleHead;  // Write position
+    static size_t rawSampleCount; // Current number of samples
     
     // Configuration
     static uint32_t pollFrequency;

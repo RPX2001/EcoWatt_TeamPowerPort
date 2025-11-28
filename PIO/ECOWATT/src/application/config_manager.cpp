@@ -296,6 +296,9 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                         LOG_SUCCESS(LOG_TAG_CONFIG, "Configuration changes applied successfully");
                         LOG_DIVIDER();
                         
+                        // Signal that cloud config change is pending (upload task will set reload flags after next upload)
+                        TaskManager::setCloudConfigChangePending(true);
+                        
                         // Send acknowledgment to Flask server to mark config as "acknowledged"
                         sendConfigAcknowledgment("applied", "Configuration updated successfully");
                     } else {

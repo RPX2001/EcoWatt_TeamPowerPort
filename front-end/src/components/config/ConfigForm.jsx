@@ -245,6 +245,13 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
       }));
       
       setSuccess(true);
+      
+      // Dispatch custom event to notify Dashboard to refresh config immediately
+      window.dispatchEvent(new CustomEvent('configUpdated', { 
+        detail: { deviceId, config: configUpdate } 
+      }));
+      console.log('[ConfigForm] Dispatched configUpdated event for device:', deviceId);
+      
       if (onConfigUpdate) {
         onConfigUpdate(configUpdate);
       }

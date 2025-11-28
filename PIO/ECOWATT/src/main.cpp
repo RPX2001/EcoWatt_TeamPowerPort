@@ -1,7 +1,7 @@
 /**
  * @file main.cpp
  * @brief EcoWatt ESP32 Main Firmware - FreeRTOS Dual-Core Version
- * @version 1.3.2
+ * @version 1.3.3
  * 
  * 
  * @author Team PowerPort
@@ -37,7 +37,7 @@
 OTAManager* otaManager = nullptr;
 Arduino_Wifi Wifi;
 
-#define FIRMWARE_VERSION "1.3.2"
+#define FIRMWARE_VERSION "1.3.3"
 
 // ============================================
 // Helper Functions

@@ -179,6 +179,22 @@ const Dashboard = () => {
     }
   }, [selectedDevice]);
 
+  // Listen for config updates from Configuration page to refresh immediately
+  useEffect(() => {
+    const handleConfigUpdated = (event) => {
+      const { deviceId } = event.detail;
+      console.log('[Dashboard] Received configUpdated event for device:', deviceId);
+      // Refresh if the updated device is currently selected
+      if (deviceId === selectedDevice) {
+        console.log('[Dashboard] Refreshing data due to config change...');
+        fetchData();
+      }
+    };
+
+    window.addEventListener('configUpdated', handleConfigUpdated);
+    return () => window.removeEventListener('configUpdated', handleConfigUpdated);
+  }, [selectedDevice]);
+
   const fetchData = async () => {
     if (!selectedDevice) return;
 
