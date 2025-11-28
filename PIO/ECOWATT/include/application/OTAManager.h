@@ -7,7 +7,14 @@
 #include <Preferences.h>
 #include <WiFi.h>
 #include <esp_ota_ops.h>
+// Undef print macro before including ArduinoJson to avoid conflicts
+#ifdef print
+#undef print
 #include <ArduinoJson.h>
+#define print(...) debug.log(__VA_ARGS__)
+#else
+#include <ArduinoJson.h>
+#endif
 #include <base64.h>
 
 // mbedtls includes for cryptographic functions
@@ -21,7 +28,7 @@
 
 // OTA Constants
 #define OTA_TIMEOUT_MS 30000
-#define OTA_CHUNK_SIZE 1024
+#define OTA_CHUNK_SIZE 2048  // 2KB chunks - balance between speed and memory (was 1024, tried 4096 but caused OOM)
 #define RSA_KEY_SIZE 2048
 
 // OTA State enumeration
@@ -34,6 +41,16 @@ enum OTAState {
     OTA_COMPLETED,
     OTA_ERROR,
     OTA_ROLLBACK
+};
+
+// OTA Fault Test Types (for testing robustness)
+enum OTAFaultType {
+    OTA_FAULT_NONE = 0,
+    OTA_FAULT_CORRUPT_CHUNK,      // Simulate corrupted chunk data
+    OTA_FAULT_BAD_HMAC,            // Simulate HMAC verification failure
+    OTA_FAULT_BAD_HASH,            // Simulate hash mismatch
+    OTA_FAULT_NETWORK_TIMEOUT,     // Simulate network timeout
+    OTA_FAULT_INCOMPLETE_DOWNLOAD  // Simulate incomplete download
 };
 
 // Firmware manifest structure
@@ -78,6 +95,8 @@ public:
     bool downloadAndApplyFirmware();
     bool verifyAndReboot();
     void handleRollback();
+    bool reportOTACompletionStatus(); // Report OTA result to Flask after reboot
+    bool runDiagnostics(); // Run post-OTA diagnostics (moved to public)
     
     // Progress and status methods
     OTAProgress getProgress();
@@ -89,6 +108,13 @@ public:
     // Configuration methods
     void setServerURL(const String& url);
     void setCheckInterval(unsigned long intervalMs);
+    
+    // Fault testing methods (for robustness testing)
+    void enableTestMode(OTAFaultType faultType);
+    void disableTestMode();
+    bool isTestMode() const { return testModeEnabled; }
+    OTAFaultType getTestFaultType() const { return testFaultType; }
+    void getOTAStatistics(uint32_t& successCount, uint32_t& failureCount, uint32_t& rollbackCount);
 
 private:
     // Configuration
@@ -114,12 +140,21 @@ private:
     
     // Decryption buffer
     uint8_t* decryptBuffer;
-    static const size_t DECRYPT_BUFFER_SIZE = 2048;
+    static const size_t DECRYPT_BUFFER_SIZE = 4096;  // 4KB buffer for 2KB chunks + overhead
+    
+    // Fault testing variables
+    bool testModeEnabled;
+    OTAFaultType testFaultType;
+    uint32_t otaSuccessCount;
+    uint32_t otaFailureCount;
+    uint32_t otaRollbackCount;
     
     // Private methods - Network operations
     bool requestManifest();
     bool downloadChunk(uint16_t chunkNumber);
     bool httpPost(const String& endpoint, const String& payload, String& response);
+    bool httpGet(const String& endpoint, String& response);
+    bool reportProgress(const String& phase, int progressPercent, const String& message);
     
     // Private methods - Cryptographic operations
     bool decryptChunk(const uint8_t* encrypted, size_t encLen, uint8_t* decrypted, size_t* decLen, uint16_t chunkNumber);
@@ -129,10 +164,14 @@ private:
     bool verifyChunkHMAC(const uint8_t* chunkData, size_t len, uint16_t chunkNum, const String& expectedHMAC);
     String calculateSHA256(const uint8_t* data, size_t len);
     
+    // Private methods - Fault injection (for testing)
+    bool simulateFault(OTAFaultType faultType);
+    bool shouldInjectFault();
+    
     // Private methods - Progress and state management
     void saveProgress();
     void loadProgress();
-    bool runDiagnostics();
+    // runDiagnostics() moved to public section
     void setError(const String& message);
     void setOTAState(OTAState newState);
     void updateProgress(uint32_t bytes, uint16_t chunks);

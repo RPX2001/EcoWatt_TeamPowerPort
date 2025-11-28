@@ -1,4 +1,23 @@
 #include "peripheral/acquisition.h"
+#include "peripheral/logger.h"
+#include "application/fault_recovery.h" // Fault Recovery
+#include "application/data_uploader.h"  // For getDeviceID()
+#include <functional>  // For std::bind to reduce stack usage
+#include <time.h>
+
+// Helper to get current Unix timestamp (same as data_uploader)
+static unsigned long getCurrentTimestamp() {
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        time_t now = mktime(&timeinfo);
+        return (unsigned long)now;
+    }
+    time_t now = time(nullptr);
+    if (now > 1000000000) { // Sanity check
+        return (unsigned long)now;
+    }
+    return millis() / 1000; // Last resort
+}
 
 ProtocolAdapter adapter;
 
@@ -169,11 +188,11 @@ bool setPower(uint16_t powerValue)
   char frame[32];
   if (!buildWriteFrame(0x11, 8, powerValue, frame, sizeof(frame))) 
   {
-    debug.log("Failed to build write frame\n");
+    LOG_ERROR(LOG_TAG_MODBUS, "Failed to build write frame");
     return false;
   }
 
-  debug.log("Sending write frame: %s\n", frame);
+  LOG_DEBUG(LOG_TAG_MODBUS, "Sending write frame: %s", frame);
 
   char responseFrame[128];
 
@@ -181,7 +200,7 @@ bool setPower(uint16_t powerValue)
 
   if (WiFi.status() != WL_CONNECTED)
   {
-    debug.log("WiFi not connected\n");
+    LOG_WARN(LOG_TAG_MODBUS, "WiFi not connected");
     okReq = false;
   }
   else
@@ -191,28 +210,53 @@ bool setPower(uint16_t powerValue)
 
   if (!okReq) 
   {
-    debug.log("Write request failed after retries.\n");
+    LOG_ERROR(LOG_TAG_MODBUS, "Write request failed after retries");
     return false;
   }
 
   if (strcmp(responseFrame, frame) == 0) 
   {
-    debug.log("Power set to %u successfully\n", powerValue);
+    LOG_SUCCESS(LOG_TAG_MODBUS, "Power set to %u successfully", powerValue);
     return true;
   } 
   else 
   {
-    debug.log("Failed to set power, response mismatch\n");
-    debug.log("Raw response frame: %s\n", responseFrame);
+    LOG_ERROR(LOG_TAG_MODBUS, "Failed to set power, response mismatch");
+    LOG_DEBUG(LOG_TAG_MODBUS, "Raw response frame: %s", responseFrame);
     return false;
   }
 }
 
 
 /**
+ * @fn static bool retryModbusRead(const char* frame, char* responseFrame, size_t responseSize, uint8_t expectedByteCount)
+ * 
+ * @brief Helper function to retry Modbus read and validate response
+ */
+static bool retryModbusRead(const char* frame, char* responseFrame, size_t responseSize, uint8_t expectedByteCount) {
+  static char retryResponse[256]; // Static to reduce stack usage
+  
+  bool retryOk = adapter.readRegister(frame, retryResponse, sizeof(retryResponse));
+  
+  if (!retryOk) return false;
+  
+  // Check if retry response is fault-free
+  FaultType retryFault = detectFault(retryResponse, expectedByteCount, sizeof(retryResponse));
+  
+  if (retryFault == FaultType::NONE) {
+    // Success! Copy response to output buffer
+    strncpy(responseFrame, retryResponse, responseSize);
+    responseFrame[responseSize - 1] = '\0';
+    return true;
+  }
+  
+  return false; // Still faulty
+}
+
+/**
  * @fn DecodedValues readRequest(const RegID* regs, size_t regCount)
  * 
- * @brief Read specified registers from the inverter.
+ * @brief Read specified registers from the inverter with fault detection and recovery.
  * 
  * @param regs Array of RegIDs to read.
  * @param regCount Number of registers to read.
@@ -231,36 +275,100 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
   char frame[64];
   if (!buildReadFrame(0x11, regs, regCount, startAddr, count, frame, sizeof(frame))) 
   {
-    debug.log("Failed to build read frame.\n");
+    LOG_ERROR(LOG_TAG_MODBUS, "Failed to build read frame");
     result.values[0] = 0xFFFF; // Indicate error
     result.count = 1;
     return result;
   }
 
+  // Calculate expected byte count for validation
+  uint8_t expectedByteCount = count * 2; // Each register is 2 bytes
+
   // send request
-  char responseFrame[256];
+  char responseFrame[256] = {0}; // Initialize to empty string
   
   bool ok;
 
   if (WiFi.status() != WL_CONNECTED)
   {
-    debug.log("WiFi not connected\n");
+    LOG_WARN(LOG_TAG_MODBUS, "WiFi not connected");
     ok =  false;
+    // No response frame available - true timeout
+    
+    FaultRecoveryEvent event;
+    const char* deviceId = DataUploader::getDeviceID();
+    strncpy(event.device_id, deviceId ? deviceId : "ESP32_UNKNOWN", sizeof(event.device_id));
+    event.device_id[sizeof(event.device_id) - 1] = '\0';
+    event.timestamp = getCurrentTimestamp();
+    event.fault_type = FaultType::TIMEOUT;
+    event.recovery_action = RecoveryAction::RETRY_READ;
+    event.success = false;
+    event.retry_count = 0;
+    snprintf(event.details, sizeof(event.details), "WiFi not connected - network timeout");
+    
+    sendRecoveryEvent(event);
+    
+    result.values[0] = 0xFFFF;
+    result.count = 1;
+    return result;
   }
   else
   {
     ok = adapter.readRegister(frame, responseFrame, sizeof(responseFrame));
   }
 
-  //if response is error return error values to main code
-  if (!ok) 
-  {
-    debug.log("Read request failed after retries.\n");
-    result.values[0] = 0xFFFF; // Indicate error
-    result.count = 1;
-    return result;
-  }
   const char* response_frame = responseFrame;
+  
+  // Detect faults in response
+  // NOTE: detectFault() works even if ok==false (corrupted frame is still copied to responseFrame)
+  FaultType fault = detectFault(response_frame, expectedByteCount, sizeof(responseFrame));
+  
+  if (fault != FaultType::NONE) {
+    LOG_WARN(LOG_TAG_FAULT, "Fault detected: %s", getFaultTypeName(fault));
+    
+    // Execute recovery with retries (use std::bind to avoid lambda overhead)
+    uint8_t retryCount = 0;
+    bool recoverySuccess = false;
+    
+    // Use function pointer with std::bind to reduce stack usage
+    std::function<bool()> retryFunc = std::bind(retryModbusRead, frame, responseFrame, sizeof(responseFrame), expectedByteCount);
+    
+    recoverySuccess = executeRecovery(fault, retryFunc, retryCount);
+    
+    // Report recovery event
+    FaultRecoveryEvent event;
+    const char* deviceId = DataUploader::getDeviceID();
+    strncpy(event.device_id, deviceId ? deviceId : "ESP32_UNKNOWN", sizeof(event.device_id));
+    event.device_id[sizeof(event.device_id) - 1] = '\0';
+    event.timestamp = getCurrentTimestamp(); // Use proper Unix timestamp
+    event.fault_type = fault;
+    event.recovery_action = RecoveryAction::RETRY_READ;
+    event.success = recoverySuccess;
+    event.retry_count = retryCount;
+    
+    if (recoverySuccess) {
+      snprintf(event.details, sizeof(event.details), 
+               "%s detected and recovered after %u retries", 
+               getFaultTypeName(fault), retryCount);
+    } else {
+      snprintf(event.details, sizeof(event.details), 
+               "%s detected, recovery FAILED after %u retries", 
+               getFaultTypeName(fault), retryCount);
+    }
+    
+    sendRecoveryEvent(event);
+    
+    if (!recoverySuccess) {
+      // Recovery failed - return error
+      result.values[0] = 0xFFFF;
+      result.count = 1;
+      return result;
+    }
+    
+    // Recovery succeeded - continue with corrected response
+    response_frame = responseFrame;
+  }
+  
   // decode response
   result = decodeReadResponse(response_frame, startAddr, count, regs, regCount);
 

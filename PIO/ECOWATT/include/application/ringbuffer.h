@@ -3,13 +3,15 @@
 
 #include <Arduino.h>
 #include <vector>
+#include "peripheral/acquisition.h"
 
 struct SmartCompressedData {
     std::vector<uint8_t> binaryData;
     RegID registers[16];            // Register selection used
-    size_t registerCount;           // Number of registers
+    size_t registerCount;           // Number of registers PER SAMPLE
+    size_t sampleCount;             // Number of samples in this compressed packet
     char compressionMethod[32];     // Method used by smart selection
-    unsigned long timestamp;        // Sample timestamp
+    unsigned long timestamp;        // FIRST sample timestamp (millis since boot)
     size_t originalSize;            // Original data size in bytes
     float academicRatio;            // Academic compression ratio (compressed/original)
     float traditionalRatio;         // Traditional compression ratio (original/compressed)
@@ -17,8 +19,8 @@ struct SmartCompressedData {
     bool losslessVerified;          // Whether lossless compression was verified
     
     // Constructor
-    SmartCompressedData(const std::vector<uint8_t>& data, const RegID* regSelection, size_t regCount, const char* method) 
-        : binaryData(data), registerCount(regCount), timestamp(millis()) {
+    SmartCompressedData(const std::vector<uint8_t>& data, const RegID* regSelection, size_t regCount, const char* method, size_t numSamples = 1) 
+        : binaryData(data), registerCount(regCount), sampleCount(numSamples), timestamp(millis()) {
         strncpy(compressionMethod, method, sizeof(compressionMethod) - 1);
         compressionMethod[sizeof(compressionMethod) - 1] = '\0';
         
@@ -26,14 +28,14 @@ struct SmartCompressedData {
         memcpy(registers, regSelection, regCount * sizeof(RegID));
         
         // Calculate metrics
-        originalSize = regCount * sizeof(uint16_t);
+        originalSize = regCount * numSamples * sizeof(uint16_t);  // Total size for all samples
         academicRatio = (binaryData.size() > 0) ? (float)binaryData.size() / (float)originalSize : 1.0f;
         traditionalRatio = (binaryData.size() > 0) ? (float)originalSize / (float)binaryData.size() : 0.0f;
         losslessVerified = false;
     }
     
     // Default constructor
-    SmartCompressedData() : registerCount(0), timestamp(0), originalSize(0), 
+    SmartCompressedData() : registerCount(0), sampleCount(0), timestamp(0), originalSize(0), 
                            academicRatio(1.0f), traditionalRatio(0.0f), 
                            compressionTime(0), losslessVerified(false) {
         compressionMethod[0] = '\0';

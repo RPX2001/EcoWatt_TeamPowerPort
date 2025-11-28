@@ -30,6 +30,18 @@ enum PowerMode {
 };
 
 /**
+ * @brief Power management technique flags
+ * Currently only Peripheral Gating is supported.
+ */
+enum PowerTechnique {
+    POWER_TECH_NONE = 0,                    // No power management
+    POWER_TECH_PERIPHERAL_GATING = (1 << 3) // UART/peripheral power gating
+};
+
+// Convenience type for storing enabled techniques
+typedef uint8_t PowerTechniqueFlags;
+
+/**
  * @brief Power statistics structure
  */
 struct PowerStats {
@@ -43,7 +55,8 @@ struct PowerStats {
     uint32_t freq_changes;           // Number of frequency changes
     
     float avg_current_ma;            // Average current consumption (estimated)
-    float energy_saved_mah;          // Estimated energy saved
+    float energy_saved_mah;          // Total estimated energy saved
+    float peripheral_savings_mah;    // Energy saved by peripheral gating (subset of energy_saved_mah)
 };
 
 /**
@@ -120,6 +133,49 @@ public:
      * @return true if enabled, false otherwise
      */
     static bool isAutoPowerManagementEnabled();
+    
+    /**
+     * @brief Enable or disable power management system
+     * @param enabled true to enable, false to disable
+     */
+    static void enable(bool enabled);
+    
+    /**
+     * @brief Check if power management is enabled
+     * @return true if enabled, false otherwise
+     */
+    static bool isEnabled();
+    
+    /**
+     * @brief Set power management techniques (bit flags)
+     * @param techniques Combination of PowerTechnique flags (e.g., POWER_TECH_WIFI_MODEM_SLEEP | POWER_TECH_PERIPHERAL_GATING)
+     */
+    static void setTechniques(PowerTechniqueFlags techniques);
+    
+    /**
+     * @brief Get current enabled techniques
+     * @return Current technique flags
+     */
+    static PowerTechniqueFlags getTechniques();
+    
+    /**
+     * @brief Enable a specific power technique
+     * @param technique Single PowerTechnique flag to enable
+     */
+    static void enableTechnique(PowerTechnique technique);
+    
+    /**
+     * @brief Disable a specific power technique
+     * @param technique Single PowerTechnique flag to disable
+     */
+    static void disableTechnique(PowerTechnique technique);
+    
+    /**
+     * @brief Check if a specific technique is enabled
+     * @param technique PowerTechnique flag to check
+     * @return true if enabled, false otherwise
+     */
+    static bool isTechniqueEnabled(PowerTechnique technique);
 
 private:
     static PowerMode currentMode;
@@ -127,11 +183,18 @@ private:
     static uint32_t lastUpdateTime;
     static bool autoPowerManagement;
     static uint32_t currentFrequency;
+    static PowerTechniqueFlags enabledTechniques;
+    static bool powerManagementEnabled;
     
     /**
      * @brief Update time spent in current mode
      */
     static void recordModeTime();
+    
+    /**
+     * @brief Apply currently enabled techniques
+     */
+    static void applyTechniques();
 };
 
 // Convenience macros for power management

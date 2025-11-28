@@ -28,12 +28,14 @@ struct SmartPerformanceStats {
     // Adaptive learning metrics
     char currentOptimalMethod[32];
     float bestAcademicRatio = 1.0f;
+    float worstAcademicRatio = 0.0f;  // Track worst case for monitoring
     
     // Constructor to initialize char array
     SmartPerformanceStats() {
         strcpy(currentOptimalMethod, "DICTIONARY");
     }
     unsigned long fastestCompressionTime = ULONG_MAX;
+    unsigned long slowestCompressionTime = 0;  // Track slowest for monitoring
     
     // Success metrics
     unsigned long losslessSuccesses = 0;

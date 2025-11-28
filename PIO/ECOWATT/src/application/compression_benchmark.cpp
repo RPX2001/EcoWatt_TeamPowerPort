@@ -1,4 +1,5 @@
 #include "application/compression_benchmark.h"
+#include "peripheral/logger.h"
 
 
 /**
@@ -74,16 +75,16 @@ BenchmarkResult CompressionBenchmark::testCompression(uint16_t* data, size_t cou
  */
 void CompressionBenchmark::printBenchmarkReport(const BenchmarkResult& result) 
 {
-    print("=== COMPRESSION BENCHMARK REPORT ===\n");
-    print("Compression Method Used: %s\n", result.compressionMethod);
-    print("Number of Samples: %lu\n", result.numberOfSamples);
-    print("Original Payload Size: %lu bytes\n", result.originalPayloadSize);
-    print("Compressed Payload Size: %lu bytes\n", result.compressedPayloadSize);
-    print("Compression Ratio: %.2f:1\n", result.compressionRatio);
-    print("CPU Time: %lu ms\n", result.cpuTimeMs);
-    print("Lossless Recovery Verification: %s\n", result.losslessVerified ? "PASSED" : "FAILED");
-    print("Storage Savings: %.1f%%\n", (1.0 - (float)result.compressedPayloadSize / (float)result.originalPayloadSize) * 100.0);
-    print("=====================================\n");
+    LOG_INFO(LOG_TAG_COMPRESS, "=== COMPRESSION BENCHMARK REPORT ===");;
+    LOG_INFO(LOG_TAG_COMPRESS, "Compression Method Used: %s\n", result.compressionMethod);
+    LOG_INFO(LOG_TAG_COMPRESS, "Number of Samples: %lu\n", result.numberOfSamples);
+    LOG_INFO(LOG_TAG_COMPRESS, "Original Payload Size: %lu bytes\n", result.originalPayloadSize);
+    LOG_INFO(LOG_TAG_COMPRESS, "Compressed Payload Size: %lu bytes\n", result.compressedPayloadSize);
+    LOG_INFO(LOG_TAG_COMPRESS, "Compression Ratio: %.2f:1\n", result.compressionRatio);
+    LOG_INFO(LOG_TAG_COMPRESS, "CPU Time: %lu ms\n", result.cpuTimeMs);
+    LOG_INFO(LOG_TAG_COMPRESS, "Lossless Recovery Verification: %s\n", result.losslessVerified ? "PASSED" : "FAILED");
+    LOG_INFO(LOG_TAG_COMPRESS, "Storage Savings: %.1f%%\n", (1.0 - (float)result.compressedPayloadSize / (float)result.originalPayloadSize) * 100.0);
+    LOG_INFO(LOG_TAG_COMPRESS, "=====================================");;
 }
 
 

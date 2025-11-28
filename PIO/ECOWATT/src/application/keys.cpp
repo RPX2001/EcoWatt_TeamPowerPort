@@ -10,12 +10,16 @@
 
 // RSA-2048 Public Key for signature verification
 const char* SERVER_PUBLIC_KEY = 
-    "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsQ8Pqe/fv8u0voGPk0/7\nZlNk7ktc6USP3RNCjnlY19HMk86dULDrXZ257oCinbtz0/TVCGVjZmJiFtubeVzW\nA5nCZKcfMeimBUXEy9Yrux9xnSSxZPYJv2UEasAq24qTr8WAAUWYyyfhqZKVX5S3\novtL0lo/936beQK+X9DNWWjy05B3JgurS3axuPTX36mclcgPyTDpgiBQ5N3uzoKl\nIZJKO0x9g33wPqnkQd6q7SJuA4nMvIoXXGcKSK+nz6GEpR7NSx5kRZqsObdvYgd4\njxMtLImB+aVPnrA58gP/YKw+HZh4o5fLDYy6e/7VtNqVPTubOEPGrr0/T0s91Bo/\niwIDAQAB\n-----END PUBLIC KEY-----\n";
+    "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAySLYd/q/Kce+p9dNLk1s\nTbIP3YLwc7rBi8+xkVMYU9iRBVek5jUL29U90WAKRdPPanDeviqEe0GwDrnBvaG8\nNYql42BQLzJs4/D+PEW6vKO7sFGP/Pa2XFGnopPJC9it7CfT2Zv6fL3vciHrbRY9\nBuMlRd5JSi4qVnmbsPfXUeDNKUWbvygSYw+7IAOktaCXSnATD6bkCLhNk02StRhr\nmrPl6Ltb1zuifsN1uFvptQPcA6mFYFYeSEmS7OWZbbrQATUnQMIb6iVMGY/8rR8k\nPtu7eITMd98UEMKbxhw+9jOElCp8uyhO4IyafMmJRROaJheAgDKwKVi+PH9aTOpC\nAwIDAQAB\n-----END PUBLIC KEY-----\n";
 
 // AES-256 Key for firmware decryption (32 bytes)
+// MUST MATCH flask/keys/aes_firmware_key.bin: a27bb3da294244cb3e797760a00abd1fd056379d313f4122e23fa469e0e84ae6
 const uint8_t AES_FIRMWARE_KEY[32] = {
-    0x65, 0x4D, 0x23, 0xCD, 0x26, 0x59, 0xF4, 0xCC, 0x8B, 0xC0, 0x41, 0x55, 0x7D, 0x68, 0x54, 0x08, 0x34, 0x8F, 0xD7, 0x01, 0xA1, 0xA2, 0x61, 0xA8, 0x2A, 0x08, 0x7E, 0x49, 0x75, 0x3B, 0xC4, 0x07
+    0xA2, 0x7B, 0xB3, 0xDA, 0x29, 0x42, 0x44, 0xCB, 
+    0x3E, 0x79, 0x77, 0x60, 0xA0, 0x0A, 0xBD, 0x1F, 
+    0xD0, 0x56, 0x37, 0x9D, 0x31, 0x3F, 0x41, 0x22, 
+    0xE2, 0x3F, 0xA4, 0x69, 0xE0, 0xE8, 0x4A, 0xE6
 };
 
 // HMAC Pre-Shared Key for chunk authentication
-const char* HMAC_PSK = "16ecd7da91ce8db9c0de79be4da968e98923a3bca23e2581dfa24bce23297a54";
+const char* HMAC_PSK = "fb7956d796c2359eee9fdcf9726d728b576fce9570dac869ccd33d30a8869485";

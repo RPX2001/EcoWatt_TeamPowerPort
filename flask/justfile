@@ -1,0 +1,233 @@
+# Flask EcoWatt Server - Task Automation
+# Usage: just <command>
+
+# List all available commands
+default:
+    @just --list
+
+# ============================================================
+# Server Management
+# ============================================================
+
+# Start Flask server (development mode)
+server:
+    python3 flask_server_modular.py
+
+# Start Flask server in background
+server-bg:
+    nohup python3 flask_server_modular.py > server.log 2>&1 &
+    @echo "✅ Server started in background (see server.log)"
+
+# Stop background server
+stop:
+    @pkill -f flask_server_modular.py || echo "Server not running"
+
+# View server logs (real-time)
+logs:
+    tail -f server.log
+
+# ============================================================
+# Testing
+# ============================================================
+
+# Run all tests (excluding database integration tests which cause pollution)
+test:
+    python3 -m pytest tests/ --ignore=tests/integration_tests/test_database_flask_integration.py -v
+
+# Run all tests including database tests (may have some failures due to test pollution)
+test-all:
+    python3 -m pytest tests/ -v
+
+# Run database integration tests only
+test-db:
+    python3 -m pytest tests/integration_tests/test_database_flask_integration.py -v
+
+# Run unit tests only
+test-unit:
+    python3 -m pytest tests/unit_tests/ -v
+
+# Run integration tests only (excluding database tests)
+test-integration:
+    python3 -m pytest tests/integration_tests/ --ignore=tests/integration_tests/test_database_flask_integration.py -v
+
+# Run M3 tests only (compression, acquisition, upload)
+test-m3:
+    python3 -m pytest tests/unit_tests/test_m3_flask.py tests/integration_tests/test_m3_flask_integration.py -v
+
+# Run M4 tests only (security, OTA, commands, config)
+test-m4:
+    python3 -m pytest tests/unit_tests/test_m4*.py tests/integration_tests/test_m4_flask_integration.py -v
+
+# Run quick test (no verbose output)
+test-quick:
+    python3 -m pytest tests/ --ignore=tests/integration_tests/test_database_flask_integration.py -q
+
+# Run tests with coverage report
+test-coverage:
+    python3 -m pytest --cov=. --cov-report=html --cov-report=term -v
+
+# ============================================================
+# Utilities
+# ============================================================
+
+# Generate RSA key pair for FOTA (first-time setup)
+generate-keys:
+    python3 scripts/generate_keys.py
+    @echo "✅ Keys generated in keys/ directory"
+
+# Prepare and sign firmware for OTA update
+prepare-firmware version="1.0.5":
+    python3 scripts/prepare_firmware.py {{version}}
+    @echo "✅ Firmware prepared: firmware/firmware_{{version}}_encrypted.bin"
+
+# Benchmark compression algorithms (SEMANTIC, DICTIONARY, HUFFMAN)
+benchmark:
+    python3 scripts/benchmark_compression.py
+
+# Queue a command to ESP32 device
+queue-command device_id="ESP32_EcoWatt_Smart" command="set_power_percentage" value="60":
+    python3 scripts/queue_command_for_esp32.py {{device_id}} {{command}} {{value}}
+    @echo "✅ Command queued: {{command}}={{value}}"
+
+# ============================================================
+# Milestone 5: Fault Injection & Recovery Testing
+# ============================================================
+
+# Inverter SIM API Key (required for Error Flag API)
+export INVERTER_API_KEY := "NjhhZWIwNDU1ZDdmMzg3MzNiMTQ5YTFmOjY4YWViMDQ1NWQ3ZjM4NzMzYjE0OWExNQ=="
+
+# Inject CRC error fault (Inverter SIM)
+test-fault-crc:
+    @echo "🔧 Injecting CRC_ERROR fault..."
+    @curl -X POST http://localhost:5000/fault/inject \
+      -H "Content-Type: application/json" \
+      -d '{"errorType": "CRC_ERROR"}' \
+      2>/dev/null | jq '.'
+
+# Inject truncated payload fault (Inverter SIM)
+test-fault-truncate:
+    @echo "🔧 Injecting CORRUPT (truncate) fault..."
+    @curl -X POST http://localhost:5000/fault/inject \
+      -H "Content-Type: application/json" \
+      -d '{"errorType": "CORRUPT"}' \
+      2>/dev/null | jq '.'
+
+# Inject garbage data fault (Inverter SIM)
+test-fault-garbage:
+    @echo "🔧 Injecting CORRUPT (garbage) fault..."
+    @curl -X POST http://localhost:5000/fault/inject \
+      -H "Content-Type: application/json" \
+      -d '{"errorType": "CORRUPT"}' \
+      2>/dev/null | jq '.'
+
+# Inject exception fault (Inverter SIM)
+test-fault-exception code="1":
+    @echo "🔧 Injecting EXCEPTION fault (code {{code}})..."
+    @curl -X POST http://localhost:5000/fault/inject \
+      -H "Content-Type: application/json" \
+      -d '{"errorType": "EXCEPTION", "exceptionCode": {{code}}}' \
+      2>/dev/null | jq '.'
+
+# Inject packet drop fault (Inverter SIM)
+test-fault-drop:
+    @echo "🔧 Injecting PACKET_DROP fault..."
+    @curl -X POST http://localhost:5000/fault/inject \
+      -H "Content-Type: application/json" \
+      -d '{"errorType": "PACKET_DROP"}' \
+      2>/dev/null | jq '.'
+
+# Inject delay fault (Inverter SIM)
+test-fault-delay ms="5000":
+    @echo "🔧 Injecting DELAY fault ({{ms}}ms)..."
+    @curl -X POST http://localhost:5000/fault/inject \
+      -H "Content-Type: application/json" \
+      -d '{"errorType": "DELAY", "delayMs": {{ms}}}' \
+      2>/dev/null | jq '.'
+
+# View recovery events for a device
+view-recoveries device_id="ESP32_EcoWatt_Smart":
+    @echo "📊 Recovery events for {{device_id}}:"
+    @curl -s http://localhost:5000/fault/recovery/{{device_id}} | jq '.'
+
+# View all recovery events (all devices)
+view-all-recoveries:
+    @echo "📊 All recovery events:"
+    @curl -s http://localhost:5000/fault/recovery/all | jq '.'
+
+# Simulate a recovery event (for testing)
+test-recovery device_id="ESP32_EcoWatt_Smart" fault_type="crc_error" success="true":
+    @echo "🧪 Simulating recovery event..."
+    @curl -X POST http://localhost:5000/fault/recovery \
+      -H "Content-Type: application/json" \
+      -d '{"device_id": "{{device_id}}", "timestamp": '$(date +%s)', "fault_type": "{{fault_type}}", "recovery_action": "retry_read", "success": {{success}}, "details": "Test recovery event"}' \
+      2>/dev/null | jq '.'
+
+# Clear recovery events for a device
+clear-recoveries device_id="ESP32_EcoWatt_Smart":
+    @echo "🧹 Clearing recovery events for {{device_id}}..."
+    @curl -X POST http://localhost:5000/fault/recovery/clear \
+      -H "Content-Type: application/json" \
+      -d '{"device_id": "{{device_id}}"}' \
+      2>/dev/null | jq '.'
+
+# Clear all recovery events
+clear-all-recoveries:
+    @echo "🧹 Clearing ALL recovery events..."
+    @curl -X POST http://localhost:5000/fault/recovery/clear \
+      -H "Content-Type: application/json" \
+      2>/dev/null | jq '.'
+
+# Run full fault recovery test sequence
+test-fault-sequence:
+    @echo "🧪 Running full fault injection and recovery test sequence..."
+    @echo "\n1️⃣ Testing CRC Error..."
+    @just test-fault-crc
+    @sleep 2
+    @echo "\n2️⃣ Testing Corrupt/Truncate..."
+    @just test-fault-truncate
+    @sleep 2
+    @echo "\n3️⃣ Testing Garbage Data..."
+    @just test-fault-garbage
+    @sleep 2
+    @echo "\n4️⃣ Testing Exception..."
+    @just test-fault-exception
+    @sleep 2
+    @echo "\n5️⃣ Viewing recovery events..."
+    @just view-recoveries
+    @echo "\n✅ Fault sequence complete!"
+
+# ============================================================
+# Maintenance
+# ============================================================
+
+# Install Python dependencies
+install:
+    pip install -r req.txt
+    @echo "✅ Dependencies installed"
+
+# Clean temporary files and logs
+clean:
+    rm -f *.log
+    rm -f nonce_state.json
+    rm -rf __pycache__
+    rm -rf handlers/__pycache__
+    rm -rf routes/__pycache__
+    rm -rf utils/__pycache__
+    rm -rf .pytest_cache
+    rm -rf htmlcov
+    @echo "✅ Cleaned temporary files"
+
+# ============================================================
+# Development
+# ============================================================
+
+# Format Python code with black
+format:
+    black *.py handlers/ routes/ utils/ test_m3_integration/ test_m4_integration/
+    @echo "✅ Code formatted"
+
+# Run linter (pylint)
+lint:
+    pylint *.py handlers/*.py routes/*.py utils/*.py --disable=C0111,R0903 || true
+    @echo "✅ Lint complete"
+

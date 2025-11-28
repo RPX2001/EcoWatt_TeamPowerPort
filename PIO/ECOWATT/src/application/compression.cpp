@@ -1,4 +1,5 @@
 #include "application/compression.h"
+#include "peripheral/logger.h"
 
 // ==================== STATIC MEMBER INITIALIZATION ====================
 
@@ -99,10 +100,10 @@ std::vector<uint8_t> DataCompression::compressWithSmartSelection(uint16_t* data,
     size_t compressedBytes = bestResult.data.size();
     float savingsPercent = (1.0f - bestResult.academicRatio) * 100.0f;
     
-    print("COMPRESSION RESULT: %s method\n", bestResult.method.c_str());
-    print("Original: %zu bytes -> Compressed: %zu bytes (%.1f%% savings)\n", 
+    LOG_INFO(LOG_TAG_COMPRESS, "COMPRESSION RESULT: %s method", bestResult.method.c_str());
+    LOG_INFO(LOG_TAG_COMPRESS, "Original: %zu bytes -> Compressed: %zu bytes (%.1f%% savings)", 
           originalBytes, compressedBytes, savingsPercent);
-    print("Academic Ratio: %.3f | Time: %lu μs\n", bestResult.academicRatio, totalTime);
+    LOG_INFO(LOG_TAG_COMPRESS, "Academic Ratio: %.3f | Time: %lu μs", bestResult.academicRatio, totalTime);
 
     // Update dictionary with new data for future improvements
     updateDictionary(data, selection, count);
@@ -176,57 +177,94 @@ std::vector<uint8_t> DataCompression::compressWithDictionary(uint16_t* data, con
 {
     std::vector<uint8_t> result;
     
-    // Find closest dictionary pattern
-    int bestMatch = findClosestDictionaryPattern(data, selection, count);
+    // Build a local dictionary of unique values in this dataset
+    std::vector<uint16_t> uniqueValues;
+    std::vector<uint8_t> indices;
     
-    if (bestMatch >= 0) 
+    for (size_t i = 0; i < count; i++) 
     {
-        // Bitmask compression with dictionary
-        result.push_back(0xD0);  // Dictionary compression marker
-        result.push_back(bestMatch);  // Dictionary index
-        result.push_back(count);  // Number of values
+        uint16_t value = data[i];
         
-        // Create bitmask for differences and collect deltas
-        uint16_t differencesMask = 0;
-        std::vector<int16_t> deltas;
-        uint8_t deltaBits = 0;
-        
-        for (size_t i = 0; i < count; i++) 
+        // Find if value already exists in dictionary
+        int dictIndex = -1;
+        for (size_t j = 0; j < uniqueValues.size(); j++) 
         {
-            int16_t delta = (int16_t)data[i] - (int16_t)sensorDictionary[bestMatch].values[selection[i]];
-            if (delta != 0) 
+            if (uniqueValues[j] == value) 
             {
-                differencesMask |= (1 << i);
-                deltas.push_back(delta);
+                dictIndex = j;
+                break;
             }
         }
         
-        // Store bitmask (up to 16 bits for max 16 registers)
-        result.push_back(differencesMask & 0xFF);
-        result.push_back((differencesMask >> 8) & 0xFF);
-        
-        // Encode deltas using variable-length encoding
-        for (int16_t delta : deltas) 
+        // If not found, add to dictionary
+        if (dictIndex == -1) 
         {
-            if (delta >= -127 && delta <= 127) 
-            {
-                // 8-bit signed delta
-                result.push_back(0x80 | ((uint8_t)delta & 0x7F));
-                if (delta < 0) result[result.size()-1] |= 0x40;  // Sign bit
-            } 
-            else 
-            {
-                // 16-bit delta with escape marker
-                result.push_back(0x00);  // 16-bit marker
-                result.push_back(delta & 0xFF);
-                result.push_back((delta >> 8) & 0xFF);
-            }
+            dictIndex = uniqueValues.size();
+            uniqueValues.push_back(value);
         }
-    } 
-    else 
+        
+        indices.push_back((uint8_t)dictIndex);
+    }
+    
+    // Check if dictionary compression is worthwhile
+    // Dictionary overhead: 1 (marker) + 1 (num_samples) + 1 (num_patterns) + 4*num_patterns (floats) + bitmask
+    size_t bits_per_index = uniqueValues.size() > 0 ? (32 - __builtin_clz(uniqueValues.size())) : 1;
+    size_t bitmask_bytes = (count * bits_per_index + 7) / 8;
+    size_t compressed_size = 3 + (uniqueValues.size() * 4) + bitmask_bytes;
+    size_t original_size = count * 2;  // uint16_t = 2 bytes each
+    
+    if (compressed_size >= original_size) 
     {
-        // No good dictionary match, fall back to bit-packing
+        // Dictionary not beneficial, fall back to bit-packing
         return compressBinary(data, count);
+    }
+    
+    // Format: [0xD0][num_samples][num_patterns][pattern_floats...][bitmask]
+    result.push_back(0xD0);  // Dictionary compression marker
+    result.push_back((uint8_t)count);  // Number of samples
+    result.push_back((uint8_t)uniqueValues.size());  // Number of unique patterns
+    
+    // Embed dictionary patterns as floats (Flask expects this format)
+    for (uint16_t value : uniqueValues) 
+    {
+        float floatValue = (float)value;
+        uint8_t* floatBytes = (uint8_t*)&floatValue;
+        for (int i = 0; i < 4; i++) 
+        {
+            result.push_back(floatBytes[i]);  // Little-endian float
+        }
+    }
+    
+    // Encode indices as packed bitmask
+    uint8_t currentByte = 0;
+    uint8_t bitPos = 0;
+    
+    for (size_t i = 0; i < count; i++) 
+    {
+        uint8_t index = indices[i];
+        
+        // Pack bits_per_index bits into the bitmask
+        for (size_t bit = 0; bit < bits_per_index; bit++) 
+        {
+            if (index & (1 << bit)) 
+            {
+                currentByte |= (1 << bitPos);
+            }
+            
+            bitPos++;
+            if (bitPos == 8) 
+            {
+                result.push_back(currentByte);
+                currentByte = 0;
+                bitPos = 0;
+            }
+        }
+    }
+    
+    // Push any remaining bits
+    if (bitPos > 0) 
+    {
+        result.push_back(currentByte);
     }
     
     return result;
@@ -715,29 +753,16 @@ std::vector<uint8_t> DataCompression::compressBinary(uint16_t* data, size_t coun
 
     DataCharacteristics characteristics = analyzeData(data, count);
     
-    std::vector<uint8_t> bestResult;
-    String bestMethod = "RAW_BINARY";
-    size_t originalSize = count * 2;
+    // ALWAYS use bit-packing with proper header (never send raw data)
+    // This ensures server can always decompress with known marker
+    uint8_t bitsToUse = characteristics.optimalBits;
     
-    // Try bit-packing if it can save significant space
-    if (characteristics.optimalBits < 16 && characteristics.optimalBits >= 8) 
-    {
-        std::vector<uint8_t> bitPacked = compressBinaryBitPacked(data, count, characteristics.optimalBits);
-        
-        if (bitPacked.size() < originalSize) 
-        {
-            bestResult = bitPacked;
-            bestMethod = "BIT_PACKED";
-        }
-    }
+    // Use at least 8 bits for safety, max 16 bits
+    if (bitsToUse < 8) bitsToUse = 8;
+    if (bitsToUse > 16) bitsToUse = 16;
     
-    // If no compression helped, use raw binary
-    if (bestResult.empty() || bestResult.size() >= originalSize) 
-    {
-        return storeAsRawBinary(data, count);
-    }
-    
-    return bestResult;
+    // Always return bit-packed with header (0x01 marker)
+    return compressBinaryBitPacked(data, count, bitsToUse);
 }
 
 
@@ -764,18 +789,13 @@ std::vector<uint8_t> DataCompression::compressBinaryBitPacked(uint16_t* data, si
     
     size_t totalBits = count * bitsPerValue;
     size_t packedBytes = (totalBits + 7) / 8;
-    size_t originalBytes = count * 2;
     
-    // For small datasets, skip header if it negates compression benefit
-    bool useHeader = (count > 8) || (packedBytes + 3 < originalBytes);
+    // ALWAYS include header for proper server-side decompression
+    result.push_back(0x01);         // METHOD_ID_BIT_PACKED marker
+    result.push_back(bitsPerValue); // Bits per value
+    result.push_back(count);        // Number of values
     
-    if (useHeader) 
-    {
-        result.push_back(0x01);  // Binary bit-packed method ID
-        result.push_back(bitsPerValue);
-        result.push_back(count);
-    }
-    
+    // Pack the data
     std::vector<uint8_t> packedData(packedBytes, 0);
     
     size_t bitOffset = 0;
@@ -789,43 +809,6 @@ std::vector<uint8_t> DataCompression::compressBinaryBitPacked(uint16_t* data, si
     return result;
 }
 
-
-/**
- * @fn std::vector<uint8_t> DataCompression::storeAsRawBinary(uint16_t* data, size_t count)
- * 
- * @brief Store data as raw binary with minimal overhead.
- * 
- * @param data Pointer to the array of uint16_t sensor data.
- * @param count Number of data points (length of data array).
- * 
- * @return std::vector<uint8_t> Raw binary data as a byte vector.
- */
-std::vector<uint8_t> DataCompression::storeAsRawBinary(uint16_t* data, size_t count) 
-{
-    std::vector<uint8_t> result;
-    
-    // For small datasets (≤8 values), skip header overhead
-    if (count <= 8) 
-    {
-        result.reserve(count * 2);
-        for (size_t i = 0; i < count; i++) 
-        {
-            result.push_back(data[i] & 0xFF);
-            result.push_back((data[i] >> 8) & 0xFF);
-        }
-        return result;
-    }
-    
-    // For larger datasets, use header
-    result.push_back(0x00);  // METHOD_ID
-    result.push_back(count); // COUNT
-    for (size_t i = 0; i < count; i++) 
-    {
-        result.push_back(data[i] & 0xFF);
-        result.push_back((data[i] >> 8) & 0xFF);
-    }
-    return result;
-}
 
 // ==================== UTILITY FUNCTIONS ====================
 /**
@@ -848,15 +831,28 @@ void DataCompression::packBitsIntoBuffer(uint16_t value, uint8_t* buffer, size_t
     
     if (bitPos + numBits <= 8) 
     {
+        // Value fits within single byte
         buffer[byteOffset] |= (value << (8 - bitPos - numBits));
     } 
-    else 
+    else if (bitPos + numBits <= 16)
     {
+        // Value spans 2 bytes
         uint8_t firstBits = 8 - bitPos;
         uint8_t remainingBits = numBits - firstBits;
         
         buffer[byteOffset] |= (value >> remainingBits);
         buffer[byteOffset + 1] |= ((value & ((1 << remainingBits) - 1)) << (8 - remainingBits));
+    }
+    else
+    {
+        // Value spans 3 bytes
+        uint8_t firstBits = 8 - bitPos;
+        uint8_t secondBits = 8;
+        uint8_t thirdBits = numBits - firstBits - secondBits;
+        
+        buffer[byteOffset] |= (value >> (secondBits + thirdBits));
+        buffer[byteOffset + 1] |= (value >> thirdBits) & 0xFF;
+        buffer[byteOffset + 2] |= ((value & ((1 << thirdBits) - 1)) << (8 - thirdBits));
     }
 }
 
@@ -934,7 +930,7 @@ void DataCompression::printCompressionStats(const char* method, size_t originalS
 {
     if (originalSize == 0) 
     {
-        print("Error: Original size is zero\n");
+        LOG_ERROR(LOG_TAG_COMPRESS, "Error: Original size is zero");
         return;
     }
     
@@ -943,18 +939,18 @@ void DataCompression::printCompressionStats(const char* method, size_t originalS
     float traditionalRatio = (float)originalSize / (float)compressedSize;
     float savings = (1.0f - academicRatio) * 100.0f;
 
-    print("COMPRESSION STATISTICS (Academic Format)\n");
-    print("Method: %s\n", method);
-    print("Original: %zu bytes -> Compressed: %zu bytes\n", originalSize, compressedSize);
-    print("Academic Compression Ratio: %.3f (%.1f%% of original)\n", academicRatio, academicRatio * 100);
-    print("Traditional Ratio: %.2f:1\n", traditionalRatio);
-    print("Storage Savings: %.1f%%\n", savings);
+    LOG_SECTION("COMPRESSION STATISTICS (Academic Format)");
+    LOG_INFO(LOG_TAG_COMPRESS, "Method: %s", method);
+    LOG_INFO(LOG_TAG_COMPRESS, "Original: %zu bytes -> Compressed: %zu bytes", originalSize, compressedSize);
+    LOG_INFO(LOG_TAG_COMPRESS, "Academic Compression Ratio: %.3f (%.1f%% of original)", academicRatio, academicRatio * 100);
+    LOG_INFO(LOG_TAG_COMPRESS, "Traditional Ratio: %.2f:1", traditionalRatio);
+    LOG_INFO(LOG_TAG_COMPRESS, "Storage Savings: %.1f%%", savings);
     
     const char* efficiency = (academicRatio < EXCELLENT_RATIO_THRESHOLD) ? "Excellent" :
                            (academicRatio < GOOD_RATIO_THRESHOLD) ? "Good" :
                            (academicRatio < POOR_RATIO_THRESHOLD) ? "Fair" : "Poor";
-    print("Efficiency Rating: %s\n", efficiency);
-    print("================================\n");
+    LOG_INFO(LOG_TAG_COMPRESS, "Efficiency Rating: %s", efficiency);
+    LOG_INFO(LOG_TAG_COMPRESS, "================================");
 }
 
 
@@ -965,13 +961,13 @@ void DataCompression::printCompressionStats(const char* method, size_t originalS
  */
 void DataCompression::printMemoryUsage() 
 {
-    print("ESP32 MEMORY STATUS\n");
-    print("Free Heap: %u bytes\n", ESP.getFreeHeap());
-    print("Heap Size: %u bytes\n", ESP.getHeapSize());
-    print("Max Alloc: %u bytes\n", ESP.getMaxAllocHeap());
-    print("PSRAM Free: %u bytes\n", ESP.getFreePsram());
-    print("Flash Size: %u bytes\n", ESP.getFlashChipSize());
-    print("==========================\n");
+    LOG_SECTION("ESP32 MEMORY STATUS");
+    LOG_INFO(LOG_TAG_COMPRESS, "Free Heap: %u bytes", ESP.getFreeHeap());
+    LOG_INFO(LOG_TAG_COMPRESS, "Heap Size: %u bytes", ESP.getHeapSize());
+    LOG_INFO(LOG_TAG_COMPRESS, "Max Alloc: %u bytes", ESP.getMaxAllocHeap());
+    LOG_INFO(LOG_TAG_COMPRESS, "PSRAM Free: %u bytes", ESP.getFreePsram());
+    LOG_INFO(LOG_TAG_COMPRESS, "Flash Size: %u bytes", ESP.getFlashChipSize());
+    LOG_INFO(LOG_TAG_COMPRESS, "==========================");
 }
 
 // ==================== ERROR HANDLING ====================
@@ -989,7 +985,7 @@ void DataCompression::setError(const String& errorMsg, ErrorType errorType)
     lastErrorType = errorType;
     if (debugMode) 
     {
-        print("DataCompression Error: %s\n", errorMsg.c_str());
+        LOG_ERROR(LOG_TAG_COMPRESS, "DataCompression Error: %s", errorMsg.c_str());
     }
 }
 
@@ -1031,6 +1027,232 @@ bool DataCompression::hasError()
     return lastErrorType != ERROR_NONE;
 }
 
+// ==================== DECOMPRESSION METHODS ====================
+
+/**
+ * @fn std::vector<uint16_t> DataCompression::decompressBinary(const std::vector<uint8_t>& compressed)
+ * 
+ * @brief Decompress binary data compressed with compressBinary.
+ * 
+ * @param compressed Compressed data as byte vector.
+ * 
+ * @return std::vector<uint16_t> Decompressed data values.
+ */
+std::vector<uint16_t> DataCompression::decompressBinary(const std::vector<uint8_t>& compressed) 
+{
+    if (compressed.empty()) {
+        setError("Empty compressed data");
+        return std::vector<uint16_t>();
+    }
+    
+    // Check method marker - we only support bit-packed (0x01) now
+    uint8_t marker = compressed[0];
+    
+    if (marker == 0x01) {
+        // Bit-packed (the only method we use)
+        return decompressBinaryBitPacked(compressed);
+    }
+    else {
+        setError("Unsupported compression marker");
+        return std::vector<uint16_t>();
+    }
+}
+
+/**
+ * @fn std::vector<uint16_t> DataCompression::decompressRawBinary(const std::vector<uint8_t>& compressed)
+ * 
+ * @brief Decompress raw binary data.
+ * 
+ * @param compressed Compressed data as byte vector.
+ * 
+ * @return std::vector<uint16_t> Decompressed data values.
+ */
+std::vector<uint16_t> DataCompression::decompressRawBinary(const std::vector<uint8_t>& compressed) 
+{
+    std::vector<uint16_t> result;
+    
+    size_t offset = 0;
+    size_t count = 0;
+    
+    // Check if has header (marker 0x00)
+    if (compressed.size() >= 2 && compressed[0] == 0x00) {
+        count = compressed[1];
+        offset = 2;
+    } else {
+        // No header, all bytes are data
+        count = compressed.size() / 2;
+        offset = 0;
+    }
+    
+    // Extract uint16_t values (little-endian)
+    for (size_t i = 0; i < count && (offset + 2) <= compressed.size(); i++) {
+        uint16_t value = compressed[offset] | (compressed[offset + 1] << 8);
+        result.push_back(value);
+        offset += 2;
+    }
+    
+    return result;
+}
+
+/**
+ * @fn std::vector<uint16_t> DataCompression::decompressBinaryBitPacked(const std::vector<uint8_t>& compressed)
+ * 
+ * @brief Decompress bit-packed binary data.
+ * 
+ * @param compressed Compressed data as byte vector.
+ * 
+ * @return std::vector<uint16_t> Decompressed data values.
+ */
+std::vector<uint16_t> DataCompression::decompressBinaryBitPacked(const std::vector<uint8_t>& compressed) 
+{
+    std::vector<uint16_t> result;
+    
+    if (compressed.size() < 3) {
+        setError("Bit-packed data too short");
+        return result;
+    }
+    
+    uint8_t marker = compressed[0];
+    if (marker != 0x01) {
+        setError("Invalid bit-packed marker");
+        return result;
+    }
+    
+    uint8_t bitsPerValue = compressed[1];
+    size_t count = compressed[2];
+    
+    if (bitsPerValue == 0 || bitsPerValue > 16) {
+        setError("Invalid bits per value in bit-packed data");
+        return result;
+    }
+    
+    // Unpack bits using absolute bit offset from start of buffer
+    // Header is 3 bytes = 24 bits
+    size_t totalBitOffset = 24;  // Skip 3-byte header
+    
+    for (size_t i = 0; i < count; i++) {
+        // Calculate byte position and bit position within that byte
+        size_t byteOffset = totalBitOffset / 8;
+        size_t bitOffset = totalBitOffset % 8;
+        
+        uint16_t value = unpackBitsFromBuffer(compressed.data() + byteOffset, bitOffset, bitsPerValue);
+        result.push_back(value);
+        
+        totalBitOffset += bitsPerValue;
+    }
+    
+    return result;
+}
+
+/**
+ * @fn uint16_t DataCompression::unpackBitsFromBuffer(const uint8_t* buffer, size_t bitOffset, uint8_t numBits)
+ * 
+ * @brief Unpack bits from a byte buffer.
+ * 
+ * @param buffer Pointer to byte buffer.
+ * @param bitOffset Bit offset within the buffer.
+ * @param numBits Number of bits to extract.
+ * 
+ * @return uint16_t Extracted value.
+ */
+uint16_t DataCompression::unpackBitsFromBuffer(const uint8_t* buffer, size_t bitOffset, uint8_t numBits) 
+{
+    uint16_t value = 0;
+    uint8_t bitPos = bitOffset % 8;
+    
+    if (bitPos + numBits <= 8) {
+        // Value fits within single byte
+        value = (buffer[0] >> (8 - bitPos - numBits)) & ((1 << numBits) - 1);
+    } 
+    else if (bitPos + numBits <= 16) {
+        // Value spans 2 bytes
+        uint8_t firstBits = 8 - bitPos;
+        uint8_t remainingBits = numBits - firstBits;
+        
+        value = (buffer[0] & ((1 << firstBits) - 1)) << remainingBits;
+        value |= (buffer[1] >> (8 - remainingBits)) & ((1 << remainingBits) - 1);
+    }
+    else {
+        // Value spans 3 bytes
+        uint8_t firstBits = 8 - bitPos;
+        uint8_t secondBits = 8;
+        uint8_t thirdBits = numBits - firstBits - secondBits;
+        
+        value = (buffer[0] & ((1 << firstBits) - 1)) << (secondBits + thirdBits);
+        value |= buffer[1] << thirdBits;
+        value |= (buffer[2] >> (8 - thirdBits)) & ((1 << thirdBits) - 1);
+    }
+    
+    return value;
+}
+
+/**
+ * @fn std::vector<uint16_t> DataCompression::decompressBinaryDelta(const std::vector<uint8_t>& compressed)
+ * 
+ * @brief Decompress delta-encoded binary data.
+ * 
+ * @param compressed Compressed data as byte vector.
+ * 
+ * @return std::vector<uint16_t> Decompressed data values.
+ */
+std::vector<uint16_t> DataCompression::decompressBinaryDelta(const std::vector<uint8_t>& compressed) 
+{
+    std::vector<uint16_t> result;
+    
+    if (compressed.size() < 4) {
+        setError("Delta data too short");
+        return result;
+    }
+    
+    // Read base value
+    uint16_t baseValue = compressed[0] | (compressed[1] << 8);
+    size_t count = compressed[2];
+    result.push_back(baseValue);
+    
+    // Reconstruct from deltas
+    size_t offset = 3;
+    for (size_t i = 1; i < count && offset < compressed.size(); i++) {
+        int8_t delta = (int8_t)compressed[offset++];
+        uint16_t value = result.back() + delta;
+        result.push_back(value);
+    }
+    
+    return result;
+}
+
+/**
+ * @fn std::vector<uint16_t> DataCompression::decompressBinaryRLE(const std::vector<uint8_t>& compressed)
+ * 
+ * @brief Decompress RLE-encoded binary data.
+ * 
+ * @param compressed Compressed data as byte vector.
+ * 
+ * @return std::vector<uint16_t> Decompressed data values.
+ */
+std::vector<uint16_t> DataCompression::decompressBinaryRLE(const std::vector<uint8_t>& compressed) 
+{
+    std::vector<uint16_t> result;
+    
+    if (compressed.size() < 2) {
+        setError("RLE data too short");
+        return result;
+    }
+    
+    size_t offset = 0;
+    while (offset + 3 <= compressed.size()) {
+        uint16_t value = compressed[offset] | (compressed[offset + 1] << 8);
+        uint8_t count = compressed[offset + 2];
+        
+        for (uint8_t i = 0; i < count; i++) {
+            result.push_back(value);
+        }
+        
+        offset += 3;
+    }
+    
+    return result;
+}
+
 // ==================== LEGACY COMPATIBILITY ====================
 /**
  * @fn void DataCompression::compressRegisterData(uint16_t* data, size_t count, char* result, size_t resultSize)
@@ -1064,6 +1286,93 @@ void DataCompression::compressRegisterData(uint16_t* data, size_t count, char* r
     {
         result[0] = '\0';
     }
+}
+
+
+/**
+ * @fn size_t DataCompression::decompressRegisterData(const char* compressed, uint16_t* result, size_t maxCount)
+ * 
+ * @brief Decompress register data from base64 encoded string.
+ * 
+ * @param compressed Base64 encoded compressed string (with "BINARY:" prefix).
+ * @param result Buffer to store the decompressed uint16_t values.
+ * @param maxCount Maximum number of values that can be stored in result buffer.
+ * 
+ * @return size_t Number of values decompressed, or 0 on error.
+ */
+size_t DataCompression::decompressRegisterData(const char* compressed, uint16_t* result, size_t maxCount) 
+{
+    if (compressed == nullptr || result == nullptr || maxCount == 0) {
+        setError("Invalid input for decompression");
+        return 0;
+    }
+    
+    // Check for BINARY: prefix
+    const char* dataStart = compressed;
+    if (strncmp(compressed, "BINARY:", 7) == 0) {
+        dataStart = compressed + 7;
+    }
+    
+    // Decode base64
+    std::vector<uint8_t> binaryData = base64Decode(dataStart);
+    
+    if (binaryData.empty()) {
+        setError("Base64 decode failed");
+        return 0;
+    }
+    
+    // Decompress binary
+    std::vector<uint16_t> decompressed = decompressBinary(binaryData);
+    
+    // Copy to output buffer
+    size_t copyCount = (decompressed.size() < maxCount) ? decompressed.size() : maxCount;
+    for (size_t i = 0; i < copyCount; i++) {
+        result[i] = decompressed[i];
+    }
+    
+    return copyCount;
+}
+
+
+/**
+ * @fn std::vector<uint8_t> DataCompression::base64Decode(const String& encoded)
+ * 
+ * @brief Decode base64 string to binary data.
+ * 
+ * @param encoded Base64 encoded string.
+ * 
+ * @return std::vector<uint8_t> Decoded binary data.
+ */
+std::vector<uint8_t> DataCompression::base64Decode(const String& encoded) 
+{
+    std::vector<uint8_t> result;
+    
+    const char* chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t len = encoded.length();
+    
+    for (size_t i = 0; i < len; i += 4) {
+        uint32_t value = 0;
+        int padding = 0;
+        
+        for (int j = 0; j < 4 && (i + j) < len; j++) {
+            char c = encoded.charAt(i + j);
+            if (c == '=') {
+                padding++;
+                continue;
+            }
+            
+            const char* pos = strchr(chars, c);
+            if (pos != nullptr) {
+                value = (value << 6) | (pos - chars);
+            }
+        }
+        
+        result.push_back((value >> 16) & 0xFF);
+        if (padding < 2) result.push_back((value >> 8) & 0xFF);
+        if (padding < 1) result.push_back(value & 0xFF);
+    }
+    
+    return result;
 }
 
 
@@ -1169,22 +1478,22 @@ void DataCompression::setDictionaryLearningRate(float rate)
  */
 void DataCompression::printMethodPerformanceStats() 
 {
-    print("\nMETHOD PERFORMANCE STATISTICS\n");
-    print("═══════════════════════════════════════\n");
+    LOG_SECTION("METHOD PERFORMANCE STATISTICS");
+    LOG_INFO(LOG_TAG_COMPRESS, "═══════════════════════════════════════");
     
     for (const auto& stat : methodStats) 
     {
         if (stat.useCount > 0) {
-            print("Method: %s\n", stat.methodName.c_str());
-            print("   Uses: %lu times\n", stat.useCount);
-            print("   Avg Ratio: %.3f\n", stat.avgCompressionRatio);
-            print("   Avg Time: %lu μs\n", stat.avgTimeUs);
-            print("   Success Rate: %.1f%%\n", stat.successRate * 100);
-            print("   Adaptive Score: %.3f\n", stat.adaptiveScore);
-            print("   Total Savings: %lu bytes\n", stat.totalSavings);
-            print("   ───────────────────────\n");
+            LOG_INFO(LOG_TAG_COMPRESS, "Method: %s", stat.methodName.c_str());
+            LOG_INFO(LOG_TAG_COMPRESS, "   Uses: %lu times", stat.useCount);
+            LOG_INFO(LOG_TAG_COMPRESS, "   Avg Ratio: %.3f", stat.avgCompressionRatio);
+            LOG_INFO(LOG_TAG_COMPRESS, "   Avg Time: %lu μs", stat.avgTimeUs);
+            LOG_INFO(LOG_TAG_COMPRESS, "   Success Rate: %.1f%%", stat.successRate * 100);
+            LOG_INFO(LOG_TAG_COMPRESS, "   Adaptive Score: %.3f", stat.adaptiveScore);
+            LOG_INFO(LOG_TAG_COMPRESS, "   Total Savings: %lu bytes", stat.totalSavings);
+            LOG_INFO(LOG_TAG_COMPRESS, "   ───────────────────────");
         }
     }
 
-    print("═══════════════════════════════════════\n");
+    LOG_INFO(LOG_TAG_COMPRESS, "═══════════════════════════════════════");
 }

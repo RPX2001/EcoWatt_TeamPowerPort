@@ -1,0 +1,141 @@
+# ESP32 EcoWatt - Task Automation
+# PlatformIO build and test automation
+# Usage: just <command>
+
+# PlatformIO executable path
+pio := if path_exists(env_var_or_default("HOME", "") + "/.platformio/penv/bin/platformio") == "true" { env_var_or_default("HOME", "") + "/.platformio/penv/bin/platformio" } else { "pio" }
+
+# List all available commands
+default:
+    @just --list
+
+# ============================================================
+# Build & Upload
+# ============================================================
+
+# Build firmware for ESP32
+build:
+    {{pio}} run
+    @echo "✅ Firmware built: .pio/build/esp32dev/firmware.bin"
+
+# Upload firmware to connected ESP32 device
+upload:
+    {{pio}} run --target upload
+    @echo "✅ Firmware uploaded to ESP32"
+
+# Build and upload in one step
+flash: build upload
+    @echo "✅ Build and upload complete"
+
+# ============================================================
+# Testing
+# ============================================================
+
+# Run all test suites (M3, M4, component tests)
+test:
+    {{pio}} test
+    @echo "✅ All tests complete"
+
+# Run M3 integration tests only (compression, acquisition, upload)
+test-m3:
+    {{pio}} test --filter test_m3_integration
+    @echo "✅ M3 integration tests complete"
+
+# Run M4 integration tests only (security, HMAC, OTA, commands, config)
+test-m4:
+    {{pio}} test --filter test_m4_integration
+    @echo "✅ M4 integration tests complete"
+
+# Run compression component tests
+test-compression:
+    {{pio}} test --filter test_compression
+    @echo "✅ Compression tests complete"
+
+# Run acquisition component tests
+test-acquisition:
+    {{pio}} test --filter test_acquisition
+    @echo "✅ Acquisition tests complete"
+
+# Run buffer component tests
+test-buffer:
+    {{pio}} test --filter test_buffer
+    @echo "✅ Buffer tests complete"
+
+# Run security component tests (HMAC, nonce, anti-replay)
+test-security:
+    {{pio}} test --filter "test_security*|test_mac_hmac|test_*antireplay"
+    @echo "✅ Security tests complete"
+
+# Run FOTA component tests
+test-fota:
+    {{pio}} test --filter "test_fota*"
+    @echo "✅ FOTA tests complete"
+
+# Run fault recovery tests
+test-m5:
+    {{pio}} test --filter test_fault_recovery
+    @echo "✅ Fault recovery tests complete"
+
+# Run fault recovery unit tests
+test-fault-recovery:
+    {{pio}} test --filter test_fault_recovery
+    @echo "✅ Fault recovery tests complete"
+
+# Run all tests with verbose output
+test-verbose:
+    {{pio}} test -v
+
+# ============================================================
+# Monitoring & Debugging
+# ============================================================
+
+# Monitor serial output from ESP32
+monitor:
+    {{pio}} device monitor --baud 115200
+
+# Upload firmware and immediately start monitoring
+flash-monitor: upload
+    {{pio}} device monitor --baud 115200
+
+# List all connected devices
+devices:
+    {{pio}} device list
+    @echo ""
+    @echo "Use 'just monitor' to view serial output"
+
+# ============================================================
+# Maintenance
+# ============================================================
+
+# Clean build artifacts
+clean:
+    {{pio}} run --target clean
+    rm -rf .pio/build
+    @echo "✅ Build artifacts cleaned"
+
+# Complete clean (including dependencies)
+distclean:
+    rm -rf .pio
+    @echo "✅ Complete clean done (run 'just build' to rebuild)"
+
+# Erase ESP32 flash and NVS (resets all stored configuration)
+erase-flash:
+    {{pio}} run --target erase
+    @echo "✅ ESP32 flash erased (including NVS storage)"
+    @echo "⚠️  Device will use default configuration on next boot"
+
+# Erase flash and upload new firmware with fresh defaults
+reset-device: erase-flash upload
+    @echo "✅ Device reset complete - fresh firmware with defaults"
+
+# Check firmware size (RAM and Flash usage)
+size:
+    {{pio}} run --target size
+    @echo ""
+    @echo "=== Memory Usage Analysis ==="
+
+# Update PlatformIO dependencies
+update:
+    {{pio}} pkg update
+    @echo "✅ Dependencies updated"
+

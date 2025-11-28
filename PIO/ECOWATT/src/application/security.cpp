@@ -4,6 +4,7 @@
  */
 
 #include "application/security.h"
+#include <HTTPClient.h>
 
 // Temporarily undefine print macro to avoid conflict with ArduinoJson
 #ifdef print
@@ -22,7 +23,7 @@
 #undef PRINT_MACRO_BACKUP
 #endif
 
-#include "peripheral/print.h"
+#include "peripheral/logger.h"
 
 // Initialize static members
 uint32_t SecurityLayer::currentNonce = 10000;
@@ -47,9 +48,18 @@ const uint8_t SecurityLayer::AES_IV[16] = {
 };
 
 void SecurityLayer::init() {
-    print("Security Layer: Initializing...\n");
+    LOG_INFO(LOG_TAG_SECURITY, "Initializing...\n");
     loadNonce();
-    print("Security Layer: Initialized with nonce = %u\n", currentNonce);
+    
+    // If nonce is too low (e.g., after reset), set it to a safe value
+    // This prevents replay attack errors when ESP32 resets but server remembers old nonce
+    if (currentNonce < 11000) {
+        currentNonce = 11000;  // Start from a higher value
+        saveNonce(currentNonce);
+        LOG_INFO(LOG_TAG_SECURITY, "Nonce reset to safe value: %u", currentNonce);
+    }
+    
+    LOG_SUCCESS(LOG_TAG_SECURITY, "Initialized with nonce = %u", currentNonce);
 }
 
 void SecurityLayer::loadNonce() {
@@ -79,9 +89,46 @@ void SecurityLayer::setNonce(uint32_t nonce) {
     saveNonce(nonce);
 }
 
-bool SecurityLayer::securePayload(const char* payload, char* securedPayload, size_t securedPayloadSize) {
+bool SecurityLayer::syncNonceWithServer(const char* serverURL, const char* deviceID) {
+    LOG_INFO(LOG_TAG_SECURITY, "Syncing nonce with server...\n");
+    
+    HTTPClient http;
+    char url[256];
+    snprintf(url, sizeof(url), "%s/security/%s/nonce", serverURL, deviceID);
+    
+    http.begin(url);
+    http.setTimeout(10000);
+    
+    int httpCode = http.GET();
+    
+    if (httpCode == 200) {
+        String response = http.getString();
+        
+        DynamicJsonDocument doc(512);
+        DeserializationError error = deserializeJson(doc, response);
+        
+        if (!error) {
+            uint32_t serverNonce = doc["last_valid_nonce"];
+            // Set our nonce to server's nonce + 1
+            uint32_t newNonce = serverNonce + 1;
+            setNonce(newNonce);
+            LOG_SUCCESS(LOG_TAG_SECURITY, "Nonce synced - Server: %u, Local: %u", serverNonce, newNonce);
+            http.end();
+            return true;
+        } else {
+            LOG_ERROR(LOG_TAG_SECURITY, "Failed to parse nonce response");
+        }
+    } else {
+        LOG_ERROR(LOG_TAG_SECURITY, "Failed to sync nonce (HTTP %d)", httpCode);
+    }
+    
+    http.end();
+    return false;
+}
+
+bool SecurityLayer::securePayload(const char* payload, char* securedPayload, size_t securedPayloadSize, bool isCompressed) {
     if (!payload || !securedPayload || securedPayloadSize == 0) {
-        print("Security Layer: Invalid parameters\n");
+        LOG_ERROR(LOG_TAG_SECURITY, "Invalid parameters");
         return false;
     }
     
@@ -94,7 +141,7 @@ bool SecurityLayer::securePayload(const char* payload, char* securedPayload, siz
     
     if (ENABLE_ENCRYPTION) {
         // Real AES encryption (not implemented in mock mode)
-        print("Security Layer: AES encryption not implemented in mock mode\n");
+        LOG_WARN(LOG_TAG_SECURITY, "AES encryption not implemented in mock mode");
         return false;
     } else {
         // Mock encryption: Just Base64 encode
@@ -129,7 +176,7 @@ bool SecurityLayer::securePayload(const char* payload, char* securedPayload, siz
     // Step 4: Build secured JSON using dynamic allocation to avoid stack overflow
     DynamicJsonDocument* doc = new DynamicJsonDocument(8192);
     if (!doc) {
-        print("Security Layer: Failed to allocate JSON document\n");
+        LOG_ERROR(LOG_TAG_SECURITY, "Failed to allocate JSON document");
         return false;
     }
     
@@ -137,6 +184,7 @@ bool SecurityLayer::securePayload(const char* payload, char* securedPayload, siz
     (*doc)["payload"] = encodedPayload;
     (*doc)["mac"] = hmacHex;
     (*doc)["encrypted"] = ENABLE_ENCRYPTION;
+    (*doc)["compressed"] = isCompressed;  // NEW: Add compressed flag
     
     size_t jsonLen = serializeJson(*doc, securedPayload, securedPayloadSize);
     
@@ -144,12 +192,12 @@ bool SecurityLayer::securePayload(const char* payload, char* securedPayload, siz
     delete doc;
     
     if (jsonLen == 0) {
-        print("Security Layer: Failed to serialize JSON\n");
+        LOG_ERROR(LOG_TAG_SECURITY, "Failed to serialize JSON");
         return false;
     }
     
     if (jsonLen >= securedPayloadSize - 1) {
-        print("Security Layer: Buffer too small for secured payload (need %zu, have %zu)\n", 
+        LOG_ERROR(LOG_TAG_SECURITY, "Buffer too small for secured payload (need %zu, have %zu)", 
               jsonLen + 1, securedPayloadSize);
         return false;
     }
@@ -157,7 +205,7 @@ bool SecurityLayer::securePayload(const char* payload, char* securedPayload, siz
     // Ensure null termination
     securedPayload[jsonLen] = '\0';
     
-    print("Security Layer: Payload secured with nonce %u (size: %zu bytes)\n", nonce, jsonLen);
+    LOG_DEBUG(LOG_TAG_SECURITY, "Payload secured with nonce %u (size: %zu bytes)", nonce, jsonLen);
     return true;
 }
 
@@ -189,7 +237,7 @@ bool SecurityLayer::encryptAES(const uint8_t* data, size_t dataLen, uint8_t* out
 
 void SecurityLayer::bytesToHex(const uint8_t* data, size_t dataLen, char* hexStr, size_t hexStrSize) {
     if (hexStrSize < (dataLen * 2 + 1)) {
-        print("Security Layer: Hex buffer too small\n");
+        LOG_ERROR(LOG_TAG_SECURITY, "Hex buffer too small");
         return;
     }
     
@@ -197,4 +245,78 @@ void SecurityLayer::bytesToHex(const uint8_t* data, size_t dataLen, char* hexStr
         sprintf(hexStr + (i * 2), "%02x", data[i]);
     }
     hexStr[dataLen * 2] = '\0';
+}
+
+// ============================================================================
+// Security Namespace - Anti-Replay Protection
+// ============================================================================
+
+// Track nonces per device (stored in NVS)
+static Preferences noncePrefs;
+static uint32_t validValidations = 0;
+static uint32_t replayAttempts = 0;
+
+void Security::init() {
+    SecurityLayer::init();
+    LOG_INFO(LOG_TAG_SECURITY, "Anti-replay protection initialized");
+}
+
+bool Security::validateNonce(const char* deviceId, uint32_t nonce) {
+    if (!deviceId) {
+        LOG_ERROR(LOG_TAG_SECURITY, "Invalid device ID");
+        return false;
+    }
+    
+    // NVS keys are limited to 15 characters
+    // Hash the device ID to create a short unique key
+    uint32_t hash = 0;
+    for (int i = 0; deviceId[i] != '\0'; i++) {
+        hash = hash * 31 + deviceId[i];
+    }
+    char nvsKey[16];
+    snprintf(nvsKey, sizeof(nvsKey), "n%08X", hash);  // "n" + 8 hex digits = 9 chars
+    
+    noncePrefs.begin("antireplay", false);
+    uint32_t lastNonce = noncePrefs.getUInt(nvsKey, 0);
+    
+    // Check for replay attack
+    if (nonce <= lastNonce && lastNonce > 0) {
+        LOG_ERROR(LOG_TAG_SECURITY, "Replay attack detected! Device=%s, Nonce=%u <= Last=%u", 
+              deviceId, nonce, lastNonce);
+        replayAttempts++;
+        noncePrefs.end();
+        return false;
+    }
+    
+    // Valid nonce - save it
+    noncePrefs.putUInt(nvsKey, nonce);
+    noncePrefs.end();
+    
+    validValidations++;
+    LOG_DEBUG(LOG_TAG_SECURITY, "Nonce validated. Device=%s, Nonce=%u (key=%s)", deviceId, nonce, nvsKey);
+    return true;
+}
+
+void Security::saveNonceState() {
+    // NVS is automatically persistent, so this is a no-op
+    // But we can force a commit if needed
+    LOG_INFO(LOG_TAG_SECURITY, "Nonce state saved to NVS");
+}
+
+void Security::clearNonceState() {
+    noncePrefs.begin("antireplay", false);
+    noncePrefs.clear();
+    noncePrefs.end();
+    LOG_INFO(LOG_TAG_SECURITY, "All nonce state cleared");
+}
+
+void Security::getAttackStats(uint32_t& validCount, uint32_t& replayCount) {
+    validCount = validValidations;
+    replayCount = replayAttempts;
+}
+
+void Security::resetAttackStats() {
+    validValidations = 0;
+    replayAttempts = 0;
+    LOG_INFO(LOG_TAG_SECURITY, "Attack statistics reset");
 }

@@ -1,3 +1,0 @@
-D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/build/CMakeFiles/ecowatt.dir
-D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/build/CMakeFiles/edit_cache.dir
-D:/Work/Semester 7/Embedded Systems/EcoWatt_TeamPowerPort/build/CMakeFiles/rebuild_cache.dir
