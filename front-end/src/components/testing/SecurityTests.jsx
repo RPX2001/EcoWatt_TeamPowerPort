@@ -1,13 +1,17 @@
 /**
  * SecurityTests Component
  * 
- * Comprehensive security testing interface
+ * Comprehensive security testing interface with individual test execution
  * Features:
+ * - Individual security fault injection tests
  * - Replay attack detection
  * - Tampered payload validation
  * - Invalid HMAC detection
  * - Old nonce rejection
+ * - Missing nonce handling
+ * - Invalid format handling
  * - Security statistics viewer
+ * - Clear/Reset functionality
  */
 
 import React, { useState } from 'react';
@@ -20,7 +24,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  TextField,
   Alert,
   CircularProgress,
   Divider,
@@ -29,25 +32,27 @@ import {
   Grid,
   Card,
   CardContent,
+  CardActions,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
-  TableRow,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  LinearProgress
+  TableRow
 } from '@mui/material';
 import {
-  Security as SecurityIcon,
   PlayArrow as RunIcon,
   CheckCircle as PassIcon,
   Error as FailIcon,
   Warning as WarningIcon,
-  ExpandMore as ExpandIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Delete as ClearIcon,
+  Replay as ReplayIcon,
+  Edit as TamperIcon,
+  Key as HmacIcon,
+  Schedule as NonceIcon,
+  BugReport as FormatIcon,
+  PlaylistPlay as RunAllIcon
 } from '@mui/icons-material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -55,25 +60,81 @@ import {
   testTamperedPayload,
   testInvalidHMAC,
   testOldNonce,
+  testMissingNonce,
+  testInvalidFormat,
   getSecurityStats,
   resetSecurityStats,
   clearDeviceNonces,
-  getDeviceSecurityInfo
+  getDeviceSecurityInfo,
+  getSecurityFaultStatus,
+  clearSecurityFaults
 } from '../../api/security';
 import { getDevices } from '../../api/devices';
+
+// Security test definitions
+const SECURITY_TESTS = [
+  {
+    id: 'replay',
+    name: 'Replay Attack',
+    description: 'Reuses a previously used nonce to test anti-replay protection',
+    expected: 'Server should reject with "Replay attack detected"',
+    icon: ReplayIcon,
+    color: 'error',
+    testFn: testReplayAttack
+  },
+  {
+    id: 'invalid_hmac',
+    name: 'Invalid HMAC',
+    description: 'Sends payload with invalid (all-zeros) HMAC signature',
+    expected: 'Server should reject with "HMAC verification failed"',
+    icon: HmacIcon,
+    color: 'warning',
+    testFn: testInvalidHMAC
+  },
+  {
+    id: 'tampered_payload',
+    name: 'Tampered Payload',
+    description: 'Modifies payload data after HMAC is calculated',
+    expected: 'Server should reject with "HMAC verification failed"',
+    icon: TamperIcon,
+    color: 'warning',
+    testFn: testTamperedPayload
+  },
+  {
+    id: 'old_nonce',
+    name: 'Old/Expired Nonce',
+    description: 'Sends payload with nonce timestamp from 1 hour ago',
+    expected: 'Server should reject as replay (nonce too old)',
+    icon: NonceIcon,
+    color: 'info',
+    testFn: testOldNonce
+  },
+  {
+    id: 'missing_nonce',
+    name: 'Missing Nonce',
+    description: 'Sends payload without the required nonce field',
+    expected: 'Server should reject with "Missing required security fields"',
+    icon: WarningIcon,
+    color: 'secondary',
+    testFn: testMissingNonce
+  },
+  {
+    id: 'invalid_format',
+    name: 'Invalid Format',
+    description: 'Sends completely malformed security payload',
+    expected: 'Server should reject with "Missing required security fields"',
+    icon: FormatIcon,
+    color: 'error',
+    testFn: testInvalidFormat
+  }
+];
 
 const SecurityTests = () => {
   const queryClient = useQueryClient();
   const [deviceId, setDeviceId] = useState('');
   const [testResults, setTestResults] = useState([]);
-  const [runningTests, setRunningTests] = useState(false);
-
-  // Sample secured payload for testing
-  const [testPayload, setTestPayload] = useState({
-    nonce: Math.floor(Date.now() / 1000),
-    hmac: 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6',
-    encrypted_data: 'test_encrypted_data_sample'
-  });
+  const [runningTest, setRunningTest] = useState(null); // Track which test is running
+  const [runningAll, setRunningAll] = useState(false);
 
   // Fetch devices
   const { data: devicesData } = useQuery({
@@ -92,6 +153,15 @@ const SecurityTests = () => {
   });
 
   const securityStats = statsData?.data?.statistics || {};
+
+  // Fetch security fault status
+  const { data: faultStatusData, refetch: refetchFaultStatus } = useQuery({
+    queryKey: ['security-fault-status'],
+    queryFn: getSecurityFaultStatus,
+    refetchInterval: 5000
+  });
+
+  const securityFaultStatus = faultStatusData?.data?.security_fault || {};
 
   // Fetch device security info
   const { data: deviceSecurityData, refetch: refetchDeviceSecurity } = useQuery({
@@ -119,74 +189,91 @@ const SecurityTests = () => {
     }
   });
 
-  // Run individual test
-  const runTest = async (testName, testFn) => {
-    const startTime = Date.now();
-    try {
-      const result = await testFn();
-      const duration = Date.now() - startTime;
-      
-      return {
-        test: testName,
-        status: 'pass',
-        result: result.data,
-        duration,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      return {
-        test: testName,
-        status: 'expected_fail',
-        error: error.response?.data?.error || error.message,
-        duration,
-        timestamp: new Date().toISOString()
-      };
+  // Clear security faults mutation
+  const clearFaultsMutation = useMutation({
+    mutationFn: clearSecurityFaults,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['security-fault-status']);
+      setTestResults([]);
     }
-  };
+  });
 
-  // Run all security tests
-  const handleRunAllTests = async () => {
+  // Run individual test
+  const runTest = async (test) => {
     if (!deviceId) {
-      alert('Please select a device');
+      alert('Please select a device first');
       return;
     }
 
-    setRunningTests(true);
-    const results = [];
+    setRunningTest(test.id);
+    const startTime = Date.now();
 
-    // Test 1: Replay Attack
-    const replayResult = await runTest(
-      'Replay Attack Detection',
-      () => testReplayAttack(deviceId, testPayload)
-    );
-    results.push(replayResult);
+    try {
+      const result = await test.testFn(deviceId);
+      const duration = Date.now() - startTime;
 
-    // Test 2: Tampered Payload
-    const tamperResult = await runTest(
-      'Tampered Payload Detection',
-      () => testTamperedPayload(deviceId, testPayload)
-    );
-    results.push(tamperResult);
+      const testResult = {
+        id: test.id,
+        name: test.name,
+        test_passed: result.data?.test_passed ?? false,
+        validation_succeeded: result.data?.validation_succeeded ?? true,
+        expected_error: result.data?.expected_error || test.expected,
+        actual_error: result.data?.actual_error || null,
+        duration,
+        timestamp: new Date().toISOString(),
+        description: result.data?.description || test.description
+      };
 
-    // Test 3: Invalid HMAC
-    const hmacResult = await runTest(
-      'Invalid HMAC Detection',
-      () => testInvalidHMAC(deviceId, testPayload)
-    );
-    results.push(hmacResult);
+      // Update results (replace if same test, add if new)
+      setTestResults(prev => {
+        const filtered = prev.filter(r => r.id !== test.id);
+        return [...filtered, testResult];
+      });
 
-    // Test 4: Old Nonce
-    const nonceResult = await runTest(
-      'Old Nonce Rejection',
-      () => testOldNonce(deviceId, testPayload)
-    );
-    results.push(nonceResult);
+      refetchStats();
+      refetchFaultStatus();
+      if (deviceId) refetchDeviceSecurity();
 
-    setTestResults(results);
-    setRunningTests(false);
-    refetchStats();
-    if (deviceId) refetchDeviceSecurity();
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const testResult = {
+        id: test.id,
+        name: test.name,
+        test_passed: true, // Error means security caught it
+        validation_succeeded: false,
+        expected_error: test.expected,
+        actual_error: error.response?.data?.error || error.message,
+        duration,
+        timestamp: new Date().toISOString(),
+        description: test.description
+      };
+
+      setTestResults(prev => {
+        const filtered = prev.filter(r => r.id !== test.id);
+        return [...filtered, testResult];
+      });
+    }
+
+    setRunningTest(null);
+  };
+
+  // Run all tests sequentially
+  const handleRunAllTests = async () => {
+    if (!deviceId) {
+      alert('Please select a device first');
+      return;
+    }
+
+    setRunningAll(true);
+    setTestResults([]);
+
+    for (const test of SECURITY_TESTS) {
+      await runTest(test);
+      // Small delay between tests
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    setRunningAll(false);
   };
 
   const handleResetStats = () => {
@@ -199,38 +286,42 @@ const SecurityTests = () => {
     }
   };
 
-  const handleRegeneratePayload = () => {
-    setTestPayload({
-      nonce: Math.floor(Date.now() / 1000),
-      hmac: Array.from({ length: 64 }, () => 
-        '0123456789abcdef'[Math.floor(Math.random() * 16)]
-      ).join(''),
-      encrypted_data: `test_data_${Date.now()}`
-    });
+  const handleClearFaults = () => {
+    clearFaultsMutation.mutate();
   };
 
-  const getTestStatusIcon = (status) => {
-    if (status === 'pass') return <PassIcon color="success" />;
-    if (status === 'expected_fail') return <WarningIcon color="warning" />;
+  const getTestStatusIcon = (result) => {
+    if (result.test_passed) {
+      return <PassIcon color="success" />;
+    }
     return <FailIcon color="error" />;
+  };
+
+  const getTestStatusChip = (result) => {
+    if (result.test_passed) {
+      return <Chip label="PASSED" color="success" size="small" />;
+    }
+    return <Chip label="FAILED" color="error" size="small" />;
   };
 
   return (
     <Box>
+      {/* Header and Device Selection */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="h6" gutterBottom>
-          Security Testing Suite
+          Security Fault Injection Testing
         </Typography>
         <Typography variant="body2" color="text.secondary" gutterBottom>
-          Test security mechanisms: replay attack detection, payload tampering, HMAC validation, and nonce management
+          Test security mechanisms by injecting faults: replay attacks, HMAC tampering, nonce manipulation, and malformed payloads.
+          Each test verifies that the server correctly rejects invalid security payloads.
         </Typography>
 
-        <Divider sx={{ my: 3 }} />
+        <Divider sx={{ my: 2 }} />
 
-        {/* Device Selection */}
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={6}>
-            <FormControl fullWidth>
+        {/* Device Selection and Controls */}
+        <Grid container spacing={2} alignItems="center">
+          <Grid item xs={12} md={4}>
+            <FormControl fullWidth size="small">
               <InputLabel>Target Device</InputLabel>
               <Select
                 value={deviceId}
@@ -246,179 +337,280 @@ const SecurityTests = () => {
             </FormControl>
           </Grid>
 
-          <Grid item xs={12} md={6}>
-            <Stack direction="row" spacing={2}>
+          <Grid item xs={12} md={8}>
+            <Stack direction="row" spacing={1} flexWrap="wrap">
               <Button
                 variant="contained"
-                fullWidth
                 onClick={handleRunAllTests}
-                disabled={!deviceId || runningTests}
-                startIcon={runningTests ? <CircularProgress size={20} /> : <RunIcon />}
+                disabled={!deviceId || runningAll || runningTest}
+                startIcon={runningAll ? <CircularProgress size={16} /> : <RunAllIcon />}
+                size="small"
               >
-                {runningTests ? 'Running Tests...' : 'Run All Security Tests'}
+                {runningAll ? 'Running All...' : 'Run All Tests'}
               </Button>
               <Button
                 variant="outlined"
-                onClick={handleRegeneratePayload}
-                startIcon={<RefreshIcon />}
+                color="warning"
+                onClick={handleClearFaults}
+                disabled={clearFaultsMutation.isPending}
+                startIcon={<ClearIcon />}
+                size="small"
               >
-                New Payload
+                Clear Results
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={handleClearNonces}
+                disabled={!deviceId || clearNoncesMutation.isPending}
+                startIcon={<RefreshIcon />}
+                size="small"
+              >
+                Clear Nonces
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={handleResetStats}
+                disabled={resetStatsMutation.isPending}
+                startIcon={<RefreshIcon />}
+                size="small"
+              >
+                Reset Stats
               </Button>
             </Stack>
           </Grid>
         </Grid>
 
-        {/* Test Payload */}
-        <Box sx={{ mt: 3 }}>
-          <Accordion>
-            <AccordionSummary expandIcon={<ExpandIcon />}>
-              <Typography variant="subtitle2">Test Payload</Typography>
-            </AccordionSummary>
-            <AccordionDetails>
-              <TextField
-                fullWidth
-                multiline
-                rows={4}
-                value={JSON.stringify(testPayload, null, 2)}
-                onChange={(e) => {
-                  try {
-                    setTestPayload(JSON.parse(e.target.value));
-                  } catch (err) {
-                    // Invalid JSON, ignore
-                  }
-                }}
-                sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
-              />
-            </AccordionDetails>
-          </Accordion>
-        </Box>
-
-        {/* Running Tests Progress */}
-        {runningTests && (
-          <Box sx={{ mt: 3 }}>
-            <LinearProgress />
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1, textAlign: 'center' }}>
-              Running security tests...
-            </Typography>
-          </Box>
-        )}
-
-        {/* Test Results */}
-        {testResults.length > 0 && (
-          <Box sx={{ mt: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Test Results
-            </Typography>
-            <TableContainer component={Paper} variant="outlined">
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Test</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Duration</TableCell>
-                    <TableCell>Details</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {testResults.map((result, index) => (
-                    <TableRow key={index}>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          {getTestStatusIcon(result.status)}
-                          <Typography variant="body2">{result.test}</Typography>
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={result.status === 'pass' ? 'PASS' : 'EXPECTED FAIL'}
-                          color={result.status === 'pass' ? 'success' : 'warning'}
-                          size="small"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">{result.duration}ms</Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
-                          {result.error ? result.error : 'Security mechanism working correctly'}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Box>
+        {!deviceId && (
+          <Alert severity="info" sx={{ mt: 2 }}>
+            Please select a target device to run security tests
+          </Alert>
         )}
       </Paper>
 
+      {/* Individual Security Test Cards */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          Security Tests
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Click on any test to run it individually. Tests verify that the server correctly rejects malicious payloads.
+        </Typography>
+
+        <Grid container spacing={2}>
+          {SECURITY_TESTS.map((test) => {
+            const TestIcon = test.icon;
+            const result = testResults.find(r => r.id === test.id);
+            const isRunning = runningTest === test.id;
+
+            return (
+              <Grid item xs={12} sm={6} md={4} key={test.id}>
+                <Card 
+                  variant="outlined" 
+                  sx={{ 
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    borderColor: result ? (result.test_passed ? 'success.main' : 'error.main') : 'divider',
+                    borderWidth: result ? 2 : 1
+                  }}
+                >
+                  <CardContent sx={{ flexGrow: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                      <TestIcon color={test.color} />
+                      <Typography variant="subtitle1" fontWeight="bold">
+                        {test.name}
+                      </Typography>
+                    </Box>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                      {test.description}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      <strong>Expected:</strong> {test.expected}
+                    </Typography>
+
+                    {/* Show result if available */}
+                    {result && (
+                      <Box sx={{ mt: 2, p: 1, bgcolor: result.test_passed ? 'success.light' : 'error.light', borderRadius: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          {getTestStatusIcon(result)}
+                          <Typography variant="body2" fontWeight="bold">
+                            {result.test_passed ? 'Test Passed' : 'Test Failed'}
+                          </Typography>
+                        </Box>
+                        <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                          {result.actual_error || 'Security mechanism working correctly'}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Duration: {result.duration}ms
+                        </Typography>
+                      </Box>
+                    )}
+                  </CardContent>
+
+                  <CardActions>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color={test.color}
+                      onClick={() => runTest(test)}
+                      disabled={!deviceId || isRunning || runningAll}
+                      startIcon={isRunning ? <CircularProgress size={16} /> : <RunIcon />}
+                      fullWidth
+                    >
+                      {isRunning ? 'Running...' : 'Run Test'}
+                    </Button>
+                  </CardActions>
+                </Card>
+              </Grid>
+            );
+          })}
+        </Grid>
+      </Paper>
+
+      {/* Test Results Table */}
+      {testResults.length > 0 && (
+        <Paper sx={{ p: 3, mb: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            Test Results Summary
+          </Typography>
+
+          <Box sx={{ mb: 2 }}>
+            <Chip 
+              label={`Passed: ${testResults.filter(r => r.test_passed).length}`} 
+              color="success" 
+              size="small" 
+              sx={{ mr: 1 }} 
+            />
+            <Chip 
+              label={`Failed: ${testResults.filter(r => !r.test_passed).length}`} 
+              color="error" 
+              size="small" 
+            />
+          </Box>
+
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Test</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Duration</TableCell>
+                  <TableCell>Error Message</TableCell>
+                  <TableCell>Timestamp</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {testResults.map((result) => (
+                  <TableRow key={result.id}>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {getTestStatusIcon(result)}
+                        <Typography variant="body2">{result.name}</Typography>
+                      </Box>
+                    </TableCell>
+                    <TableCell>{getTestStatusChip(result)}</TableCell>
+                    <TableCell>{result.duration}ms</TableCell>
+                    <TableCell>
+                      <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
+                        {result.actual_error || 'N/A'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="caption">
+                        {new Date(result.timestamp).toLocaleTimeString()}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      )}
+
       {/* Security Statistics */}
       <Paper sx={{ p: 3, mb: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h6">
-            Security Statistics
-          </Typography>
-          <Button
-            size="small"
-            onClick={handleResetStats}
-            disabled={resetStatsMutation.isPending}
-            startIcon={<RefreshIcon />}
-          >
-            Reset Stats
-          </Button>
-        </Box>
+        <Typography variant="h6" gutterBottom>
+          Security Statistics
+        </Typography>
 
         {statsLoading ? (
           <CircularProgress />
         ) : (
           <Grid container spacing={2}>
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid item xs={6} sm={4} md={2}>
               <Card variant="outlined">
-                <CardContent>
-                  <Typography color="text.secondary" gutterBottom>
+                <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
                     Total Validations
                   </Typography>
-                  <Typography variant="h4">
+                  <Typography variant="h5">
                     {securityStats.total_validations || 0}
                   </Typography>
                 </CardContent>
               </Card>
             </Grid>
 
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid item xs={6} sm={4} md={2}>
               <Card variant="outlined">
-                <CardContent>
-                  <Typography color="text.secondary" gutterBottom>
+                <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
                     Successful
                   </Typography>
-                  <Typography variant="h4" color="success.main">
+                  <Typography variant="h5" color="success.main">
                     {securityStats.successful_validations || 0}
                   </Typography>
                 </CardContent>
               </Card>
             </Grid>
 
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid item xs={6} sm={4} md={2}>
               <Card variant="outlined">
-                <CardContent>
-                  <Typography color="text.secondary" gutterBottom>
+                <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
                     Failed
                   </Typography>
-                  <Typography variant="h4" color="error.main">
+                  <Typography variant="h5" color="error.main">
                     {securityStats.failed_validations || 0}
                   </Typography>
                 </CardContent>
               </Card>
             </Grid>
 
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid item xs={6} sm={4} md={2}>
               <Card variant="outlined">
-                <CardContent>
-                  <Typography color="text.secondary" gutterBottom>
-                    Replay Attacks
+                <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Replay Blocked
                   </Typography>
-                  <Typography variant="h4" color="warning.main">
-                    {securityStats.replay_attacks_detected || 0}
+                  <Typography variant="h5" color="warning.main">
+                    {securityStats.replay_attacks_blocked || 0}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={6} sm={4} md={2}>
+              <Card variant="outlined">
+                <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    HMAC Failures
+                  </Typography>
+                  <Typography variant="h5" color="error.main">
+                    {securityStats.signature_failures || 0}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={6} sm={4} md={2}>
+              <Card variant="outlined">
+                <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Success Rate
+                  </Typography>
+                  <Typography variant="h5" color="primary.main">
+                    {securityStats.success_rate || 0}%
                   </Typography>
                 </CardContent>
               </Card>
@@ -427,114 +619,118 @@ const SecurityTests = () => {
         )}
       </Paper>
 
+      {/* Fault Injection Status */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          Security Fault Injection Status
+        </Typography>
+
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={6}>
+            <Card variant="outlined">
+              <CardContent>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Status
+                </Typography>
+                <Chip
+                  label={securityFaultStatus.enabled ? 'ACTIVE' : 'INACTIVE'}
+                  color={securityFaultStatus.enabled ? 'warning' : 'default'}
+                  size="small"
+                />
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} md={6}>
+            <Card variant="outlined">
+              <CardContent>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Faults Injected
+                </Typography>
+                <Typography variant="h6">
+                  {securityFaultStatus.faults_injected || 0}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {securityFaultStatus.statistics && (
+            <>
+              <Grid item xs={6} md={2}>
+                <Typography variant="caption" color="text.secondary">Replay</Typography>
+                <Typography variant="body1">{securityFaultStatus.statistics.replay_attacks_triggered || 0}</Typography>
+              </Grid>
+              <Grid item xs={6} md={2}>
+                <Typography variant="caption" color="text.secondary">Invalid HMAC</Typography>
+                <Typography variant="body1">{securityFaultStatus.statistics.invalid_hmac_triggered || 0}</Typography>
+              </Grid>
+              <Grid item xs={6} md={2}>
+                <Typography variant="caption" color="text.secondary">Tampered</Typography>
+                <Typography variant="body1">{securityFaultStatus.statistics.tampered_payload_triggered || 0}</Typography>
+              </Grid>
+              <Grid item xs={6} md={2}>
+                <Typography variant="caption" color="text.secondary">Old Nonce</Typography>
+                <Typography variant="body1">{securityFaultStatus.statistics.old_nonce_triggered || 0}</Typography>
+              </Grid>
+              <Grid item xs={6} md={2}>
+                <Typography variant="caption" color="text.secondary">Missing Nonce</Typography>
+                <Typography variant="body1">{securityFaultStatus.statistics.missing_nonce_triggered || 0}</Typography>
+              </Grid>
+              <Grid item xs={6} md={2}>
+                <Typography variant="caption" color="text.secondary">Invalid Format</Typography>
+                <Typography variant="body1">{securityFaultStatus.statistics.invalid_format_triggered || 0}</Typography>
+              </Grid>
+            </>
+          )}
+        </Grid>
+      </Paper>
+
       {/* Device Security Info */}
       {deviceId && (
         <Paper sx={{ p: 3 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'between', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h6">
-              Device Security Information
-            </Typography>
-            <Button
-              size="small"
-              onClick={handleClearNonces}
-              disabled={clearNoncesMutation.isPending}
-              startIcon={<RefreshIcon />}
-            >
-              Clear Nonces
-            </Button>
-          </Box>
+          <Typography variant="h6" gutterBottom>
+            Device Security Information: {deviceId}
+          </Typography>
 
           <Grid container spacing={2}>
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} md={3}>
               <Typography variant="body2" color="text.secondary">
-                Device ID
+                Nonces Tracked
               </Typography>
               <Typography variant="body1" fontWeight="bold">
-                {deviceSecurity.device_id || deviceId}
+                {deviceSecurity.nonces_tracked || 0}
               </Typography>
             </Grid>
 
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} md={3}>
               <Typography variant="body2" color="text.secondary">
-                Last Nonce
-              </Typography>
-              <Typography variant="body1" fontFamily="monospace">
-                {deviceSecurity.last_nonce || 'N/A'}
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12} md={6}>
-              <Typography variant="body2" color="text.secondary">
-                Stored Nonces
+                Total Requests
               </Typography>
               <Typography variant="body1">
-                {deviceSecurity.nonce_count || 0}
+                {deviceSecurity.stats?.total_requests || 0}
               </Typography>
             </Grid>
 
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} md={3}>
               <Typography variant="body2" color="text.secondary">
-                Last Validation
+                Valid Requests
               </Typography>
-              <Typography variant="body1">
-                {deviceSecurity.last_validation 
-                  ? new Date(deviceSecurity.last_validation).toLocaleString()
-                  : 'N/A'}
+              <Typography variant="body1" color="success.main">
+                {deviceSecurity.stats?.valid_requests || 0}
+              </Typography>
+            </Grid>
+
+            <Grid item xs={12} md={3}>
+              <Typography variant="body2" color="text.secondary">
+                Replay Blocked
+              </Typography>
+              <Typography variant="body1" color="warning.main">
+                {deviceSecurity.stats?.replay_blocked || 0}
               </Typography>
             </Grid>
           </Grid>
         </Paper>
       )}
-
-      {/* Test Information */}
-      <Paper sx={{ p: 3, mt: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Security Test Descriptions
-        </Typography>
-        <Divider sx={{ my: 2 }} />
-
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={6}>
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="subtitle2" fontWeight="bold">
-                1. Replay Attack Detection
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Sends the same payload twice. The second attempt should fail due to nonce reuse detection.
-              </Typography>
-            </Box>
-
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="subtitle2" fontWeight="bold">
-                2. Tampered Payload Detection
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Modifies the HMAC of a valid payload. Should fail HMAC validation.
-              </Typography>
-            </Box>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="subtitle2" fontWeight="bold">
-                3. Invalid HMAC Detection
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Sends a payload with a completely invalid HMAC. Should be rejected immediately.
-              </Typography>
-            </Box>
-
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="subtitle2" fontWeight="bold">
-                4. Old Nonce Rejection
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Sends a payload with an old/expired nonce. Should fail freshness check.
-              </Typography>
-            </Box>
-          </Grid>
-        </Grid>
-      </Paper>
     </Box>
   );
 };

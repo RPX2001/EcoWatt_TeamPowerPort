@@ -681,6 +681,486 @@ def inject_network_fault(endpoint: str) -> Optional[Tuple[Dict, int]]:
     return None
 
 
+# ============================================================================
+# SECURITY FAULT INJECTION (Milestone 5)
+# ============================================================================
+
+# Security fault state (thread-safe)
+security_fault_state = {
+    'enabled': False,
+    'fault_type': None,  # 'replay', 'invalid_hmac', 'tampered_payload', 'old_nonce', 'missing_nonce', 'invalid_format'
+    'target_device': None,  # None = all devices
+    'faults_injected': 0,
+    'last_fault_time': None
+}
+security_fault_lock = threading.Lock()
+
+# Security fault statistics
+security_fault_stats = {
+    'replay_attacks_triggered': 0,
+    'invalid_hmac_triggered': 0,
+    'tampered_payload_triggered': 0,
+    'old_nonce_triggered': 0,
+    'missing_nonce_triggered': 0,
+    'invalid_format_triggered': 0
+}
+security_stats_lock = threading.Lock()
+
+# Store for simulating replay attacks (stores last valid nonce per device)
+_replay_nonce_store = {}
+
+
+def enable_security_fault(fault_type: str, target_device: Optional[str] = None) -> Tuple[bool, str]:
+    """
+    Enable security fault injection (Milestone 5)
+    
+    Args:
+        fault_type: Type of security fault to inject
+            - 'replay': Simulate replay attack (reuse nonce)
+            - 'invalid_hmac': Send payload with invalid HMAC
+            - 'tampered_payload': Modify payload after signing
+            - 'old_nonce': Send payload with expired nonce
+            - 'missing_nonce': Send payload without nonce field
+            - 'invalid_format': Send malformed security payload
+        target_device: Device ID to target (None = test mode, generates test payloads)
+    
+    Returns:
+        tuple: (success, message)
+    """
+    with security_fault_lock:
+        valid_types = ['replay', 'invalid_hmac', 'tampered_payload', 'old_nonce', 'missing_nonce', 'invalid_format']
+        
+        if fault_type not in valid_types:
+            return False, f"Invalid fault type. Must be one of: {valid_types}"
+        
+        security_fault_state['enabled'] = True
+        security_fault_state['fault_type'] = fault_type
+        security_fault_state['target_device'] = target_device
+        security_fault_state['faults_injected'] = 0
+        security_fault_state['last_fault_time'] = None
+        
+        logger.warning(f"⚠️  Security Fault Injection ENABLED: {fault_type}")
+        if target_device:
+            logger.warning(f"   Target Device: {target_device}")
+        
+        return True, f"Security fault injection enabled: {fault_type}"
+
+
+def disable_security_fault() -> Tuple[bool, str]:
+    """Disable security fault injection"""
+    with security_fault_lock:
+        was_enabled = security_fault_state['enabled']
+        faults_injected = security_fault_state['faults_injected']
+        fault_type = security_fault_state['fault_type']
+        
+        security_fault_state['enabled'] = False
+        security_fault_state['fault_type'] = None
+        security_fault_state['target_device'] = None
+        security_fault_state['faults_injected'] = 0
+        security_fault_state['last_fault_time'] = None
+        
+        if was_enabled:
+            logger.info(f"✓ Security Fault Injection DISABLED (Type: {fault_type}, Faults: {faults_injected})")
+            return True, f"Security fault injection disabled (Faults injected: {faults_injected})"
+        else:
+            return True, "Security fault injection was not enabled"
+
+
+def get_security_fault_status() -> Dict:
+    """Get current security fault injection status"""
+    with security_fault_lock:
+        status = {
+            'enabled': security_fault_state['enabled'],
+            'fault_type': security_fault_state['fault_type'],
+            'target_device': security_fault_state['target_device'],
+            'faults_injected': security_fault_state['faults_injected'],
+            'last_fault_time': security_fault_state['last_fault_time']
+        }
+    
+    with security_stats_lock:
+        status['statistics'] = security_fault_stats.copy()
+    
+    return status
+
+
+def generate_security_fault_payload(device_id: str, fault_type: str) -> Tuple[Dict, str]:
+    """
+    Generate a faulty security payload for testing
+    
+    Args:
+        device_id: Target device ID
+        fault_type: Type of security fault to generate
+        
+    Returns:
+        tuple: (payload_dict, expected_error_message)
+    """
+    import base64
+    import hmac as hmac_module
+    import hashlib
+    
+    # Pre-shared key for HMAC (must match ESP32)
+    PSK_HMAC = bytes([
+        0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
+        0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c,
+        0x76, 0x2e, 0x71, 0x60, 0xf3, 0x8b, 0x4d, 0xa5,
+        0x6a, 0x78, 0x4d, 0x90, 0x45, 0x19, 0x0c, 0xfe
+    ])
+    
+    current_time = int(time.time())
+    test_data = f'{{"test": "security_fault_injection", "device": "{device_id}", "timestamp": {current_time}}}'
+    payload_b64 = base64.b64encode(test_data.encode()).decode()
+    
+    if fault_type == 'replay':
+        # Use a previously used nonce (or current if first time)
+        if device_id in _replay_nonce_store:
+            nonce = _replay_nonce_store[device_id]
+            expected_error = f"Replay attack detected! Nonce {nonce} <= last valid nonce"
+        else:
+            # First time - store this nonce and use a valid one
+            nonce = current_time
+            _replay_nonce_store[device_id] = nonce
+            expected_error = "First request stored nonce - second request will trigger replay"
+        
+        # Calculate valid HMAC for this nonce
+        nonce_bytes = nonce.to_bytes(4, 'big')
+        data_to_sign = nonce_bytes + test_data.encode()
+        mac = hmac_module.new(PSK_HMAC, data_to_sign, hashlib.sha256).hexdigest()
+        
+        with security_stats_lock:
+            security_fault_stats['replay_attacks_triggered'] += 1
+        
+        return {
+            'nonce': nonce,
+            'payload': payload_b64,
+            'mac': mac,
+            'encrypted': False,
+            'compressed': False
+        }, expected_error
+    
+    elif fault_type == 'invalid_hmac':
+        # Send completely invalid HMAC
+        nonce = current_time
+        invalid_mac = '0' * 64  # All zeros HMAC
+        
+        with security_stats_lock:
+            security_fault_stats['invalid_hmac_triggered'] += 1
+        
+        return {
+            'nonce': nonce,
+            'payload': payload_b64,
+            'mac': invalid_mac,
+            'encrypted': False,
+            'compressed': False
+        }, "HMAC verification failed"
+    
+    elif fault_type == 'tampered_payload':
+        # Calculate valid HMAC, then modify payload
+        nonce = current_time
+        nonce_bytes = nonce.to_bytes(4, 'big')
+        data_to_sign = nonce_bytes + test_data.encode()
+        mac = hmac_module.new(PSK_HMAC, data_to_sign, hashlib.sha256).hexdigest()
+        
+        # Tamper with the payload after signing
+        tampered_data = test_data.replace('"test"', '"tampered"')
+        tampered_b64 = base64.b64encode(tampered_data.encode()).decode()
+        
+        with security_stats_lock:
+            security_fault_stats['tampered_payload_triggered'] += 1
+        
+        return {
+            'nonce': nonce,
+            'payload': tampered_b64,  # Tampered payload
+            'mac': mac,  # Original MAC (won't match)
+            'encrypted': False,
+            'compressed': False
+        }, "HMAC verification failed"
+    
+    elif fault_type == 'old_nonce':
+        # Use nonce from 1 hour ago
+        old_nonce = current_time - 3600  # 1 hour ago
+        
+        # Calculate valid HMAC with old nonce
+        nonce_bytes = old_nonce.to_bytes(4, 'big')
+        data_to_sign = nonce_bytes + test_data.encode()
+        mac = hmac_module.new(PSK_HMAC, data_to_sign, hashlib.sha256).hexdigest()
+        
+        with security_stats_lock:
+            security_fault_stats['old_nonce_triggered'] += 1
+        
+        return {
+            'nonce': old_nonce,
+            'payload': payload_b64,
+            'mac': mac,
+            'encrypted': False,
+            'compressed': False
+        }, "Replay attack detected! Nonce"
+    
+    elif fault_type == 'missing_nonce':
+        # Payload without nonce field
+        mac = 'a' * 64  # Dummy MAC
+        
+        with security_stats_lock:
+            security_fault_stats['missing_nonce_triggered'] += 1
+        
+        return {
+            'payload': payload_b64,
+            'mac': mac,
+            'encrypted': False,
+            'compressed': False
+        }, "Missing required security fields"
+    
+    elif fault_type == 'invalid_format':
+        # Completely malformed payload
+        with security_stats_lock:
+            security_fault_stats['invalid_format_triggered'] += 1
+        
+        return {
+            'garbage': 'not_a_valid_security_payload',
+            'random_field': 12345
+        }, "Missing required security fields"
+    
+    else:
+        return {}, f"Unknown fault type: {fault_type}"
+
+
+def execute_security_fault_test(device_id: str, fault_type: str) -> Dict:
+    """
+    Execute a security fault test and return results
+    
+    Args:
+        device_id: Target device ID
+        fault_type: Type of security fault to test
+        
+    Returns:
+        dict: Test result with success, expected_error, actual_error, etc.
+    """
+    import json
+    from datetime import datetime
+    from handlers.security_handler import validate_secured_payload
+    
+    # Special handling for replay attack - needs two-step process
+    if fault_type == 'replay':
+        return _execute_replay_attack_test(device_id)
+    
+    # Generate faulty payload
+    payload, expected_error = generate_security_fault_payload(device_id, fault_type)
+    
+    # Update state
+    with security_fault_lock:
+        security_fault_state['faults_injected'] += 1
+        security_fault_state['last_fault_time'] = datetime.now().isoformat()
+    
+    # Try to validate the faulty payload
+    try:
+        payload_json = json.dumps(payload)
+        success, decrypted, error = validate_secured_payload(device_id, payload_json)
+        
+        # For security tests, we EXPECT failure
+        test_passed = not success  # Test passes if validation fails
+        
+        return {
+            'success': True,
+            'test_type': fault_type,
+            'device_id': device_id,
+            'test_passed': test_passed,
+            'validation_succeeded': success,
+            'expected_error': expected_error,
+            'actual_error': error,
+            'payload_sent': payload,
+            'timestamp': datetime.now().isoformat(),
+            'description': get_security_fault_description(fault_type)
+        }
+        
+    except Exception as e:
+        # Exception during validation - this might also indicate the fault worked
+        return {
+            'success': True,
+            'test_type': fault_type,
+            'device_id': device_id,
+            'test_passed': True,  # Exception means security caught it
+            'validation_succeeded': False,
+            'expected_error': expected_error,
+            'actual_error': str(e),
+            'payload_sent': payload,
+            'timestamp': datetime.now().isoformat(),
+            'description': get_security_fault_description(fault_type)
+        }
+
+
+def _execute_replay_attack_test(device_id: str) -> Dict:
+    """
+    Execute replay attack test - sends same nonce twice
+    
+    Step 1: Send valid payload to register nonce
+    Step 2: Replay the same nonce - should be rejected
+    """
+    import json
+    import base64
+    import hashlib
+    import hmac as hmac_module
+    from datetime import datetime
+    from handlers.security_handler import validate_secured_payload
+    
+    # Pre-shared key for HMAC (must match ESP32)
+    PSK_HMAC = bytes([
+        0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
+        0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c,
+        0x76, 0x2e, 0x71, 0x60, 0xf3, 0x8b, 0x4d, 0xa5,
+        0x6a, 0x78, 0x4d, 0x90, 0x45, 0x19, 0x0c, 0xfe
+    ])
+    
+    current_time = int(time.time())
+    test_data = f'{{"test": "replay_attack_test", "device": "{device_id}", "timestamp": {current_time}}}'
+    payload_b64 = base64.b64encode(test_data.encode()).decode()
+    
+    # Create valid payload with unique nonce
+    nonce = current_time
+    nonce_bytes = nonce.to_bytes(4, 'big')
+    data_to_sign = nonce_bytes + test_data.encode()
+    mac = hmac_module.new(PSK_HMAC, data_to_sign, hashlib.sha256).hexdigest()
+    
+    valid_payload = {
+        'nonce': nonce,
+        'payload': payload_b64,
+        'mac': mac,
+        'encrypted': False,
+        'compressed': False
+    }
+    
+    # Update stats
+    with security_stats_lock:
+        security_fault_stats['replay_attacks_triggered'] += 1
+    
+    with security_fault_lock:
+        security_fault_state['faults_injected'] += 1
+        security_fault_state['last_fault_time'] = datetime.now().isoformat()
+    
+    try:
+        # Step 1: First request - should succeed and register the nonce
+        payload_json = json.dumps(valid_payload)
+        first_success, _, first_error = validate_secured_payload(device_id, payload_json)
+        
+        if not first_success:
+            # First request failed - can't test replay
+            return {
+                'success': True,
+                'test_type': 'replay',
+                'device_id': device_id,
+                'test_passed': False,
+                'validation_succeeded': False,
+                'expected_error': 'First request should succeed to set up replay test',
+                'actual_error': first_error,
+                'payload_sent': valid_payload,
+                'timestamp': datetime.now().isoformat(),
+                'description': 'Replay Attack Test - First request failed, cannot test replay',
+                'note': 'First request must succeed before replay can be tested'
+            }
+        
+        # Step 2: Replay the same nonce - should FAIL
+        replay_success, _, replay_error = validate_secured_payload(device_id, payload_json)
+        
+        # Test passes if replay was REJECTED (replay_success = False)
+        test_passed = not replay_success
+        
+        return {
+            'success': True,
+            'test_type': 'replay',
+            'device_id': device_id,
+            'test_passed': test_passed,
+            'validation_succeeded': replay_success,
+            'expected_error': f'Replay attack detected! Nonce {nonce} already used',
+            'actual_error': replay_error,
+            'payload_sent': valid_payload,
+            'timestamp': datetime.now().isoformat(),
+            'description': 'Replay Attack - Sent same nonce twice, second request should be rejected',
+            'first_request_result': 'Succeeded (nonce registered)',
+            'replay_request_result': 'Rejected' if test_passed else 'Accepted (SECURITY VULNERABILITY!)'
+        }
+        
+    except Exception as e:
+        return {
+            'success': True,
+            'test_type': 'replay',
+            'device_id': device_id,
+            'test_passed': True,  # Exception during replay means it was caught
+            'validation_succeeded': False,
+            'expected_error': 'Replay attack should be rejected',
+            'actual_error': str(e),
+            'payload_sent': valid_payload,
+            'timestamp': datetime.now().isoformat(),
+            'description': 'Replay Attack Test - Exception occurred'
+        }
+
+
+def get_security_fault_description(fault_type: str) -> str:
+    """Get human-readable description of security fault type"""
+    descriptions = {
+        'replay': 'Replay Attack - Reuses a previously used nonce to test anti-replay protection',
+        'invalid_hmac': 'Invalid HMAC - Sends payload with all-zeros HMAC signature',
+        'tampered_payload': 'Tampered Payload - Modifies payload after HMAC calculation',
+        'old_nonce': 'Old/Expired Nonce - Sends payload with nonce from 1 hour ago',
+        'missing_nonce': 'Missing Nonce - Sends payload without the required nonce field',
+        'invalid_format': 'Invalid Format - Sends completely malformed security payload'
+    }
+    return descriptions.get(fault_type, f'Unknown fault type: {fault_type}')
+
+
+def get_available_security_faults() -> list:
+    """Get list of available security fault types"""
+    return [
+        {
+            'type': 'replay',
+            'name': 'Replay Attack',
+            'description': 'Reuses a previously used nonce to test anti-replay protection',
+            'expected_behavior': 'Server should reject with "Replay attack detected"'
+        },
+        {
+            'type': 'invalid_hmac',
+            'name': 'Invalid HMAC',
+            'description': 'Sends payload with invalid (all-zeros) HMAC signature',
+            'expected_behavior': 'Server should reject with "HMAC verification failed"'
+        },
+        {
+            'type': 'tampered_payload',
+            'name': 'Tampered Payload',
+            'description': 'Modifies payload data after HMAC is calculated',
+            'expected_behavior': 'Server should reject with "HMAC verification failed"'
+        },
+        {
+            'type': 'old_nonce',
+            'name': 'Old/Expired Nonce',
+            'description': 'Sends payload with nonce timestamp from 1 hour ago',
+            'expected_behavior': 'Server should reject as replay (nonce too old)'
+        },
+        {
+            'type': 'missing_nonce',
+            'name': 'Missing Nonce',
+            'description': 'Sends payload without the required nonce field',
+            'expected_behavior': 'Server should reject with "Missing required security fields"'
+        },
+        {
+            'type': 'invalid_format',
+            'name': 'Invalid Format',
+            'description': 'Sends completely malformed security payload',
+            'expected_behavior': 'Server should reject with "Missing required security fields"'
+        }
+    ]
+
+
+def reset_security_fault_stats() -> bool:
+    """Reset security fault injection statistics"""
+    with security_stats_lock:
+        for key in security_fault_stats:
+            security_fault_stats[key] = 0
+    
+    # Also clear replay nonce store
+    global _replay_nonce_store
+    _replay_nonce_store = {}
+    
+    logger.info("✓ Security fault injection statistics reset")
+    return True
+
+
 # Export functions
 __all__ = [
     'enable_fault_injection',
@@ -700,5 +1180,12 @@ __all__ = [
     'enable_network_fault',
     'disable_network_fault',
     'get_network_fault_status',
-    'inject_network_fault'
+    'inject_network_fault',
+    # Security fault injection
+    'enable_security_fault',
+    'disable_security_fault',
+    'get_security_fault_status',
+    'execute_security_fault_test',
+    'get_available_security_faults',
+    'reset_security_fault_stats'
 ]

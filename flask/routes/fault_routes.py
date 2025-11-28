@@ -621,6 +621,166 @@ def get_network_fault_status_route():
         }), 500
 
 
+# ============================================================================
+# SECURITY FAULT INJECTION ENDPOINTS (Milestone 5)
+# ============================================================================
+
+@fault_bp.route('/fault/security/inject', methods=['POST'])
+def inject_security_fault():
+    """
+    Inject a security fault for testing (Milestone 5)
+    
+    This endpoint triggers security fault injection to test ESP32's
+    security mechanisms including HMAC validation, nonce verification,
+    and anti-replay protection.
+    
+    Request Body:
+        {
+            "fault_type": "replay|invalid_hmac|tampered_payload|old_nonce|missing_nonce|invalid_format",
+            "target_device": "ESP32_001"  // Required - device to test against
+        }
+    
+    Security Fault Types:
+        - replay: Reuses a nonce to test anti-replay protection
+        - invalid_hmac: Sends payload with invalid HMAC (all zeros)
+        - tampered_payload: Modifies payload after HMAC calculation
+        - old_nonce: Sends payload with expired nonce (1 hour old)
+        - missing_nonce: Sends payload without nonce field
+        - invalid_format: Sends malformed security payload
+    
+    Returns:
+        Test result including whether the security mechanism correctly rejected the fault
+    """
+    try:
+        data = request.get_json() or {}
+        
+        fault_type = data.get('fault_type')
+        target_device = data.get('target_device')
+        
+        if not fault_type:
+            return jsonify({
+                'success': False,
+                'error': 'fault_type is required'
+            }), 400
+        
+        if not target_device:
+            return jsonify({
+                'success': False,
+                'error': 'target_device is required for security tests'
+            }), 400
+        
+        from handlers.fault_handler import execute_security_fault_test
+        
+        result = execute_security_fault_test(target_device, fault_type)
+        
+        # Record in fault history via database
+        fault_id = f"security_{fault_type}_{target_device}_{int(time.time())}"
+        active_faults[fault_id] = {
+            'type': 'security',
+            'subtype': fault_type,
+            'target_device': target_device,
+            'result': result
+        }
+        
+        # Save to database (use error_msg for result details)
+        Database.save_fault_injection(
+            device_id=target_device,
+            fault_type='security',
+            backend='local_flask',
+            error_type=fault_type,
+            success=result.get('test_passed', False),
+            error_msg=result.get('actual_error')
+        )
+        
+        logger.info(f"✓ Security fault test executed: {fault_type} on {target_device} - "
+                   f"Test {'PASSED' if result.get('test_passed') else 'FAILED'}")
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        logger.error(f"✗ Error injecting security fault: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@fault_bp.route('/fault/security/types', methods=['GET'])
+def get_security_fault_types():
+    """
+    Get list of available security fault types
+    """
+    try:
+        from handlers.fault_handler import get_available_security_faults
+        
+        faults = get_available_security_faults()
+        
+        return jsonify({
+            'success': True,
+            'security_faults': faults,
+            'note': 'Use POST /fault/security/inject to run individual security tests'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"✗ Error getting security fault types: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@fault_bp.route('/fault/security/status', methods=['GET'])
+def get_security_fault_status_route():
+    """
+    Get current security fault injection status and statistics
+    """
+    try:
+        from handlers.fault_handler import get_security_fault_status
+        
+        status = get_security_fault_status()
+        
+        return jsonify({
+            'success': True,
+            'security_fault': status
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"✗ Error getting security fault status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@fault_bp.route('/fault/security/clear', methods=['POST', 'DELETE'])
+def clear_security_faults():
+    """
+    Clear/reset security fault injection state and statistics
+    """
+    try:
+        from handlers.fault_handler import disable_security_fault, reset_security_fault_stats
+        
+        # Disable any active security fault
+        disable_security_fault()
+        
+        # Reset statistics
+        reset_security_fault_stats()
+        
+        logger.info("✓ Security fault injection state and statistics cleared")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Security fault injection cleared and statistics reset'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"✗ Error clearing security faults: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @fault_bp.route('/fault/types', methods=['GET'])
 def get_available_fault_types():
     """
