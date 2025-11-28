@@ -1,6 +1,6 @@
 /**
  * @file fault_recovery.h
- * @brief Fault Detection and Recovery Module (Milestone 5)
+ * @brief Fault Detection and Recovery Module
  * 
  * Detects and recovers from Modbus communication faults:
  * - CRC errors
@@ -29,7 +29,7 @@
 #define MAX_RETRY_DELAY_MS 4000
 
 // ============================================
-// Fault Types (Milestone 5)
+// Fault Types
 // ============================================
 
 enum class FaultType {

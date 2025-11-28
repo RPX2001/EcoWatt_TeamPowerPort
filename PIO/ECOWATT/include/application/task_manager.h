@@ -43,7 +43,7 @@
 #define PRIORITY_WATCHDOG       1   // LOWEST - safety net
 
 // Stack Sizes (bytes)
-#define STACK_SENSOR_POLL       8192  // Increased for fault recovery (Milestone 5)
+#define STACK_SENSOR_POLL       8192  // Increased for fault recovery
 #define STACK_UPLOAD            12288 // Increased for JSON payload + HTTP client + encryption
 #define STACK_COMPRESSION       6144
 #define STACK_COMMANDS          4096

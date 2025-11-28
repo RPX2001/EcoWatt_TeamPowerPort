@@ -24,7 +24,7 @@ bool PowerManagement::powerManagementEnabled = false;
  * @brief Initialize power management system
  * 
  * Loads configuration from NVS and applies enabled techniques.
- * Supports Milestone 5 power optimization requirements:
+ * Supports power optimization requirements:
  * - WiFi Modem Sleep (POWER_TECH_WIFI_MODEM_SLEEP)
  * - Dynamic Clock Scaling (POWER_TECH_CPU_FREQ_SCALING): 240/160/80 MHz
  * - Light CPU Idle (POWER_TECH_LIGHT_SLEEP): delay() with CPU idle states
@@ -40,7 +40,7 @@ void PowerManagement::init() {
     powerManagementEnabled = nvs::getPowerEnabled();
     enabledTechniques = nvs::getPowerTechniques();
     
-    LOG_INFO(LOG_TAG_POWER, "Milestone 5 techniques supported:");
+    LOG_INFO(LOG_TAG_POWER, "Power optimization techniques supported:");
     LOG_DEBUG(LOG_TAG_POWER, "  1. WiFi Modem Sleep (WIFI_PS_MAX_MODEM)");
     LOG_DEBUG(LOG_TAG_POWER, "  2. Dynamic Clock Scaling (240/160/80 MHz)");
     LOG_DEBUG(LOG_TAG_POWER, "  3. Light CPU Idle (delay with idle states)");
@@ -92,7 +92,7 @@ void PowerManagement::init() {
 /**
  * @brief Set CPU frequency based on power mode
  * 
- * Implements "Dynamic Clock Scaling" from Milestone 5.
+ * Implements Dynamic Clock Scaling for power optimization.
  * Scales between 240MHz (WiFi ops), 160MHz (normal), and 80MHz (idle).
  * 
  * IMPORTANT: WiFi requires minimum 160 MHz to avoid beacon timeouts.
@@ -140,7 +140,7 @@ void PowerManagement::setCPUFrequency(PowerMode mode) {
 /**
  * @brief Enter light sleep for specified duration
  * 
- * This implements "Light CPU Idle" technique from Milestone 5.
+ * This implements the Light CPU Idle technique for power optimization.
  * Uses delay() which allows CPU to enter idle states between interrupts.
  * True light sleep is disabled due to watchdog timer conflicts.
  */

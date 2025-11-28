@@ -1,6 +1,6 @@
 #include "peripheral/acquisition.h"
 #include "peripheral/logger.h"
-#include "application/fault_recovery.h" // Milestone 5: Fault Recovery
+#include "application/fault_recovery.h" // Fault Recovery
 #include "application/data_uploader.h"  // For getDeviceID()
 #include <functional>  // For std::bind to reduce stack usage
 #include <time.h>
@@ -256,7 +256,7 @@ static bool retryModbusRead(const char* frame, char* responseFrame, size_t respo
 /**
  * @fn DecodedValues readRequest(const RegID* regs, size_t regCount)
  * 
- * @brief Read specified registers from the inverter with fault detection and recovery (Milestone 5).
+ * @brief Read specified registers from the inverter with fault detection and recovery.
  * 
  * @param regs Array of RegIDs to read.
  * @param regCount Number of registers to read.
@@ -319,7 +319,7 @@ DecodedValues readRequest(const RegID* regs, size_t regCount)
 
   const char* response_frame = responseFrame;
   
-  // MILESTONE 5: Detect faults in response
+  // Detect faults in response
   // NOTE: detectFault() works even if ok==false (corrupted frame is still copied to responseFrame)
   FaultType fault = detectFault(response_frame, expectedByteCount, sizeof(responseFrame));
   

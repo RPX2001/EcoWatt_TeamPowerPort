@@ -1,8 +1,8 @@
 /**
  * @file test_main.cpp
- * @brief M4 Integration Test - ESP32 Side
+ * @brief Integration Test - ESP32 Side
  * 
- * Real implementation test for Milestone 4 requirements:
+ * Real implementation test for system requirements:
  * - WiFi connection establishment
  * - Security (HMAC verification, anti-replay)
  * - Command execution with security

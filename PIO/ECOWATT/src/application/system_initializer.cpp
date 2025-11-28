@@ -12,7 +12,7 @@
 #include "application/peripheral_power.h"
 #include "application/security.h"
 #include "application/OTAManager.h"
-#include "application/fault_recovery.h" // Milestone 5
+#include "application/fault_recovery.h" // Fault Recovery
 #include "peripheral/logger.h"
 #include <time.h>
 
@@ -48,7 +48,7 @@ bool SystemInitializer::initializeAll() {
     }
     LOG_SUCCESS(LOG_TAG_BOOT, "Security Layer initialized");
 
-    // Step 4: Fault Recovery (Milestone 5)
+    // Step 4: Fault Recovery
     LOG_INFO(LOG_TAG_BOOT, "Initializing Fault Recovery...");
     initFaultRecovery();
     LOG_SUCCESS(LOG_TAG_BOOT, "Fault Recovery initialized");

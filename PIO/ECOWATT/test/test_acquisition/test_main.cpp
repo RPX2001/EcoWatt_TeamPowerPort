@@ -1,6 +1,6 @@
 /**
  * @file test_acquisition.cpp
- * @brief Unit tests for Acquisition Scheduler (Milestone 2)
+ * @brief Unit tests for Acquisition Scheduler
  * 
  * Tests:
  * - Register polling at configurable rate
@@ -41,7 +41,7 @@ void tearDown(void) {
 }
 
 // ============================================================================
-// MILESTONE 2 - Part 2: Acquisition Scheduler Tests
+// ACQUISITION SCHEDULER TESTS
 // ============================================================================
 
 /**

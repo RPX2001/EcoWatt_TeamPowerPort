@@ -17,7 +17,7 @@
 
 /**
  * @class CommandExecutor
- * @brief Manages remote command execution following Milestone 4 format
+ * @brief Manages remote command execution
  * 
  * This class provides a singleton-style interface for polling commands
  * from the server and executing them locally.

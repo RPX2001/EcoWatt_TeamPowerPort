@@ -1,8 +1,8 @@
 /**
  * @file test_main.cpp
- * @brief M3 Real-World Integration Tests - End-to-End with WiFi and Real Inverter API
+ * @brief Real-World Integration Tests - End-to-End with WiFi and Real Inverter API
  * 
- * Tests the complete workflow for Milestone 3:
+ * Tests the complete data workflow:
  * 1. WiFi connection establishment
  * 2. Real data acquisition from Modbus inverter API
  * 3. Data compression using actual compression module

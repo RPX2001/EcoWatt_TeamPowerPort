@@ -84,7 +84,7 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
         DeserializationError error = deserializeJson(responsedoc, responseStr);
         
         if (!error) {
-            // Check if there's a pending config (Milestone 4 format)
+            // Check if there's a pending config
             bool isPending = responsedoc["is_pending"] | false;
             
             if (isPending) {
@@ -95,7 +95,7 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                 // The 'pending_config' field contains what ESP32 should apply
                 JsonObject configWrapper = responsedoc["pending_config"].as<JsonObject>();
                 
-                // Check if config_update exists (Milestone 4 format)
+                // Check if config_update exists in the response
                 JsonObject config;
                 if (configWrapper.containsKey("config_update")) {
                     config = configWrapper["config_update"].as<JsonObject>();
@@ -183,7 +183,7 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                         }
                     }
                     
-                    // 6. Check registers array (Milestone 4 format uses register NAMES not mask)
+                    // 6. Check registers array (uses register NAMES not mask)
                     if (config.containsKey("registers")) {
                         JsonArray registers = config["registers"].as<JsonArray>();
                         
@@ -390,9 +390,8 @@ void ConfigManager::printCurrentConfig() {
     LOG_INFO(LOG_TAG_CONFIG, "Registers:");
     
     for (size_t i = 0; i < currentConfig.registerCount && i < REGISTER_COUNT; i++) {
-        // Registers listed individually below
+        LOG_INFO(LOG_TAG_CONFIG, "  - %s", REGISTER_MAP[currentConfig.registers[i]].name);
     }
-    // Newline not needed with LOG_INFO
     
     LOG_INFO(LOG_TAG_CONFIG, "Poll Frequency:    %llu μs (%.2f s)", 
           currentConfig.pollFrequency, currentConfig.pollFrequency / 1000000.0);
@@ -406,11 +405,6 @@ void ConfigManager::printCurrentConfig() {
     
     LOG_INFO(LOG_TAG_CONFIG, "Power Management:  %s", powerEnabled ? "ENABLED" : "DISABLED");
     LOG_INFO(LOG_TAG_CONFIG, "Techniques:        0x%02X", techniques);
-    // Techniques logged above
-    // Techniques logged above
-    // Techniques logged above
-    // Techniques logged above
-    // Newline not needed with LOG_INFO
     LOG_INFO(LOG_TAG_CONFIG, "Energy Poll:       %llu μs (%.2f s)", 
           energyPollFreq, energyPollFreq / 1000000.0);
     

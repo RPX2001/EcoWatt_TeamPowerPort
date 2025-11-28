@@ -16,7 +16,7 @@ void tearDown(void) {
 }
 
 // ============================================================================
-// MILESTONE 3 PART 1: Buffer Implementation Tests
+// BUFFER IMPLEMENTATION TESTS
 // ============================================================================
 
 // Test 1: SampleBatch initialization

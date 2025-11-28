@@ -16,7 +16,7 @@ void tearDown(void) {
 }
 
 // ============================================================================
-// MILESTONE 3 PART 2: Compression Algorithm and Benchmarking Tests
+// COMPRESSION ALGORITHM AND BENCHMARKING TESTS
 // ============================================================================
 
 // Test 1: Basic compression - verify compression reduces size

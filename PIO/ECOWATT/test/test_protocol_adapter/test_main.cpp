@@ -1,6 +1,6 @@
 /**
  * @file test_protocol_adapter.cpp
- * @brief Unit tests for Protocol Adapter (Milestone 2)
+ * @brief Unit tests for Protocol Adapter
  * 
  * Tests:
  * - Request formatting
@@ -46,7 +46,7 @@ void tearDown(void) {
 }
 
 // ============================================================================
-// MILESTONE 2 - Part 1: Protocol Adapter Tests
+// PROTOCOL ADAPTER TESTS
 // ============================================================================
 
 /**

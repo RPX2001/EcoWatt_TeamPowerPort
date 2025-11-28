@@ -695,7 +695,7 @@ bool OTAManager::verifySignature(const String& base64Signature)
     LOG_INFO(LOG_TAG_FOTA, "Expected hash length: %d chars", manifest.sha256_hash.length());
     LOG_INFO(LOG_TAG_FOTA, "Expected hash: %s", manifest.sha256_hash.c_str());
     
-    // MILESTONE 5: Compare calculated hash with manifest hash BEFORE RSA verification
+    // Compare calculated hash with manifest hash BEFORE RSA verification
     // This catches the "bad_hash" fault injection where server sends wrong hash
     bool hashMatch = (calculatedHashHex == manifest.sha256_hash);
     LOG_INFO(LOG_TAG_FOTA, "Hash comparison result: %s", hashMatch ? "MATCH" : "MISMATCH");

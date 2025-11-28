@@ -1,6 +1,6 @@
 /**
  * @file fault_recovery.cpp
- * @brief Fault Detection and Recovery Implementation (Milestone 5)
+ * @brief Fault Detection and Recovery Implementation
  */
 
 #include "application/fault_recovery.h"
