@@ -708,13 +708,34 @@ class Database:
         # Map ESP32 status to database status
         db_status = 'completed' if status == 'success' else 'failed'
         
+        # Check current status - don't overwrite 'failed' with 'completed' 
+        # This prevents verification_failed status from being overwritten
         cursor.execute('''
-            UPDATE ota_updates 
-            SET status = ?, install_status = ?, error_msg = ?, install_completed_at = CURRENT_TIMESTAMP
+            SELECT status FROM ota_updates 
             WHERE device_id = ? AND to_version = ?
             ORDER BY initiated_at DESC
             LIMIT 1
-        ''', (db_status, status, error_msg, device_id, to_version))
+        ''', (device_id, to_version))
+        
+        row = cursor.fetchone()
+        if row and row['status'] == 'failed' and db_status == 'completed':
+            logger.warning(f"[Database] OTA status for {device_id} already 'failed', not overwriting with 'completed'")
+            # Still update install_status and install_completed_at, but keep status as 'failed'
+            cursor.execute('''
+                UPDATE ota_updates 
+                SET install_status = ?, install_completed_at = CURRENT_TIMESTAMP
+                WHERE device_id = ? AND to_version = ?
+                ORDER BY initiated_at DESC
+                LIMIT 1
+            ''', (status, device_id, to_version))
+        else:
+            cursor.execute('''
+                UPDATE ota_updates 
+                SET status = ?, install_status = ?, error_msg = ?, install_completed_at = CURRENT_TIMESTAMP
+                WHERE device_id = ? AND to_version = ?
+                ORDER BY initiated_at DESC
+                LIMIT 1
+            ''', (db_status, status, error_msg, device_id, to_version))
         
         conn.commit()
         return cursor.rowcount > 0
@@ -804,9 +825,9 @@ class Database:
             'firmware_size': row['firmware_size'],
             'chunks_total': row['chunks_total'],
             'chunks_downloaded': row['chunks_downloaded'],
-            'initiated_at': row['initiated_at'],
-            'download_completed_at': row['download_completed_at'],
-            'install_completed_at': row['install_completed_at']
+            'initiated_at': convert_utc_to_local(row['initiated_at']),
+            'download_completed_at': convert_utc_to_local(row['download_completed_at']),
+            'install_completed_at': convert_utc_to_local(row['install_completed_at'])
         } for row in rows]
     
     @staticmethod
@@ -837,7 +858,6 @@ class Database:
             success_rate = round((successful_updates / total_updates) * 100, 2)
         
         # Log for debugging
-        from utils.logger_utils import logger
         logger.debug(f"OTA Statistics: total={total_updates}, successful={successful_updates}, failed={failed_updates}, active={active_sessions}")
         
         return {

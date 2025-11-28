@@ -138,10 +138,10 @@ def check_for_update(device_id: str, current_version: str) -> Tuple[bool, Option
                     'release_notes': manifest.get('release_notes', '')
                 }
                 
-                # Inject manifest faults if enabled (Milestone 5)
+                # Milestone 5: Inject manifest faults if enabled (bad_hash or bad_signature)
                 if _should_inject_fault(device_id):
                     fault_type = ota_fault_injection['fault_type']
-                    if fault_type in ['bad_hash', 'bad_signature', 'manifest_corrupt']:
+                    if fault_type in ['bad_hash', 'bad_signature']:
                         update_info = _inject_manifest_corruption(update_info)
                 
                 logger.info(f"Update available for {device_id}: "
@@ -256,55 +256,16 @@ def get_firmware_chunk_for_device(
             if chunk_index >= session['total_chunks']:
                 return False, None, f"Invalid chunk index: {chunk_index}"
         
-        # Milestone 5: Check for fault injection
-        if _should_inject_fault(device_id, chunk_index):
-            fault_type = ota_fault_injection['fault_type']
-            
-            # Network delay injection
-            if fault_type == 'timeout':
-                _inject_network_delay()
-            
-            # Partial download - stop after certain percentage
-            if fault_type == 'partial_download':
-                max_chunk_percent = ota_fault_injection['parameters'].get('max_chunk_percent', 50)
-                max_chunk = int(session['total_chunks'] * max_chunk_percent / 100)
-                if chunk_index >= max_chunk:
-                    ota_fault_injection['fault_count'] += 1
-                    logger.warning(f"⚠️  Partial download limit reached at chunk {chunk_index}/{session['total_chunks']} "
-                                 f"({max_chunk_percent}%) - simulating network failure")
-                    return False, None, f"Network interrupted at {max_chunk_percent}% (chunk {chunk_index})"
-            
-            # Network interrupt - stop after specific chunk
-            if fault_type == 'network_interrupt':
-                interrupt_after = ota_fault_injection['parameters'].get('interrupt_after_chunk', 10)
-                if chunk_index > interrupt_after:
-                    ota_fault_injection['fault_count'] += 1
-                    logger.warning(f"⚠️  Network interrupted after chunk {interrupt_after}")
-                    return False, None, f"Network connection lost"
-            
-            # Check if this chunk should be dropped
-            if _should_drop_chunk(chunk_index):
-                return False, None, f"Chunk {chunk_index} dropped (fault injection)"
-        
         # Get chunk from firmware manager
         chunk_data = _get_firmware_chunk(firmware_version, chunk_index)
         
         if chunk_data is None:
             return False, None, f"Failed to retrieve chunk {chunk_index}"
         
-        # Milestone 5: Inject chunk corruption if enabled
+        # Milestone 5: Inject chunk corruption if enabled (corrupt_chunk fault)
         if _should_inject_fault(device_id, chunk_index):
             if ota_fault_injection['fault_type'] == 'corrupt_chunk':
-                # Corrupt the chunk data
-                import random
-                ota_fault_injection['fault_count'] += 1
-                corrupted = bytearray(chunk_data)
-                # Flip random bits
-                for _ in range(10):
-                    pos = random.randint(0, len(corrupted) - 1)
-                    corrupted[pos] ^= 0xFF
-                chunk_data = bytes(corrupted)
-                logger.warning(f"⚠️  Chunk {chunk_index} corrupted (fault #{ota_fault_injection['fault_count']})")
+                chunk_data = _inject_chunk_corruption(chunk_data, chunk_index)
         
         # Update session
         with ota_lock:
@@ -345,11 +306,20 @@ def complete_ota_session(device_id: str, success: bool) -> bool:
             session['status'] = 'completed' if success else 'failed'
             session['completed_at'] = datetime.now().isoformat()
             
-            # Update database
-            Database.update_ota_status(
-                device_id=device_id,
-                status='completed' if success else 'failed'
-            )
+            # Only update database status if success OR if current status is not already 'failed'
+            # This prevents overwriting 'failed' status from verification_failed phase
+            current_ota = Database.get_latest_ota_update(device_id)
+            current_status = current_ota.get('status') if current_ota else None
+            
+            if success:
+                # Success - always update to completed
+                Database.update_ota_status(device_id=device_id, status='completed')
+            elif current_status != 'failed':
+                # Only update to failed if not already failed
+                Database.update_ota_status(device_id=device_id, status='failed')
+            else:
+                # Already failed - don't overwrite
+                logger.info(f"OTA status for {device_id} already 'failed', not overwriting")
             
             # Update in-memory stats (for backwards compatibility)
             if success:
@@ -490,20 +460,28 @@ def cancel_ota_session(device_id: str) -> bool:
 
 
 # ==============================================================================
-# FOTA FAULT INJECTION (For Testing)
+# FOTA FAULT INJECTION (For Testing - Milestone 5)
+# ==============================================================================
+# Supported fault types (triggers ESP32 rollback):
+#   1. corrupt_chunk  - Corrupt firmware chunk data (CRC/hash validation fails)
+#   2. bad_hash       - Incorrect SHA256 hash in manifest (verification fails)
+#   3. bad_signature  - Incorrect signature in manifest (signature check fails)
 # ==============================================================================
 
 # Fault injection state
 ota_fault_injection = {
     'enabled': False,
-    'fault_type': None,
-    'target_device': None,
-    'target_chunk': None,
-    'fault_count': 0,
-    'parameters': {}  # Additional parameters for specific fault types
+    'fault_type': None,           # 'corrupt_chunk', 'bad_hash', or 'bad_signature'
+    'target_device': None,        # Target specific device or None for all
+    'target_chunk': None,         # For corrupt_chunk: specific chunk or None for all
+    'fault_count': 0,             # Number of faults injected
+    'chunks_corrupted': []        # Track which chunks were corrupted
 }
 
 ota_fault_lock = threading.Lock()
+
+# Valid OTA fault types (only these 3 for Milestone 5)
+VALID_OTA_FAULT_TYPES = ['corrupt_chunk', 'bad_hash', 'bad_signature']
 
 
 def enable_ota_fault_injection(fault_type: str, target_device: Optional[str] = None, 
@@ -512,60 +490,47 @@ def enable_ota_fault_injection(fault_type: str, target_device: Optional[str] = N
     Enable OTA fault injection for testing (Milestone 5 requirement)
     
     Args:
-        fault_type: Type of fault to inject
+        fault_type: Type of fault to inject (corrupt_chunk, bad_hash, bad_signature)
         target_device: Optional device ID to target (None = all devices)
-        target_chunk: Optional chunk number to corrupt (None = random)
-        **kwargs: Additional parameters for specific fault types
-            - delay_ms: Delay in milliseconds for 'timeout' type
-            - corrupt_percent: Percentage of chunks to corrupt for 'partial_download'
-            - manifest_field: Field to corrupt in manifest for 'manifest_corrupt'
+        target_chunk: Optional chunk number to corrupt (None = all chunks, only for corrupt_chunk)
         
     Supported Fault Types (Milestone 5):
-        - corrupt_chunk: Corrupt specific chunk data (flips random bits)
+        - corrupt_chunk: Corrupt firmware chunk data by flipping random bits
+                        ESP32 will detect CRC/hash mismatch and trigger rollback
         - bad_hash: Provide incorrect SHA256 hash in manifest
+                   ESP32 will detect hash mismatch after download and trigger rollback
         - bad_signature: Provide incorrect signature in manifest
-        - timeout: Delay response to simulate network timeout
-        - incomplete: Simulate incomplete download (drop random chunks)
-        - partial_download: Simulate partial/interrupted download
-        - network_interrupt: Simulate network interruption mid-download
-        - manifest_corrupt: Corrupt manifest data (invalid JSON, wrong fields)
-        - hash_mismatch: Downloaded file hash doesn't match manifest
+                        ESP32 will detect signature verification failure and trigger rollback
         
     Returns:
         tuple: (success, message)
     """
     with ota_fault_lock:
-        valid_types = [
-            'corrupt_chunk',      # Corrupt chunk data
-            'bad_hash',           # Wrong SHA256 in manifest
-            'bad_signature',      # Wrong signature in manifest
-            'timeout',            # Response delay
-            'incomplete',         # Drop chunks randomly
-            'partial_download',   # Interrupt download partway
-            'network_interrupt',  # Simulate network failure
-            'manifest_corrupt',   # Invalid manifest
-            'hash_mismatch'       # Final hash doesn't match
-        ]
-        
-        if fault_type not in valid_types:
-            return False, f"Invalid fault type. Must be one of: {valid_types}"
+        if fault_type not in VALID_OTA_FAULT_TYPES:
+            return False, f"Invalid fault type. Must be one of: {VALID_OTA_FAULT_TYPES}"
         
         ota_fault_injection['enabled'] = True
         ota_fault_injection['fault_type'] = fault_type
         ota_fault_injection['target_device'] = target_device
         ota_fault_injection['target_chunk'] = target_chunk
         ota_fault_injection['fault_count'] = 0
-        ota_fault_injection['parameters'] = kwargs
+        ota_fault_injection['chunks_corrupted'] = []
         
         logger.warning(f"⚠️  OTA Fault Injection ENABLED: {fault_type}")
         if target_device:
             logger.warning(f"   Target Device: {target_device}")
-        if target_chunk is not None:
+        if target_chunk is not None and fault_type == 'corrupt_chunk':
             logger.warning(f"   Target Chunk: {target_chunk}")
-        if kwargs:
-            logger.warning(f"   Parameters: {kwargs}")
         
-        return True, f"Fault injection enabled: {fault_type}"
+        # Log expected ESP32 behavior
+        if fault_type == 'corrupt_chunk':
+            logger.warning("   → ESP32 will detect corrupted chunk data and trigger rollback")
+        elif fault_type == 'bad_hash':
+            logger.warning("   → ESP32 will detect SHA256 hash mismatch and trigger rollback")
+        elif fault_type == 'bad_signature':
+            logger.warning("   → ESP32 will detect signature verification failure and trigger rollback")
+        
+        return True, f"OTA fault injection enabled: {fault_type}"
 
 
 def disable_ota_fault_injection() -> Tuple[bool, str]:
@@ -573,17 +538,22 @@ def disable_ota_fault_injection() -> Tuple[bool, str]:
     with ota_fault_lock:
         was_enabled = ota_fault_injection['enabled']
         fault_count = ota_fault_injection['fault_count']
+        fault_type = ota_fault_injection['fault_type']
+        chunks_corrupted = ota_fault_injection['chunks_corrupted'].copy()
         
         ota_fault_injection['enabled'] = False
         ota_fault_injection['fault_type'] = None
         ota_fault_injection['target_device'] = None
         ota_fault_injection['target_chunk'] = None
         ota_fault_injection['fault_count'] = 0
-        ota_fault_injection['parameters'] = {}
+        ota_fault_injection['chunks_corrupted'] = []
         
         if was_enabled:
-            logger.info(f"✓ OTA Fault Injection DISABLED (Faults injected: {fault_count})")
-            return True, f"Fault injection disabled (Faults injected: {fault_count})"
+            msg = f"OTA fault injection disabled. Type: {fault_type}, Faults injected: {fault_count}"
+            if chunks_corrupted:
+                msg += f", Chunks corrupted: {chunks_corrupted}"
+            logger.info(f"✓ {msg}")
+            return True, msg
         else:
             return True, "Fault injection was not enabled"
 
@@ -597,7 +567,8 @@ def get_ota_fault_status() -> Dict:
             'target_device': ota_fault_injection['target_device'],
             'target_chunk': ota_fault_injection['target_chunk'],
             'fault_count': ota_fault_injection['fault_count'],
-            'parameters': ota_fault_injection.get('parameters', {})
+            'chunks_corrupted': ota_fault_injection['chunks_corrupted'].copy(),
+            'valid_fault_types': VALID_OTA_FAULT_TYPES
         }
 
 
@@ -610,8 +581,8 @@ def _should_inject_fault(device_id: str, chunk_number: Optional[int] = None) -> 
     if ota_fault_injection['target_device'] and ota_fault_injection['target_device'] != device_id:
         return False
     
-    # Check chunk filter
-    if chunk_number is not None:
+    # For corrupt_chunk, check chunk filter
+    if ota_fault_injection['fault_type'] == 'corrupt_chunk' and chunk_number is not None:
         if ota_fault_injection['target_chunk'] is not None:
             if ota_fault_injection['target_chunk'] != chunk_number:
                 return False
@@ -619,96 +590,90 @@ def _should_inject_fault(device_id: str, chunk_number: Optional[int] = None) -> 
     return True
 
 
-def _inject_chunk_corruption(chunk_data: Dict) -> Dict:
-    """Corrupt chunk data for testing (Milestone 5: Fault Injection)"""
-    import base64
+def _inject_chunk_corruption(chunk_data: bytes, chunk_index: int) -> bytes:
+    """
+    Corrupt chunk data for testing (Milestone 5: corrupt_chunk fault)
+    
+    Flips random bits in the chunk data to simulate data corruption.
+    ESP32 will detect this via CRC check or hash verification and trigger rollback.
+    
+    Args:
+        chunk_data: Raw chunk bytes
+        chunk_index: Index of the chunk being corrupted
+        
+    Returns:
+        Corrupted chunk bytes
+    """
     import random
     
     ota_fault_injection['fault_count'] += 1
-    logger.warning(f"⚠️  Injecting chunk corruption (fault #{ota_fault_injection['fault_count']})")
+    ota_fault_injection['chunks_corrupted'].append(chunk_index)
     
-    # Corrupt the data
-    data_bytes = base64.b64decode(chunk_data['data'])
-    corrupted = bytearray(data_bytes)
+    corrupted = bytearray(chunk_data)
     
-    # Flip some random bits
-    for _ in range(5):
-        pos = random.randint(0, len(corrupted) - 1)
-        corrupted[pos] ^= 0xFF
+    # Corrupt 5-10 random bytes by flipping bits
+    num_corruptions = random.randint(5, 10)
+    corruption_positions = []
     
-    chunk_data['data'] = base64.b64encode(bytes(corrupted)).decode('utf-8')
-    return chunk_data
+    for _ in range(num_corruptions):
+        if len(corrupted) > 0:
+            pos = random.randint(0, len(corrupted) - 1)
+            original_byte = corrupted[pos]
+            corrupted[pos] ^= random.randint(1, 255)  # Flip random bits
+            corruption_positions.append(pos)
+    
+    logger.warning(f"⚠️  CHUNK CORRUPTED: chunk {chunk_index} "
+                  f"({num_corruptions} bytes modified at positions {corruption_positions[:5]}...) "
+                  f"[fault #{ota_fault_injection['fault_count']}]")
+    
+    return bytes(corrupted)
 
 
 def _inject_manifest_corruption(manifest: Dict) -> Dict:
-    """Corrupt manifest data for testing (Milestone 5: Fault Injection)"""
+    """
+    Corrupt manifest data for testing (Milestone 5: bad_hash or bad_signature fault)
+    
+    Modifies the SHA256 hash or signature in the manifest to invalid values.
+    ESP32 will detect this during verification and trigger rollback.
+    
+    Args:
+        manifest: Update info/manifest dictionary
+        
+    Returns:
+        Corrupted manifest dictionary
+    """
     import random
     
     fault_type = ota_fault_injection['fault_type']
     ota_fault_injection['fault_count'] += 1
-    
-    logger.warning(f"⚠️  Injecting manifest corruption: {fault_type} (fault #{ota_fault_injection['fault_count']})")
     
     if fault_type == 'bad_hash':
-        # Provide incorrect SHA256 hash
-        manifest['sha256_hash'] = 'deadbeef' * 8  # Invalid hash
-        logger.warning("   Corrupted SHA256 hash in manifest")
+        # Corrupt SHA256 hash (64 hex characters)
+        original_hash = manifest.get('sha256_hash', '')
+        # Generate a completely different but valid-looking hash
+        fake_hash = ''.join(random.choice('0123456789abcdef') for _ in range(64))
+        manifest['sha256_hash'] = fake_hash
+        
+        logger.warning(f"⚠️  MANIFEST CORRUPTED: SHA256 hash replaced "
+                      f"[fault #{ota_fault_injection['fault_count']}]")
+        logger.warning(f"   Original hash: {original_hash[:16]}...{original_hash[-16:]}")
+        logger.warning(f"   Fake hash:     {fake_hash[:16]}...{fake_hash[-16:]}")
+        logger.warning(f"   → ESP32 will detect hash mismatch after download")
     
     elif fault_type == 'bad_signature':
-        # Provide incorrect signature
-        manifest['signature'] = 'invalid_signature_' + str(random.randint(1000, 9999))
-        logger.warning("   Corrupted signature in manifest")
-    
-    elif fault_type == 'manifest_corrupt':
-        # Corrupt specific manifest field
-        manifest_field = ota_fault_injection['parameters'].get('manifest_field', 'version')
-        if manifest_field in manifest:
-            manifest[manifest_field] = 'CORRUPTED_' + str(manifest.get(manifest_field, ''))
-            logger.warning(f"   Corrupted manifest field: {manifest_field}")
+        # Corrupt signature
+        original_sig = manifest.get('signature', '')
+        # Generate invalid signature
+        fake_sig = 'INVALID_SIG_' + ''.join(random.choice('0123456789ABCDEF') for _ in range(32))
+        manifest['signature'] = fake_sig
+        
+        logger.warning(f"⚠️  MANIFEST CORRUPTED: Signature replaced "
+                      f"[fault #{ota_fault_injection['fault_count']}]")
+        logger.warning(f"   Original signature: {original_sig[:20]}..." if original_sig else "   Original signature: (none)")
+        logger.warning(f"   Fake signature:     {fake_sig[:20]}...")
+        logger.warning(f"   → ESP32 will detect signature verification failure")
     
     return manifest
-
-
-def _inject_network_delay():
-    """Inject network delay for testing (Milestone 5: Fault Injection)"""
-    import time
-    
-    delay_ms = ota_fault_injection['parameters'].get('delay_ms', 5000)
-    ota_fault_injection['fault_count'] += 1
-    
-    logger.warning(f"⚠️  Injecting network delay: {delay_ms}ms (fault #{ota_fault_injection['fault_count']})")
-    time.sleep(delay_ms / 1000.0)
-
-
-def _should_drop_chunk(chunk_number: int) -> bool:
-    """Check if this chunk should be dropped (Milestone 5: Fault Injection)"""
-    import random
-    
-    fault_type = ota_fault_injection['fault_type']
-    
-    if fault_type == 'incomplete':
-        # Drop random chunks with configurable probability
-        drop_probability = ota_fault_injection['parameters'].get('drop_probability', 0.1)
-        if random.random() < drop_probability:
-            ota_fault_injection['fault_count'] += 1
-            logger.warning(f"⚠️  Dropping chunk {chunk_number} (fault #{ota_fault_injection['fault_count']})")
-            return True
-    
-    elif fault_type == 'partial_download':
-        # Drop all chunks after a certain percentage
-        max_chunk_percent = ota_fault_injection['parameters'].get('max_chunk_percent', 50)
-        # We'll need total_chunks from session - handle in get_firmware_chunk_for_device
-        return False  # Handled in get_firmware_chunk_for_device
-    
-    elif fault_type == 'network_interrupt':
-        # Drop all chunks after a specific chunk number
-        interrupt_after_chunk = ota_fault_injection['parameters'].get('interrupt_after_chunk')
-        if interrupt_after_chunk is not None and chunk_number > interrupt_after_chunk:
-            ota_fault_injection['fault_count'] += 1
-            logger.warning(f"⚠️  Network interrupted - dropping chunk {chunk_number} (fault #{ota_fault_injection['fault_count']})")
-            return True
-    
-    return False
 
 
 # Export functions
@@ -722,6 +687,7 @@ __all__ = [
     'cancel_ota_session',
     'enable_ota_fault_injection',
     'disable_ota_fault_injection',
-    'get_ota_fault_status'
+    'get_ota_fault_status',
+    'VALID_OTA_FAULT_TYPES'
 ]
 

@@ -338,7 +338,7 @@ void TaskManager::sensorPollTask(void* parameter) {
     
     TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xFrequency = pdMS_TO_TICKS(pollFrequency);  // NOT const - can update
-    const uint32_t deadlineUs = 2000000;  // 2s deadline (Modbus takes ~1.8s)
+    const uint32_t deadlineUs = SENSOR_POLL_DEADLINE_US;  // 2s deadline (Modbus takes ~1.8s)
     
     // Get initial register configuration from NVS
     xSemaphoreTake(nvsAccessMutex, portMAX_DELAY);
@@ -496,7 +496,7 @@ void TaskManager::compressionTask(void* parameter) {
     // Register this task with hardware watchdog
     esp_task_wdt_add(NULL);
     
-    const uint32_t deadlineUs = 2000000;  // 2s deadline
+    const uint32_t deadlineUs = COMPRESSION_DEADLINE_US;  // 2s deadline
     
     // Calculate batch size dynamically based on upload/poll timing
     // batchSize = uploadFrequency / pollFrequency
@@ -635,7 +635,7 @@ void TaskManager::uploadTask(void* parameter) {
     
     TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xFrequency = pdMS_TO_TICKS(uploadFrequency);  // NOT const - can update
-    const uint32_t deadlineUs = 5000000;  // 5s deadline per upload
+    const uint32_t deadlineUs = UPLOAD_DEADLINE_US;  // 5s deadline per upload
     
     LOG_INFO(LOG_TAG_UPLOAD, "Upload frequency: %lu ms", uploadFrequency);
     LOG_INFO(LOG_TAG_UPLOAD, "Deadline: %lu us", deadlineUs);
@@ -842,7 +842,7 @@ void TaskManager::configTask(void* parameter) {
     
     TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xFrequency = pdMS_TO_TICKS(configFrequency);  // NOT const - can update
-    const uint32_t deadlineUs = 2000000;  // 2s deadline
+    const uint32_t deadlineUs = CONFIG_DEADLINE_US;  // 2s deadline
     
     // State flags for configuration changes
     static bool registers_uptodate = true;
@@ -918,7 +918,7 @@ void TaskManager::powerReportTask(void* parameter) {
     
     TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xFrequency = pdMS_TO_TICKS(powerReportFrequency);
-    const uint32_t deadlineUs = 5000000;  // 5s deadline
+    const uint32_t deadlineUs = POWER_REPORT_DEADLINE_US;  // 5s deadline
     
     LOG_INFO(LOG_TAG_POWER, "Report frequency: %lu ms", powerReportFrequency);
     LOG_INFO(LOG_TAG_POWER, "Deadline: %lu us", deadlineUs);
@@ -1035,7 +1035,7 @@ void TaskManager::otaTask(void* parameter) {
     
     TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xFrequency = pdMS_TO_TICKS(otaFrequency);  // NOT const - can update
-    const uint32_t deadlineUs = 120000000;  // 120s deadline (when active)
+    const uint32_t deadlineUs = OTA_DEADLINE_US;  // 120s deadline (when active)
     
     // Store OTA manager instance (passed via parameter)
     OTAManager* otaManager = static_cast<OTAManager*>(parameter);

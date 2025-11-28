@@ -65,12 +65,13 @@
 
 // Maximum execution time allowed for each task
 // Exceeding deadline triggers warning and increments miss counter
-#define SENSOR_POLL_DEADLINE_US         2000000         // 2 seconds (Modbus ~1.8s)
+#define SENSOR_POLL_DEADLINE_US         3000000         // 2 seconds (Modbus ~1.8s)
 #define COMPRESSION_DEADLINE_US         2000000         // 2 seconds
 #define UPLOAD_DEADLINE_US              5000000         // 5 seconds
+#define POWER_REPORT_DEADLINE_US        5000000         // 5 seconds
 #define COMMAND_DEADLINE_US             3000000         // 3 seconds (increased to accommodate mutex wait)
 #define CONFIG_DEADLINE_US              3000000         // 3 seconds (increased to accommodate mutex wait)
-#define OTA_DEADLINE_US                 10000000        // 10 seconds
+#define OTA_DEADLINE_US                 120000000        // 120 seconds
 
 // ============================================
 // WATCHDOG CONFIGURATION

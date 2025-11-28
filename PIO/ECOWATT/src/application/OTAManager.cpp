@@ -146,6 +146,11 @@ bool OTAManager::checkForUpdate()
     manifest.chunk_size = updateInfo["chunk_size"];
     manifest.total_chunks = updateInfo["total_chunks"];
     
+    // DEBUG: Log received hash immediately to verify fault injection is working
+    LOG_WARN(LOG_TAG_FOTA, "[HASH CHECK] Received SHA256 from server:");
+    LOG_WARN(LOG_TAG_FOTA, "  Hash: %s", manifest.sha256_hash.c_str());
+    LOG_WARN(LOG_TAG_FOTA, "  Length: %d chars", manifest.sha256_hash.length());
+    
     // Update progress
     progress.total_chunks = manifest.total_chunks;
     
@@ -674,13 +679,36 @@ bool OTAManager::verifySignature(const String& base64Signature)
     mbedtls_sha256_finish(&sha_ctx, firmware_hash);
     mbedtls_sha256_free(&sha_ctx);
     
-    // Debug: Print calculated hash
-    LOG_DEBUG(LOG_TAG_FOTA, "ESP32 calculated hash");
+    // Convert calculated hash to hex string for comparison
+    String calculatedHashHex = "";
     for (int i = 0; i < 32; i++) {
+        if (firmware_hash[i] < 16) calculatedHashHex += "0";
+        calculatedHashHex += String(firmware_hash[i], HEX);
+    }
+    calculatedHashHex.toLowerCase();
+    
+    // Debug: Print calculated hash with explicit length check
+    LOG_INFO(LOG_TAG_FOTA, "Calculated hash length: %d chars", calculatedHashHex.length());
+    LOG_INFO(LOG_TAG_FOTA, "Calculated hash: %s", calculatedHashHex.c_str());
+    
+    // Debug: Print expected hash from manifest with explicit length check
+    LOG_INFO(LOG_TAG_FOTA, "Expected hash length: %d chars", manifest.sha256_hash.length());
+    LOG_INFO(LOG_TAG_FOTA, "Expected hash: %s", manifest.sha256_hash.c_str());
+    
+    // MILESTONE 5: Compare calculated hash with manifest hash BEFORE RSA verification
+    // This catches the "bad_hash" fault injection where server sends wrong hash
+    bool hashMatch = (calculatedHashHex == manifest.sha256_hash);
+    LOG_INFO(LOG_TAG_FOTA, "Hash comparison result: %s", hashMatch ? "MATCH" : "MISMATCH");
+    
+    if (!hashMatch) {
+        LOG_ERROR(LOG_TAG_FOTA, "SHA256 hash mismatch!");
+        LOG_ERROR(LOG_TAG_FOTA, "  Calculated: %s", calculatedHashHex.c_str());
+        LOG_ERROR(LOG_TAG_FOTA, "  Expected:   %s", manifest.sha256_hash.c_str());
+        LOG_ERROR(LOG_TAG_FOTA, "  → Firmware integrity check FAILED - triggering rollback");
+        return false;
     }
     
-    // Debug: Print expected hash from manifest
-    LOG_DEBUG(LOG_TAG_FOTA, "Server expected hash: %s", manifest.sha256_hash.c_str());
+    LOG_SUCCESS(LOG_TAG_FOTA, "SHA256 hash verified successfully - hashes match!");
     
     // Verify RSA signature against calculated hash
     return verifyRSASignature(firmware_hash, signature);

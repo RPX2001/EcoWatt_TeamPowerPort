@@ -232,19 +232,13 @@ def inject_local_fault(data):
     Inject fault locally (non-Inverter faults)
     
     Fault Types (Milestone 5):
-    - network: Network connectivity issues (timeout, connection drop, slow, intermittent)
-    - ota: OTA update faults (partial download, hash mismatch, corruption)
+    - network: Network connectivity issues (timeout, disconnect, slow, intermittent)
+    - ota: OTA update faults (triggers ESP32 rollback)
     
-    OTA Fault Subtypes:
-        - corrupt_chunk: Corrupt specific chunk data
-        - bad_hash: Incorrect SHA256 hash in manifest
-        - bad_signature: Incorrect signature in manifest
-        - timeout: Network delay during download
-        - incomplete: Random chunk drops
-        - partial_download: Interrupt download at percentage
-        - network_interrupt: Interrupt after specific chunk
-        - manifest_corrupt: Invalid manifest data
-        - hash_mismatch: Final hash verification failure
+    OTA Fault Subtypes (only these 3 supported):
+        - corrupt_chunk: Corrupt firmware chunk data (CRC/hash validation fails)
+        - bad_hash: Incorrect SHA256 hash in manifest (verification fails)  
+        - bad_signature: Incorrect signature in manifest (signature check fails)
     
     Network Fault Subtypes:
         - timeout: Connection timeout (delay then fail)
@@ -390,33 +384,38 @@ def inject_ota_fault(data):
     """
     Inject OTA-specific fault using OTA handler (Milestone 5)
     
+    Supported OTA Fault Types (triggers ESP32 rollback):
+        - corrupt_chunk: Corrupt firmware chunk data (CRC/hash validation fails)
+        - bad_hash: Incorrect SHA256 hash in manifest (verification fails)
+        - bad_signature: Incorrect signature in manifest (signature check fails)
+    
     Request Body:
     {
       "fault_type": "ota",
-      "ota_fault_subtype": "corrupt_chunk",  # See OTA handler for types
-      "target_device": "ESP32_001",           # Optional
-      "target_chunk": 50,                     # Optional
-      "parameters": {                         # Optional
-        "delay_ms": 5000,
-        "max_chunk_percent": 50,
-        "interrupt_after_chunk": 100
-      }
+      "ota_fault_subtype": "corrupt_chunk",   # corrupt_chunk, bad_hash, or bad_signature
+      "target_device": "ESP32_001",           # Optional - target specific device
+      "target_chunk": 5                       # Optional - for corrupt_chunk only
     }
     """
     try:
-        from handlers.ota_handler import enable_ota_fault_injection
+        from handlers.ota_handler import enable_ota_fault_injection, VALID_OTA_FAULT_TYPES
         
         ota_fault_subtype = data.get('ota_fault_subtype', 'corrupt_chunk')
         target_device = data.get('target_device')
         target_chunk = data.get('target_chunk')
-        parameters = data.get('parameters', {})
+        
+        # Validate fault subtype
+        if ota_fault_subtype not in VALID_OTA_FAULT_TYPES:
+            return jsonify({
+                'success': False,
+                'error': f'Invalid OTA fault subtype. Must be one of: {VALID_OTA_FAULT_TYPES}'
+            }), 400
         
         # Enable fault injection in OTA handler
         success, message = enable_ota_fault_injection(
             fault_type=ota_fault_subtype,
             target_device=target_device,
-            target_chunk=target_chunk,
-            **parameters
+            target_chunk=target_chunk
         )
         
         if success:
@@ -424,26 +423,27 @@ def inject_ota_fault(data):
             fault_statistics['total_injected'] += 1
             fault_statistics['local_faults'] += 1
             
-            # Save to database
-            Database.save_fault_injection(
-                device_id=target_device,
-                fault_type='ota',
-                backend='local_flask',
-                error_type=ota_fault_subtype,
-                success=True,
-                parameters=parameters
-            )
+            # Save to database with actual OTA fault type (e.g., corrupt_chunk, bad_hash, bad_signature)
+            try:
+                Database.save_fault_injection(
+                    device_id=target_device,
+                    fault_type=f'ota_{ota_fault_subtype}',  # Save as ota_corrupt_chunk, ota_bad_hash, etc.
+                    backend='local_flask',
+                    error_type=ota_fault_subtype,
+                    success=True
+                )
+            except Exception as db_err:
+                logger.warning(f"[Fault] Could not save to database: {db_err}")
             
             logger.info(f"[Fault] OTA fault injected: {ota_fault_subtype}")
             
             return jsonify({
                 'success': True,
                 'message': message,
-                'fault_type': 'ota',
+                'fault_type': f'ota_{ota_fault_subtype}',  # Return specific fault type
                 'ota_fault_subtype': ota_fault_subtype,
                 'target_device': target_device,
                 'target_chunk': target_chunk,
-                'parameters': parameters,
                 'backend': 'local_flask/ota_handler'
             }), 201
         else:
@@ -578,25 +578,17 @@ def get_available_fault_types():
                 'backend': 'Local Flask Server',
                 'types': {
                     'ota': {
-                        'description': 'OTA update faults',
+                        'description': 'OTA update faults (triggers ESP32 rollback)',
                         'subtypes': {
-                            'corrupt_chunk': 'Corrupt specific chunk data (flips random bits)',
-                            'bad_hash': 'Incorrect SHA256 hash in manifest',
-                            'bad_signature': 'Incorrect signature in manifest',
-                            'timeout': 'Network delay during chunk download',
-                            'incomplete': 'Random chunk drops during download',
-                            'partial_download': 'Interrupt download at percentage',
-                            'network_interrupt': 'Interrupt after specific chunk number',
-                            'manifest_corrupt': 'Invalid manifest data',
-                            'hash_mismatch': 'Final hash verification failure'
+                            'corrupt_chunk': 'Corrupt firmware chunk data - ESP32 detects CRC/hash mismatch',
+                            'bad_hash': 'Incorrect SHA256 hash in manifest - ESP32 detects hash verification failure',
+                            'bad_signature': 'Incorrect signature in manifest - ESP32 detects signature verification failure'
                         },
                         'example': {
                             'fault_type': 'ota',
-                            'ota_fault_subtype': 'partial_download',
+                            'ota_fault_subtype': 'corrupt_chunk',
                             'target_device': 'ESP32_001',
-                            'parameters': {
-                                'max_chunk_percent': 50
-                            }
+                            'target_chunk': 5
                         }
                     },
                     'network': {

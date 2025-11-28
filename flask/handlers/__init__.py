@@ -40,7 +40,8 @@ from .ota_handler import (
     cancel_ota_session,
     enable_ota_fault_injection,
     disable_ota_fault_injection,
-    get_ota_fault_status
+    get_ota_fault_status,
+    VALID_OTA_FAULT_TYPES
 )
 
 from .command_handler import (

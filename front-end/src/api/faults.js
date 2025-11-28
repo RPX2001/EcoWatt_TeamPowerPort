@@ -62,6 +62,22 @@ export const clearFaults = (faultId = null) => {
 };
 
 /**
+ * Get OTA fault injection status
+ * @returns {Promise} API response with OTA fault status
+ */
+export const getOTAFaultStatus = () => {
+  return apiClient.get('/ota/test/status');
+};
+
+/**
+ * Disable/Clear OTA fault injection
+ * @returns {Promise} API response
+ */
+export const clearOTAFaults = () => {
+  return apiClient.post('/ota/test/disable');
+};
+
+/**
  * Get available fault types
  * @returns {Promise} API response with fault types
  */
@@ -226,6 +242,8 @@ export default {
   getFaultStatus,
   clearFaults,
   getFaultTypes,
+  getOTAFaultStatus,
+  clearOTAFaults,
   getRecoveryEvents,
   getAllRecoveryEvents,
   clearRecoveryEvents,

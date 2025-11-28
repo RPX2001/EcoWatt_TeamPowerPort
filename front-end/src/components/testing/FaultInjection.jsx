@@ -50,7 +50,7 @@ import {
   Code as CodeIcon
 } from '@mui/icons-material';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { injectFault, clearFaults, getRecoveryEvents, getAllRecoveryEvents, clearRecoveryEvents, getInjectionHistory } from '../../api/faults';
+import { injectFault, clearFaults, getRecoveryEvents, getAllRecoveryEvents, clearRecoveryEvents, getInjectionHistory, getOTAFaultStatus, clearOTAFaults } from '../../api/faults';
 import { getDevices } from '../../api/devices';
 
 const FaultInjection = () => {
@@ -107,24 +107,30 @@ const FaultInjection = () => {
     staleTime: 2000
   });
 
+  // Fetch OTA fault injection status (auto-refresh every 2s)
+  const { data: otaFaultData, refetch: refetchOTAFault } = useQuery({
+    queryKey: ['otaFaultStatus'],
+    queryFn: getOTAFaultStatus,
+    refetchInterval: 2000, // Auto-refresh every 2 seconds
+    staleTime: 1000
+  });
+
+  const otaFaultStatus = otaFaultData?.data?.fault_injection || null;
+
   // Inverter SIM fault types (from external API - Milestone 5)
   const inverterSimFaults = [
     { value: 'EXCEPTION', label: 'Modbus Exception', description: 'Modbus exception with error code', exceptionCode: true },
-    { value: 'CRC_ERROR', label: 'CRC Error', description: 'Malformed CRC frames (Milestone 5)' },
-    { value: 'CORRUPT', label: 'Corrupt Data', description: 'Random byte garbage (Milestone 5)' },
+    { value: 'CRC_ERROR', label: 'CRC Error', description: 'Malformed CRC frames' },
+    { value: 'CORRUPT', label: 'Corrupt Data', description: 'Random byte garbage' },
     { value: 'PACKET_DROP', label: 'Packet Drop', description: 'Dropped packets (no response)' },
     { value: 'DELAY', label: 'Response Delay', description: 'Add delay to responses', requiresDelay: true }
   ];
 
-  // Local fault types - OTA (Milestone 5)
+  // Local fault types - OTA (Milestone 5 - FOTA Rollback Demo)
   const otaFaults = [
-    { value: 'corrupt_chunk', label: 'Corrupt Chunk', description: 'Corrupt firmware chunk data' },
-    { value: 'bad_hash', label: 'Bad Hash', description: 'Incorrect SHA256 hash in manifest' },
-    { value: 'bad_signature', label: 'Bad Signature', description: 'Incorrect signature in manifest' },
-    { value: 'partial_download', label: 'Partial Download', description: 'Interrupt download at percentage', requiresPercent: true },
-    { value: 'network_interrupt', label: 'Network Interrupt', description: 'Stop after specific chunk', requiresChunk: true },
-    { value: 'manifest_corrupt', label: 'Manifest Corrupt', description: 'Invalid manifest data' },
-    { value: 'timeout', label: 'Download Timeout', description: 'Delay chunk delivery', requiresDelay: true }
+    { value: 'corrupt_chunk', label: 'Corrupt Chunk', description: 'Corrupt firmware chunk data (triggers rollback)' },
+    { value: 'bad_hash', label: 'Bad Hash', description: 'Incorrect SHA256 hash in manifest (triggers rollback)' },
+    { value: 'bad_signature', label: 'Bad Signature', description: 'Incorrect signature in manifest (triggers rollback)' }
   ];
 
   // Local fault types - Network (Milestone 5)
@@ -196,6 +202,10 @@ const FaultInjection = () => {
     onSuccess: () => {
       // Refetch injection history from database
       refetchInjections();
+      // Refetch OTA fault status if OTA backend
+      if (backend === 'ota') {
+        refetchOTAFault();
+      }
     },
     onError: () => {
       // Refetch to show failed injection in database
@@ -207,6 +217,15 @@ const FaultInjection = () => {
   const clearMutation = useMutation({
     mutationFn: () => clearFaults(backend),
     onSuccess: () => {
+      refetchInjections();
+    }
+  });
+
+  // Clear OTA faults mutation
+  const clearOTAMutation = useMutation({
+    mutationFn: clearOTAFaults,
+    onSuccess: () => {
+      refetchOTAFault();
       refetchInjections();
     }
   });
@@ -313,7 +332,7 @@ const FaultInjection = () => {
                 if (e.target.value === 'inverter_sim') {
                   setFaultType('EXCEPTION');
                 } else if (e.target.value === 'ota') {
-                  setFaultType('corrupt_chunk');
+                  setFaultType('bad_hash'); // Default to Bad Hash for FOTA demo
                 } else {
                   setFaultType('timeout');
                 }
@@ -537,6 +556,86 @@ const FaultInjection = () => {
             Clear Faults
           </Button>
         </Stack>
+
+        {/* OTA Fault Status Card */}
+        {otaFaultStatus && (
+          <Card 
+            variant="outlined" 
+            sx={{ 
+              mb: 3, 
+              bgcolor: otaFaultStatus.enabled ? 'warning.50' : 'grey.50',
+              borderColor: otaFaultStatus.enabled ? 'warning.main' : 'divider'
+            }}
+          >
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <WarningIcon color={otaFaultStatus.enabled ? 'warning' : 'disabled'} />
+                  <Typography variant="subtitle1" fontWeight="bold">
+                    OTA Fault Injection Status
+                  </Typography>
+                </Box>
+                <Chip 
+                  label={otaFaultStatus.enabled ? 'ACTIVE' : 'DISABLED'} 
+                  color={otaFaultStatus.enabled ? 'warning' : 'default'}
+                  size="small"
+                />
+              </Box>
+              
+              {otaFaultStatus.enabled ? (
+                <>
+                  <Grid container spacing={2} sx={{ mb: 2 }}>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="caption" color="text.secondary">Fault Type</Typography>
+                      <Typography variant="body2" fontWeight="bold">
+                        {otaFaultStatus.fault_type}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="caption" color="text.secondary">Target Device</Typography>
+                      <Typography variant="body2" fontWeight="bold">
+                        {otaFaultStatus.target_device || 'All Devices'}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="caption" color="text.secondary">Target Chunk</Typography>
+                      <Typography variant="body2" fontWeight="bold">
+                        {otaFaultStatus.target_chunk !== null ? otaFaultStatus.target_chunk : 'All Chunks'}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="caption" color="text.secondary">Faults Injected</Typography>
+                      <Typography variant="body2" fontWeight="bold" color="error.main">
+                        {otaFaultStatus.fault_count}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+                  
+                  {otaFaultStatus.chunks_corrupted && otaFaultStatus.chunks_corrupted.length > 0 && (
+                    <Alert severity="error" sx={{ mb: 2 }}>
+                      Corrupted chunks: {otaFaultStatus.chunks_corrupted.join(', ')}
+                    </Alert>
+                  )}
+                  
+                  <Button
+                    variant="contained"
+                    color="warning"
+                    onClick={() => clearOTAMutation.mutate()}
+                    disabled={clearOTAMutation.isPending}
+                    startIcon={clearOTAMutation.isPending ? <CircularProgress size={16} /> : <ClearIcon />}
+                    fullWidth
+                  >
+                    {clearOTAMutation.isPending ? 'Disabling...' : 'Disable OTA Fault Injection'}
+                  </Button>
+                </>
+              ) : (
+                <Alert severity="info">
+                  No OTA fault injection active. Select "OTA Faults" backend and inject a fault to enable.
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Fault Injection History from Database */}
         {injections.length > 0 && (
