@@ -162,34 +162,34 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Validation based on Milestone 4 specifications
-    if (config.sampling_interval < 1 || config.sampling_interval > 300) {
-      setError('Sampling interval must be between 1 and 300 seconds');
+    // Validation - all intervals: min 1s, must be integer
+    if (!Number.isInteger(config.sampling_interval) || config.sampling_interval < 1 || config.sampling_interval > 300) {
+      setError('Sampling interval must be an integer between 1 and 300 seconds');
       return;
     }
     
-    if (config.upload_interval < 10 || config.upload_interval > 3600) {
-      setError('Upload interval must be between 10 and 3600 seconds');
+    if (!Number.isInteger(config.upload_interval) || config.upload_interval < 1 || config.upload_interval > 3600) {
+      setError('Upload interval must be an integer between 1 and 3600 seconds');
       return;
     }
 
-    if (config.firmware_check_interval < 30 || config.firmware_check_interval > 86400) {
-      setError('Firmware check interval must be between 30 and 86400 seconds');
+    if (!Number.isInteger(config.firmware_check_interval) || config.firmware_check_interval < 1 || config.firmware_check_interval > 86400) {
+      setError('Firmware check interval must be an integer between 1 and 86400 seconds');
       return;
     }
 
-    if (config.command_poll_interval < 5 || config.command_poll_interval > 300) {
-      setError('Command poll interval must be between 5 and 300 seconds');
+    if (!Number.isInteger(config.command_poll_interval) || config.command_poll_interval < 1 || config.command_poll_interval > 300) {
+      setError('Command poll interval must be an integer between 1 and 300 seconds');
       return;
     }
 
-    if (config.config_poll_interval < 1 || config.config_poll_interval > 300) {
-      setError('Config poll interval must be between 1 and 300 seconds');
+    if (!Number.isInteger(config.config_poll_interval) || config.config_poll_interval < 1 || config.config_poll_interval > 300) {
+      setError('Config poll interval must be an integer between 1 and 300 seconds');
       return;
     }
 
-    if (powerConfig.energy_poll_interval < 5 || powerConfig.energy_poll_interval > 3600) {
-      setError('Energy poll interval must be between 5 and 3600 seconds');
+    if (!Number.isInteger(powerConfig.energy_poll_interval) || powerConfig.energy_poll_interval < 1 || powerConfig.energy_poll_interval > 3600) {
+      setError('Energy poll interval must be an integer between 1 and 3600 seconds');
       return;
     }
     
@@ -327,8 +327,8 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
                 type="number"
                 value={config.upload_interval}
                 onChange={(e) => handleInputChange('upload_interval', Number(e.target.value))}
-                helperText="Device uploads to cloud every N seconds (10-3600s)"
-                inputProps={{ min: 10, max: 3600, step: 5 }}
+                helperText="Device uploads to cloud every N seconds (1-3600s)"
+                inputProps={{ min: 1, max: 3600, step: 1 }}
               />
             </Grid>
 
@@ -339,8 +339,8 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
                 type="number"
                 value={config.firmware_check_interval}
                 onChange={(e) => handleInputChange('firmware_check_interval', Number(e.target.value))}
-                helperText="Check for firmware updates every N seconds (30-86400s)"
-                inputProps={{ min: 30, max: 86400, step: 10 }}
+                helperText="Check for firmware updates every N seconds (1-86400s)"
+                inputProps={{ min: 1, max: 86400, step: 1 }}
               />
             </Grid>
 
@@ -351,8 +351,8 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
                 type="number"
                 value={config.command_poll_interval}
                 onChange={(e) => handleInputChange('command_poll_interval', Number(e.target.value))}
-                helperText="Check for pending commands every N seconds (5-300s)"
-                inputProps={{ min: 5, max: 300, step: 5 }}
+                helperText="Check for pending commands every N seconds (1-300s)"
+                inputProps={{ min: 1, max: 300, step: 1 }}
               />
             </Grid>
 
@@ -442,8 +442,8 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
                 type="number"
                 value={powerConfig.energy_poll_interval}
                 onChange={(e) => handlePowerToggle('energy_poll_interval', Number(e.target.value))}
-              helperText="How often device reports energy statistics (5-3600 s, always active)"
-              inputProps={{ min: 5, max: 3600, step: 5 }}
+              helperText="How often device reports energy statistics (1-3600 s, always active)"
+              inputProps={{ min: 1, max: 3600, step: 1 }}
               disabled={powerLoading}
             />
           </Grid>
