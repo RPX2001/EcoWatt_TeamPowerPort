@@ -188,8 +188,8 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
       return;
     }
 
-    if (powerConfig.energy_poll_interval < 60 || powerConfig.energy_poll_interval > 3600) {
-      setError('Energy poll interval must be between 60 and 3600 seconds');
+    if (powerConfig.energy_poll_interval < 5 || powerConfig.energy_poll_interval > 3600) {
+      setError('Energy poll interval must be between 5 and 3600 seconds');
       return;
     }
     
@@ -442,8 +442,8 @@ const ConfigForm = ({ deviceId, currentConfig, onConfigUpdate }) => {
                 type="number"
                 value={powerConfig.energy_poll_interval}
                 onChange={(e) => handlePowerToggle('energy_poll_interval', Number(e.target.value))}
-              helperText="How often device reports energy statistics (60-3600 s, always active)"
-              inputProps={{ min: 60, max: 3600, step: 60 }}
+              helperText="How often device reports energy statistics (5-3600 s, always active)"
+              inputProps={{ min: 5, max: 3600, step: 5 }}
               disabled={powerLoading}
             />
           </Grid>

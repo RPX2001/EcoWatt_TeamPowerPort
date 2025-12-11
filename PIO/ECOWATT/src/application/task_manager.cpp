@@ -114,6 +114,7 @@ DeadlineMonitor TaskManager::deadlineMonitor_compression;
 // System state
 bool TaskManager::systemInitialized = false;
 bool TaskManager::systemSuspended = false;
+bool TaskManager::tasksNeedTimingReset = false;
 uint32_t TaskManager::systemStartTime = 0;
 
 // ============================================
@@ -328,6 +329,7 @@ void TaskManager::suspendAllTasks() {
     if (commandTask_h) vTaskSuspend(commandTask_h);
     if (configTask_h) vTaskSuspend(configTask_h);
     if (statisticsTask_h) vTaskSuspend(statisticsTask_h);
+    if (powerReportTask_h) vTaskSuspend(powerReportTask_h);  // Suspend power reporting during OTA
     // NOTE: Do NOT suspend otaTask_h - it's the one calling this function!
     if (watchdogTask_h) vTaskSuspend(watchdogTask_h);
     
@@ -338,17 +340,26 @@ void TaskManager::suspendAllTasks() {
 void TaskManager::resumeAllTasks() {
     LOG_INFO(LOG_TAG_BOOT, "Resuming all tasks...");
     
+    // Signal all tasks to reset their timing baselines
+    tasksNeedTimingReset = true;
+    
     if (sensorPollTask_h) vTaskResume(sensorPollTask_h);
     // compressionTask removed - compression now in upload task
     if (uploadTask_h) vTaskResume(uploadTask_h);
     if (commandTask_h) vTaskResume(commandTask_h);
     if (configTask_h) vTaskResume(configTask_h);
     if (statisticsTask_h) vTaskResume(statisticsTask_h);
+    if (powerReportTask_h) vTaskResume(powerReportTask_h);  // Resume power reporting after OTA
     if (otaTask_h) vTaskResume(otaTask_h);
     if (watchdogTask_h) vTaskResume(watchdogTask_h);
     
     systemSuspended = false;
-    LOG_INFO(LOG_TAG_BOOT, "All tasks resumed");
+    
+    // Give tasks time to check the flag and reset their timing (500ms should be plenty)
+    vTaskDelay(pdMS_TO_TICKS(500));
+    tasksNeedTimingReset = false;  // Clear flag after all tasks have had a chance to see it
+    
+    LOG_INFO(LOG_TAG_BOOT, "All tasks resumed - timing baselines will reset");
 }
 
 // ============================================
@@ -378,6 +389,12 @@ void TaskManager::sensorPollTask(void* parameter) {
     while (1) {
         // ALWAYS wait for the full interval before starting next cycle
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        
+        // Check if tasks were resumed after suspension (e.g., after OTA)
+        if (tasksNeedTimingReset) {
+            xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline after resume
+            LOG_INFO(LOG_TAG_DATA, "Timing baseline reset after task resume");
+        }
         
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
         // This ensures ALL samples in a buffer use the same config before any changes apply
@@ -718,6 +735,12 @@ void TaskManager::uploadTask(void* parameter) {
         // ALWAYS wait for the full interval before starting next cycle
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
+        // Check if tasks were resumed after suspension (e.g., after OTA)
+        if (tasksNeedTimingReset) {
+            xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline after resume
+            LOG_INFO(LOG_TAG_UPLOAD, "Timing baseline reset after task resume");
+        }
+        
         // Check if upload frequency was changed by ConfigManager (uses dedicated flag, not semaphore)
         // The semaphore is consumed by other tasks, so upload task uses its own flag
         if (uploadFrequencyChanged) {
@@ -945,6 +968,12 @@ void TaskManager::commandTask(void* parameter) {
         // This prevents rapid retries even if previous cycle missed deadline
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
+        // Check if tasks were resumed after suspension (e.g., after OTA)
+        if (tasksNeedTimingReset) {
+            xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline after resume
+            LOG_INFO(LOG_TAG_COMMAND, "Timing baseline reset after task resume");
+        }
+        
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
         if (commandConfigReloadPending) {
             commandConfigReloadPending = false;  // Clear the flag
@@ -1020,6 +1049,12 @@ void TaskManager::configTask(void* parameter) {
         // ALWAYS wait for the full interval before starting next cycle
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
+        // Check if tasks were resumed after suspension (e.g., after OTA)
+        if (tasksNeedTimingReset) {
+            xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline after resume
+            LOG_INFO(LOG_TAG_CONFIG, "Timing baseline reset after task resume");
+        }
+        
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
         if (configTaskReloadPending) {
             configTaskReloadPending = false;  // Clear the flag
@@ -1090,6 +1125,12 @@ void TaskManager::powerReportTask(void* parameter) {
     while (1) {
         // Wait for power report interval
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        
+        // Check if tasks were resumed after suspension (e.g., after OTA)
+        if (tasksNeedTimingReset) {
+            xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline after resume
+            LOG_INFO(LOG_TAG_POWER, "Timing baseline reset after task resume");
+        }
         
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
         if (powerReportConfigReloadPending) {
@@ -1255,6 +1296,10 @@ void TaskManager::otaTask(void* parameter) {
                     LOG_ERROR(LOG_TAG_FOTA, "Update failed or cancelled! Resuming normal operation...");
                     resumeAllTasks();
                     LOG_INFO(LOG_TAG_FOTA, "All tasks resumed - system operational");
+                    
+                    // Reset timing baseline to ensure proper delay before next check
+                    xLastWakeTime = xTaskGetTickCount();
+                    LOG_INFO(LOG_TAG_FOTA, "Next OTA check in %lu ms", otaFrequency);
                 }
             } else {
                 xSemaphoreGive(wifiClientMutex);

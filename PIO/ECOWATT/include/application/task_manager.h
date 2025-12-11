@@ -293,6 +293,7 @@ private:
     // System state
     static bool systemInitialized;
     static bool systemSuspended;
+    static bool tasksNeedTimingReset;  // Set after resume to reset task timing baselines
     static uint32_t systemStartTime;
 };
 
