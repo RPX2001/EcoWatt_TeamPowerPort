@@ -1244,6 +1244,7 @@ void TaskManager::otaTask(void* parameter) {
                 // Perform OTA update (we already have the mutex)
                 bool otaSuccess = otaManager->downloadAndApplyFirmware();
                 
+                // ALWAYS release mutex and resume tasks before checking result
                 xSemaphoreGive(wifiClientMutex);
                 
                 if (otaSuccess) {
@@ -1251,8 +1252,9 @@ void TaskManager::otaTask(void* parameter) {
                     otaManager->verifyAndReboot();
                     // System will reboot - code won't reach here
                 } else {
-                    LOG_ERROR(LOG_TAG_FOTA, "Update failed! Resuming normal operation...");
+                    LOG_ERROR(LOG_TAG_FOTA, "Update failed or cancelled! Resuming normal operation...");
                     resumeAllTasks();
+                    LOG_INFO(LOG_TAG_FOTA, "All tasks resumed - system operational");
                 }
             } else {
                 xSemaphoreGive(wifiClientMutex);

@@ -251,10 +251,6 @@ void setup()
     // Initialize Config Manager (/config/<device_id>)
     ConfigManager::init(FLASK_SERVER_URL "/config/" DEVICE_ID, DEVICE_ID);
     
-    // Send current config to server so frontend can display it
-    LOG_INFO(LOG_TAG_BOOT, "Reporting current configuration to server...");;
-    ConfigManager::sendCurrentConfig();
-    
     // Enhance compression dictionary
     enhanceDictionaryForOptimalCompression();
     
@@ -269,6 +265,12 @@ void setup()
             delay(1000);
         }
     }
+    
+    // Send current config to server so frontend can display it
+    // IMPORTANT: Must be called AFTER TaskManager::init() so that TaskManager static
+    // variables are properly initialized with values from NVS
+    LOG_INFO(LOG_TAG_BOOT, "Reporting current configuration to server...");;
+    ConfigManager::sendCurrentConfig();
     
     // Start all FreeRTOS tasks
     LOG_INFO(LOG_TAG_BOOT, "Starting FreeRTOS tasks on both cores...");;
