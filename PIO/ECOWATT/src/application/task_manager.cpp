@@ -1293,8 +1293,9 @@ void TaskManager::otaTask(void* parameter) {
         
         // Check if we were woken by config change notification
         if (notified == pdTRUE && notifyValue == 1) {
-            // Config changed - reload frequency from NVS and restart wait
-            otaFrequency = nvs::getOtaFreq() / 1000;  // Convert μs to ms
+            // Config changed - use the static variable (already updated by updateOtaFrequency)
+            // Don't read from NVS here as it may have race conditions
+            LOG_INFO(LOG_TAG_FOTA, "Notification received! Static otaFrequency = %lu ms", otaFrequency);
             xFrequency = pdMS_TO_TICKS(otaFrequency);
             LOG_INFO(LOG_TAG_FOTA, "Config change detected - OTA interval now %lu ms (restarting timer)", otaFrequency);
             continue;  // Restart the wait with new frequency
@@ -1491,14 +1492,17 @@ void TaskManager::updateCommandFrequency(uint32_t newFreqMs) {
 }
 
 void TaskManager::updateOtaFrequency(uint32_t newFreqMs) {
+    uint32_t oldFreq = otaFrequency;
     otaFrequency = newFreqMs;
-    LOG_INFO(LOG_TAG_BOOT, "OTA check frequency updated to %lu ms", newFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "OTA check frequency updated: %lu ms -> %lu ms", oldFreq, newFreqMs);
     
     // Wake up the OTA task immediately so it can apply the new frequency
     // This prevents waiting for the old (potentially very long) interval to expire
     if (otaTask_h != NULL) {
-        xTaskNotify(otaTask_h, 1, eSetValueWithOverwrite);  // Value 1 = config change notification
-        LOG_INFO(LOG_TAG_BOOT, "OTA task notified to apply new frequency immediately");
+        BaseType_t result = xTaskNotify(otaTask_h, 1, eSetValueWithOverwrite);  // Value 1 = config change notification
+        LOG_INFO(LOG_TAG_BOOT, "OTA task notified (result=%d), otaFrequency static var is now %lu ms", result, otaFrequency);
+    } else {
+        LOG_WARN(LOG_TAG_BOOT, "OTA task handle is NULL - cannot notify!");
     }
 }
 
