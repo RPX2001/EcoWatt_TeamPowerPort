@@ -977,12 +977,14 @@ void TaskManager::commandTask(void* parameter) {
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
         if (commandConfigReloadPending) {
             commandConfigReloadPending = false;  // Clear the flag
-            // Reload command frequency from static variable (updated by ConfigManager)
+            // Reload command frequency from NVS (source of truth)
+            commandFrequency = nvs::getCommandFreq() / 1000;  // Convert μs to ms
             TickType_t newFrequency = pdMS_TO_TICKS(commandFrequency);
             if (newFrequency != xFrequency) {
                 xFrequency = newFrequency;
-                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
-                LOG_INFO(LOG_TAG_COMMAND, "Command frequency updated to %lu ms", commandFrequency);
+                // DON'T reset xLastWakeTime - let current cycle complete naturally
+                // New frequency will take effect on NEXT vTaskDelayUntil() call
+                LOG_INFO(LOG_TAG_COMMAND, "Command frequency updated to %lu ms (takes effect next cycle)", commandFrequency);
             }
         }
         
@@ -1058,12 +1060,14 @@ void TaskManager::configTask(void* parameter) {
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
         if (configTaskReloadPending) {
             configTaskReloadPending = false;  // Clear the flag
-            // Reload config check frequency from static variable (updated by ConfigManager)
+            // Reload config check frequency from NVS (source of truth)
+            configFrequency = nvs::getConfigFreq() / 1000;  // Convert μs to ms
             TickType_t newFrequency = pdMS_TO_TICKS(configFrequency);
             if (newFrequency != xFrequency) {
                 xFrequency = newFrequency;
-                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
-                LOG_INFO(LOG_TAG_CONFIG, "Config check frequency updated to %lu ms", configFrequency);
+                // DON'T reset xLastWakeTime - let current cycle complete naturally
+                // New frequency will take effect on NEXT vTaskDelayUntil() call
+                LOG_INFO(LOG_TAG_CONFIG, "Config check frequency updated to %lu ms (takes effect next cycle)", configFrequency);
             }
         }
         
@@ -1135,12 +1139,14 @@ void TaskManager::powerReportTask(void* parameter) {
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
         if (powerReportConfigReloadPending) {
             powerReportConfigReloadPending = false;  // Clear the flag
-            // Reload power report frequency from static variable (updated by ConfigManager)
+            // Reload power report frequency from NVS (source of truth)
+            powerReportFrequency = nvs::getEnergyPollFreq() / 1000;  // Convert μs to ms
             TickType_t newFrequency = pdMS_TO_TICKS(powerReportFrequency);
             if (newFrequency != xFrequency) {
                 xFrequency = newFrequency;
-                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
-                LOG_INFO(LOG_TAG_POWER, "Power report frequency updated to %lu ms", powerReportFrequency);
+                // DON'T reset xLastWakeTime - let current cycle complete naturally
+                // New frequency will take effect on NEXT vTaskDelayUntil() call
+                LOG_INFO(LOG_TAG_POWER, "Power report frequency updated to %lu ms (takes effect next cycle)", powerReportFrequency);
             }
         }
         
@@ -1251,20 +1257,21 @@ void TaskManager::otaTask(void* parameter) {
     LOG_INFO(LOG_TAG_FOTA, "Deadline: %lu us", deadlineUs);
     
     while (1) {
-        // Wait for OTA check interval
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
-        
-        // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
+        // Check if configuration reload is needed BEFORE waiting
+        // This allows frequency changes to take effect immediately on next cycle
         if (otaConfigReloadPending) {
             otaConfigReloadPending = false;  // Clear the flag
-            // Reload OTA frequency from static variable (updated by ConfigManager)
+            // Reload OTA frequency from NVS (source of truth)
+            otaFrequency = nvs::getOtaFreq() / 1000;  // Convert μs to ms
             TickType_t newFrequency = pdMS_TO_TICKS(otaFrequency);
             if (newFrequency != xFrequency) {
                 xFrequency = newFrequency;
-                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
-                LOG_INFO(LOG_TAG_FOTA, "OTA check frequency updated to %lu ms", otaFrequency);
+                LOG_INFO(LOG_TAG_FOTA, "OTA check frequency updated to %lu ms (takes effect next cycle)", otaFrequency);
             }
         }
+        
+        // Wait for OTA check interval
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
         uint32_t startTime = micros();
         

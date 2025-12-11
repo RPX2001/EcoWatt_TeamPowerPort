@@ -148,12 +148,24 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                     if (config.containsKey("config_poll_interval")) {
                         uint32_t config_interval = config["config_poll_interval"].as<uint32_t>();
                         uint64_t new_config_freq = (uint64_t)config_interval * 1000000ULL;  // Convert to microseconds
+                        uint64_t currentFreq = nvs::getConfigFreq();  // Returns microseconds
                         
-                        if (nvs::changeConfigFreq(new_config_freq)) {
-                            // Update TaskManager's config frequency using public function
-                            TaskManager::updateConfigFrequency(config_interval * 1000);  // milliseconds
-                            anyChanges = true;
-                            LOG_SUCCESS(LOG_TAG_CONFIG, "Config poll frequency updated to %u s", config_interval);
+                        LOG_DEBUG(LOG_TAG_CONFIG, "Config poll interval: current=%llu μs, new=%llu μs (%u s)", 
+                              currentFreq, new_config_freq, config_interval);
+                        
+                        if (new_config_freq != currentFreq) {
+                            // Save to NVS first (source of truth)
+                            if (nvs::changeConfigFreq(new_config_freq)) {
+                                // Update TaskManager's config frequency using public function
+                                TaskManager::updateConfigFrequency(config_interval * 1000);  // milliseconds
+                                anyChanges = true;
+                                LOG_SUCCESS(LOG_TAG_CONFIG, "Config poll frequency updated to %u s", config_interval);
+                            } else {
+                                LOG_ERROR(LOG_TAG_CONFIG, "Failed to save config poll interval to NVS (freq=%llu μs, %u s)", 
+                                      new_config_freq, config_interval);
+                            }
+                        } else {
+                            LOG_DEBUG(LOG_TAG_CONFIG, "Config poll interval unchanged");
                         }
                     }
                     
@@ -161,12 +173,24 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                     if (config.containsKey("command_poll_interval")) {
                         uint32_t command_interval = config["command_poll_interval"].as<uint32_t>();
                         uint64_t new_command_freq = (uint64_t)command_interval * 1000000ULL;  // Convert to microseconds
+                        uint64_t currentFreq = nvs::getCommandFreq();  // Returns microseconds
                         
-                        if (nvs::changeCommandFreq(new_command_freq)) {
-                            // Update TaskManager's command frequency using public function
-                            TaskManager::updateCommandFrequency(command_interval * 1000);  // milliseconds
-                            anyChanges = true;
-                            LOG_SUCCESS(LOG_TAG_CONFIG, "Command poll frequency updated to %u s", command_interval);
+                        LOG_DEBUG(LOG_TAG_CONFIG, "Command poll interval: current=%llu μs, new=%llu μs (%u s)", 
+                              currentFreq, new_command_freq, command_interval);
+                        
+                        if (new_command_freq != currentFreq) {
+                            // Save to NVS first (source of truth)
+                            if (nvs::changeCommandFreq(new_command_freq)) {
+                                // Update TaskManager's command frequency using public function
+                                TaskManager::updateCommandFrequency(command_interval * 1000);  // milliseconds
+                                anyChanges = true;
+                                LOG_SUCCESS(LOG_TAG_CONFIG, "Command poll frequency updated to %u s", command_interval);
+                            } else {
+                                LOG_ERROR(LOG_TAG_CONFIG, "Failed to save command poll interval to NVS (freq=%llu μs, %u s)", 
+                                      new_command_freq, command_interval);
+                            }
+                        } else {
+                            LOG_DEBUG(LOG_TAG_CONFIG, "Command poll interval unchanged");
                         }
                     }
                     
@@ -174,12 +198,24 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                     if (config.containsKey("firmware_check_interval")) {
                         uint32_t ota_interval = config["firmware_check_interval"].as<uint32_t>();
                         uint64_t new_ota_freq = (uint64_t)ota_interval * 1000000ULL;  // Convert to microseconds
+                        uint64_t currentFreq = nvs::getOtaFreq();  // Returns microseconds
                         
-                        if (nvs::changeOtaFreq(new_ota_freq)) {
-                            // Update TaskManager's OTA frequency using public function
-                            TaskManager::updateOtaFrequency(ota_interval * 1000);  // milliseconds
-                            anyChanges = true;
-                            LOG_SUCCESS(LOG_TAG_CONFIG, "Firmware check frequency updated to %u s", ota_interval);
+                        LOG_DEBUG(LOG_TAG_CONFIG, "OTA check interval: current=%llu μs, new=%llu μs (%u s)", 
+                              currentFreq, new_ota_freq, ota_interval);
+                        
+                        if (new_ota_freq != currentFreq) {
+                            // Save to NVS first (source of truth)
+                            if (nvs::changeOtaFreq(new_ota_freq)) {
+                                // Update TaskManager's OTA frequency using public function
+                                TaskManager::updateOtaFrequency(ota_interval * 1000);  // milliseconds
+                                anyChanges = true;
+                                LOG_SUCCESS(LOG_TAG_CONFIG, "Firmware check frequency updated to %u s", ota_interval);
+                            } else {
+                                LOG_ERROR(LOG_TAG_CONFIG, "Failed to save OTA check interval to NVS (freq=%llu μs, %u s)", 
+                                      new_ota_freq, ota_interval);
+                            }
+                        } else {
+                            LOG_DEBUG(LOG_TAG_CONFIG, "OTA check interval unchanged");
                         }
                     }
                     
@@ -280,14 +316,24 @@ void ConfigManager::checkForChanges(bool* registersChanged, bool* pollChanged,
                         uint64_t freq_us = static_cast<uint64_t>(interval_sec) * 1000000ULL;
                         uint64_t currentFreq = nvs::getEnergyPollFreq();  // Returns microseconds
                         
+                        LOG_DEBUG(LOG_TAG_CONFIG, "Energy poll interval: current=%llu μs, new=%llu μs (%u s)", 
+                              currentFreq, freq_us, interval_sec);
+                        
                         if (freq_us != currentFreq) {
-                            nvs::setEnergyPollFreq(freq_us);  // Expects microseconds
-                            // Update TaskManager's power report frequency (expects milliseconds)
-                            uint64_t freq_ms = static_cast<uint64_t>(interval_sec) * 1000ULL;
-                            TaskManager::updatePowerReportFrequency(freq_ms);
-                            anyChanges = true;
-                            LOG_SUCCESS(LOG_TAG_CONFIG, "Energy report interval updated to %u s (%llu μs)", 
-                                  interval_sec, freq_us);
+                            // Save to NVS first (source of truth)
+                            if (nvs::setEnergyPollFreq(freq_us)) {
+                                // Update TaskManager's power report frequency (expects milliseconds)
+                                uint64_t freq_ms = static_cast<uint64_t>(interval_sec) * 1000ULL;
+                                TaskManager::updatePowerReportFrequency(freq_ms);
+                                anyChanges = true;
+                                LOG_SUCCESS(LOG_TAG_CONFIG, "Energy report interval updated to %u s (%llu μs)", 
+                                      interval_sec, freq_us);
+                            } else {
+                                LOG_ERROR(LOG_TAG_CONFIG, "Failed to save energy poll interval to NVS (freq=%llu μs, %u s)", 
+                                      freq_us, interval_sec);
+                            }
+                        } else {
+                            LOG_DEBUG(LOG_TAG_CONFIG, "Energy poll interval unchanged");
                         }
                     }
                     
