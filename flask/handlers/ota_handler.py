@@ -175,8 +175,33 @@ def initiate_ota_session(device_id: str, firmware_version: str) -> Tuple[bool, O
             if device_id in ota_sessions:
                 existing_session = ota_sessions[device_id]
                 if existing_session['status'] == 'in_progress':
-                    logger.warning(f"OTA session already in progress for {device_id}")
-                    return False, "OTA session already in progress"
+                    # Check if session is stale (older than 10 minutes)
+                    import time
+                    last_activity = existing_session.get('last_activity')
+                    
+                    # Handle both string (ISO) and float (timestamp) formats
+                    try:
+                        if isinstance(last_activity, str):
+                            # Parse ISO format timestamp
+                            last_activity_time = datetime.fromisoformat(last_activity.replace('Z', '+00:00')).timestamp()
+                        elif last_activity:
+                            last_activity_time = float(last_activity)
+                        else:
+                            # No last_activity timestamp - assume stale
+                            last_activity_time = 0
+                    except:
+                        # If parsing fails, assume stale
+                        last_activity_time = 0
+                    
+                    time_since_activity = time.time() - last_activity_time
+                    if time_since_activity > 600:  # 10 minutes
+                        logger.warning(f"[!] Cleaning up stale OTA session for {device_id} (inactive for {time_since_activity:.0f}s)")
+                        del ota_sessions[device_id]
+                        if ota_stats['active_sessions'] > 0:
+                            ota_stats['active_sessions'] -= 1
+                    else:
+                        logger.warning(f"[!] OTA session already in progress for {device_id} (active {time_since_activity:.0f}s ago)")
+                        return False, "OTA session already in progress"
             
             # Get firmware manifest
             manifest = _get_firmware_manifest(firmware_version)
@@ -190,6 +215,7 @@ def initiate_ota_session(device_id: str, firmware_version: str) -> Tuple[bool, O
             # Create session
             session_id = f"{device_id}_{firmware_version}_{int(datetime.now().timestamp())}"
             
+            import time
             ota_sessions[device_id] = {
                 'session_id': session_id,
                 'device_id': device_id,
@@ -199,7 +225,7 @@ def initiate_ota_session(device_id: str, firmware_version: str) -> Tuple[bool, O
                 'total_chunks': manifest.get('total_chunks', 0),
                 'bytes_transferred': 0,
                 'started_at': datetime.now().isoformat(),
-                'last_activity': datetime.now().isoformat()
+                'last_activity': time.time()  # Use timestamp for easier comparison
             }
             
             # Save to database
@@ -268,10 +294,11 @@ def get_firmware_chunk_for_device(
                 chunk_data = _inject_chunk_corruption(chunk_data, chunk_index)
         
         # Update session
+        import time
         with ota_lock:
             session['current_chunk'] = chunk_index
             session['bytes_transferred'] += len(chunk_data)
-            session['last_activity'] = datetime.now().isoformat()
+            session['last_activity'] = time.time()  # Use timestamp for easier comparison
             
             ota_stats['total_bytes_transferred'] += len(chunk_data)
         

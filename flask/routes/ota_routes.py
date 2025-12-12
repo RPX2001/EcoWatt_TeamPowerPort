@@ -749,8 +749,13 @@ def ota_progress_report(device_id):
                 total_chunks = ota_sessions[device_id].get('total_chunks', 0)
                 chunks_downloaded = int((progress / 100.0) * total_chunks) if total_chunks > 0 else None
                 Database.update_ota_download_status(device_id, db_status, chunks_downloaded, None if phase != 'verification_failed' else message)
-        elif phase in ['verification_failed', 'rollback']:
+        elif phase in ['verification_failed', 'rollback', 'failed']:
             Database.update_ota_status(device_id, 'failed', message)
+            # Clean up session when OTA fails
+            with ota_lock:
+                if device_id in ota_sessions:
+                    del ota_sessions[device_id]
+                    logger.info(f"[OTA Session] Cleaned up failed session for {device_id}")
         elif phase in ['installing', 'verification_success']:
             Database.update_ota_status(device_id, db_status, None)
         

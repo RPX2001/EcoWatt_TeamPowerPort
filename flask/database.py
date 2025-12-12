@@ -696,14 +696,18 @@ class Database:
         if status in ['downloaded', 'failed']:
             update_fields.append('download_completed_at = CURRENT_TIMESTAMP')
         
+        # Add parameters for WHERE clause: device_id, status1, status2
         params.extend([device_id, 'initiated', 'downloading'])
         
         cursor.execute(f'''
             UPDATE ota_updates 
             SET {', '.join(update_fields)}
-            WHERE device_id = ? AND status IN (?, ?)
-            ORDER BY initiated_at DESC
-            LIMIT 1
+            WHERE id = (
+                SELECT id FROM ota_updates 
+                WHERE device_id = ? AND status IN (?, ?)
+                ORDER BY initiated_at DESC
+                LIMIT 1
+            )
         ''', params)
         
         conn.commit()
@@ -734,17 +738,23 @@ class Database:
             cursor.execute('''
                 UPDATE ota_updates 
                 SET install_status = ?, install_completed_at = CURRENT_TIMESTAMP
-                WHERE device_id = ? AND to_version = ?
-                ORDER BY initiated_at DESC
-                LIMIT 1
+                WHERE id = (
+                    SELECT id FROM ota_updates
+                    WHERE device_id = ? AND to_version = ?
+                    ORDER BY initiated_at DESC
+                    LIMIT 1
+                )
             ''', (status, device_id, to_version))
         else:
             cursor.execute('''
                 UPDATE ota_updates 
                 SET status = ?, install_status = ?, error_msg = ?, install_completed_at = CURRENT_TIMESTAMP
-                WHERE device_id = ? AND to_version = ?
-                ORDER BY initiated_at DESC
-                LIMIT 1
+                WHERE id = (
+                    SELECT id FROM ota_updates
+                    WHERE device_id = ? AND to_version = ?
+                    ORDER BY initiated_at DESC
+                    LIMIT 1
+                )
             ''', (db_status, status, error_msg, device_id, to_version))
         
         conn.commit()
@@ -760,17 +770,23 @@ class Database:
             cursor.execute('''
                 UPDATE ota_updates 
                 SET status = ?, error_msg = ?
-                WHERE device_id = ?
-                ORDER BY initiated_at DESC
-                LIMIT 1
+                WHERE id = (
+                    SELECT id FROM ota_updates 
+                    WHERE device_id = ?
+                    ORDER BY initiated_at DESC
+                    LIMIT 1
+                )
             ''', (status, error_msg, device_id))
         else:
             cursor.execute('''
                 UPDATE ota_updates 
                 SET status = ?
-                WHERE device_id = ?
-                ORDER BY initiated_at DESC
-                LIMIT 1
+                WHERE id = (
+                    SELECT id FROM ota_updates 
+                    WHERE device_id = ?
+                    ORDER BY initiated_at DESC
+                    LIMIT 1
+                )
             ''', (status, device_id))
         
         conn.commit()

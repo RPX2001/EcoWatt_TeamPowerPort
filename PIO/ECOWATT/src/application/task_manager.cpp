@@ -377,6 +377,13 @@ void TaskManager::sensorPollTask(void* parameter) {
     
     while (1) {
         // ALWAYS wait for the full interval before starting next cycle
+        // Safety check: if wake time is too far in the past (>2 intervals), reset it
+        TickType_t now = xTaskGetTickCount();
+        if ((now - xLastWakeTime) > (xFrequency * 2)) {
+            LOG_WARN(LOG_TAG_DATA, "Timing baseline corrupted (delta=%lu ticks), resetting...", 
+                     (unsigned long)(now - xLastWakeTime));
+            xLastWakeTime = now;
+        }
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
@@ -716,6 +723,13 @@ void TaskManager::uploadTask(void* parameter) {
     
     while (1) {
         // ALWAYS wait for the full interval before starting next cycle
+        // Safety check: if wake time is too far in the past (>2 intervals), reset it
+        TickType_t now = xTaskGetTickCount();
+        if ((now - xLastWakeTime) > (xFrequency * 2)) {
+            LOG_WARN(LOG_TAG_UPLOAD, "Timing baseline corrupted (delta=%lu ticks), resetting...", 
+                     (unsigned long)(now - xLastWakeTime));
+            xLastWakeTime = now;
+        }
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
         // Check if upload frequency was changed by ConfigManager (uses dedicated flag, not semaphore)
@@ -943,6 +957,13 @@ void TaskManager::commandTask(void* parameter) {
     while (1) {
         // ALWAYS wait for the full interval before starting next cycle
         // This prevents rapid retries even if previous cycle missed deadline
+        // Safety check: if wake time is too far in the past (>2 intervals), reset it
+        TickType_t now = xTaskGetTickCount();
+        if ((now - xLastWakeTime) > (xFrequency * 2)) {
+            LOG_WARN(LOG_TAG_COMMAND, "Timing baseline corrupted (delta=%lu ticks), resetting...", 
+                     (unsigned long)(now - xLastWakeTime));
+            xLastWakeTime = now;
+        }
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
@@ -1018,6 +1039,13 @@ void TaskManager::configTask(void* parameter) {
     
     while (1) {
         // ALWAYS wait for the full interval before starting next cycle
+        // Safety check: if wake time is too far in the past (>2 intervals), reset it
+        TickType_t now = xTaskGetTickCount();
+        if ((now - xLastWakeTime) > (xFrequency * 2)) {
+            LOG_WARN(LOG_TAG_CONFIG, "Timing baseline corrupted (delta=%lu ticks), resetting...", 
+                     (unsigned long)(now - xLastWakeTime));
+            xLastWakeTime = now;
+        }
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
@@ -1089,6 +1117,13 @@ void TaskManager::powerReportTask(void* parameter) {
     
     while (1) {
         // Wait for power report interval
+        // Safety check: if wake time is too far in the past (>2 intervals), reset it
+        TickType_t now = xTaskGetTickCount();
+        if ((now - xLastWakeTime) > (xFrequency * 2)) {
+            LOG_WARN(LOG_TAG_POWER, "Timing baseline corrupted (delta=%lu ticks), resetting...", 
+                     (unsigned long)(now - xLastWakeTime));
+            xLastWakeTime = now;
+        }
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
@@ -1211,6 +1246,13 @@ void TaskManager::otaTask(void* parameter) {
     
     while (1) {
         // Wait for OTA check interval
+        // Safety check: if wake time is too far in the past (>2 intervals), reset it
+        TickType_t now = xTaskGetTickCount();
+        if ((now - xLastWakeTime) > (xFrequency * 2)) {
+            LOG_WARN(LOG_TAG_FOTA, "Timing baseline corrupted (delta=%lu ticks), resetting...", 
+                     (unsigned long)(now - xLastWakeTime));
+            xLastWakeTime = now;
+        }
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)

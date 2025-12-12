@@ -197,6 +197,16 @@ bool OTAManager::downloadAndApplyFirmware()
 {
     LOG_SECTION("STARTING FIRMWARE DOWNLOAD");
     
+    // CRITICAL: Re-fetch manifest to ensure IV and hash are current
+    // This prevents using stale manifest if firmware was re-prepared between checks
+    LOG_INFO(LOG_TAG_FOTA, "Re-fetching manifest to ensure current IV/hash...");
+    if (!checkForUpdate()) {
+        setError("Failed to re-fetch manifest before download");
+        LOG_ERROR(LOG_TAG_FOTA, "Could not re-fetch latest manifest");
+        return false;
+    }
+    LOG_SUCCESS(LOG_TAG_FOTA, "Manifest refreshed - using current IV and hash");
+    
     // Reset progress for fresh start (important for retry scenarios)
     progress.chunks_received = 0;
     progress.bytes_downloaded = 0;
