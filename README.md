@@ -1,11 +1,11 @@
-# 🌱 EcoWatt - Smart Energy Monitoring System
+# 🌱 EcoWatt - Smart Inverter Monitoring System
 
 <div align="center">
 
 **Team PowerPort** | EN4440 Embedded Systems and Design  
 University of Moratuwa | Department of Electronic and Telecommunication Engineering
 
-[![Compression](https://img.shields.io/badge/Compression-96.4%25-blue?style=flat-square)]()
+[![Compression](https://img.shields.io/badge/Compression-Up%20to%2085%25-blue?style=flat-square)]()
 [![FOTA](https://img.shields.io/badge/FOTA-Secure-success?style=flat-square)]()
 [![Security](https://img.shields.io/badge/Security-HMAC--SHA256-orange?style=flat-square)]()
 [![Power](https://img.shields.io/badge/Power-Optimized-green?style=flat-square)]()
@@ -21,24 +21,26 @@ University of Moratuwa | Department of Electronic and Telecommunication Engineer
 
 ## 📋 Overview
 
-**EcoWatt** is an enterprise-grade IoT system for real-time monitoring and intelligent control of solar inverters. Built on ESP32 hardware with secure cloud connectivity, the system delivers production-ready features including **96.4% data compression**, **military-grade FOTA security**, and **intelligent power management** for extended battery life in remote installations.
+**EcoWatt** is an IoT system for real-time monitoring and intelligent control of solar inverters. Built on ESP32 hardware with secure cloud connectivity, the system features **adaptive data compression**, **secure FOTA updates**, and **intelligent power management** for extended battery life.
 
-### 🎯 Project Highlights
+> **Note**: This implementation uses a simulated inverter over WiFi for development and testing. Production deployment would use Modbus RTU for communication with physical inverters.
 
-- **🏆 Award-Winning Compression**: Adaptive algorithm selection achieves 96.4% compression ratio (140 bytes → 5 bytes)
-- **🔐 Military-Grade Security**: Triple-layer upload protection + RSA-2048 signed firmware updates
-- **⚡ Smart Power Management**: Peripheral gating reduces power consumption by 10-20mA
-- **📡 Real-Time Control**: Bidirectional command system with sub-second response times
-- **🖥️ Professional Dashboard**: React-based monitoring interface with live data visualization
-- **🧪 Production-Ready**: Comprehensive test coverage with 30+ test suites
+### Project Highlights
 
-## 🚀 Key Features
+- **Adaptive Compression**: Dictionary-based compression achieves up to 85% reduction for repetitive data patterns
+- **Military-Grade Security**: Triple-layer upload protection with RSA-2048 signed firmware updates  
+- **Power Optimization**: Peripheral gating strategy for reduced power consumption
+- **Remote Configuration**: Bidirectional command system for device management
+- **Professional Dashboard**: React-based monitoring interface with live data visualization
+- **Comprehensive Testing**: 30+ test suites covering all major components
+
+## Key Features
 
 <table>
 <tr>
 <td width="50%">
 
-### 🔐 Military-Grade Security
+### Security Architecture
 - **Triple-Layer Upload Protection**
   - Anti-replay nonce validation
   - HMAC-SHA256 authentication
@@ -51,35 +53,40 @@ University of Moratuwa | Department of Electronic and Telecommunication Engineer
 </td>
 <td width="50%">
 
-### 📦 Adaptive Compression
-- **96.4% Compression Ratio**
-  - Dictionary compression (96.4%)
-  - Temporal delta (80%)
-  - Semantic RLE (70%)
-  - Bit-packing fallback (50%)
-- **Real-Time Algorithm Selection**
+### Data Compression
+- **Adaptive Algorithm Selection**
+  - Dictionary compression (up to 85%)
+  - Temporal delta encoding (~65%)
+  - Semantic RLE (~55%)
+  - Bit-packing fallback (~40%)
+- **Automatic best-fit selection**
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-### ⚡ Power Management
-- **Peripheral Gating System**
-  - 10-20mA power savings
-  - 10% UART duty cycle
-  - WiFi-connected operation
-- **Battery Life Optimization**
+### Power Management
+- **Peripheral Gating** (Current Implementation)
+  - UART/Modbus transceiver gating
+  - Configurable duty cycle
+- **Future Production Features**
+  - CPU frequency scaling
+  - Light sleep modes
+  - Deep sleep for battery operation
 
 </td>
 <td width="50%">
 
-### 🎯 Remote Control
+### Remote Configuration
 - **Bidirectional Communication**
   - Command queue system
-  - Modbus register control
+  - Parameter configuration
   - Real-time status feedback
-- **Sub-Second Response Times**
+- **Device Management**
+  - Polling interval adjustment
+  - Compression settings
+  - Security parameters
 
 </td>
 </tr>
@@ -191,36 +198,33 @@ graph TB
 
 ---
 
-## 🖥️ Web Dashboard
+## Web Dashboard
 
-<div align="center">
+### Dashboard Screenshots
 
-### Real-Time Monitoring Interface
+| Live Dashboard | Power Management |
+|:--------------:|:----------------:|
+| ![Dashboard](images/dashboard.png) | ![Power](images/power.png) |
+| Real-time metrics and data visualization | Energy analytics and optimization |
 
-<table>
-<tr>
-<td align="center"><img src="images/dashboard.png" width="400"><br/><b>Live Dashboard</b><br/>Real-time metrics and visualization</td>
-<td align="center"><img src="images/power.png" width="400"><br/><b>Power Management</b><br/>Energy analytics and optimization</td>
-</tr>
-<tr>
-<td align="center"><img src="images/configuration.png" width="400"><br/><b>Device Configuration</b><br/>Remote settings and control</td>
-<td align="center"><img src="images/fota.png" width="400"><br/><b>FOTA Updates</b><br/>Secure firmware deployment</td>
-</tr>
-<tr>
-<td align="center" colspan="2"><img src="images/testing.png" width="400"><br/><b>System Testing</b><br/>Comprehensive fault injection tools</td>
-</tr>
-</table>
+| Device Configuration | FOTA Updates |
+|:--------------------:|:------------:|
+| ![Configuration](images/configuration.png) | ![FOTA](images/fota.png) |
+| Remote settings and parameter control | Secure firmware deployment |
 
-### Dashboard Features
+| System Testing |
+|:--------------:|
+| ![Testing](images/testing.png) |
+| Comprehensive fault injection and diagnostics |
 
-- 📊 **Live Data Visualization**: Real-time charts for voltage, current, power, and temperature
-- 🔋 **Power Analytics**: Energy consumption tracking and optimization metrics  
-- ⚙️ **Remote Configuration**: Adjust polling intervals, compression settings, and security parameters
-- 🔄 **OTA Management**: Deploy firmware updates with progress monitoring
-- 🧪 **Fault Injection**: Test system resilience with built-in diagnostic tools
-- 📡 **Device Status**: Monitor connection health, WiFi signal, and error logs
+### Dashboard Capabilities
 
-</div>
+- **Live Data Visualization**: Real-time charts for voltage, current, power, and temperature
+- **Power Analytics**: Energy consumption tracking and optimization metrics  
+- **Remote Configuration**: Adjust polling intervals, compression settings, and security parameters
+- **OTA Management**: Deploy firmware updates with progress monitoring
+- **Fault Injection**: Test system resilience with built-in diagnostic tools
+- **Device Status**: Monitor connection health, WiFi signal, and error logs
 
 ---
 
@@ -298,22 +302,20 @@ EcoWatt_TeamPowerPort/
 
 ---
 
-## 📊 Performance Metrics
+## Performance Metrics
 
-<div align="center">
+| Metric | Value | Note |
+|:-------|:------|:-----|
+| **Compression Ratio** | Up to 85% (140 → 21 bytes) | Dictionary method, typical patterns |
+| **Upload Interval** | 15 seconds (default) | Configurable |
+| **Poll Rate** | 2 seconds (default) | Configurable: WiFi simulation |
+| **FOTA Chunk Size** | 2 KB | Memory-efficient streaming |
+| **Power Savings** | Peripheral gating only | 10% duty cycle (simulation mode) |
+| **Security Level** | HMAC-SHA256 + RSA-2048 | Production-grade cryptography |
+| **Command Latency** | < 1 second | Network dependent |
+| **Test Coverage** | 30+ test suites | ESP32, Backend, Integration |
 
-| 🎯 Metric | 💪 Achievement |
-|:----------|:---------------|
-| **Compression Ratio** | 96.4% (140 → 5 bytes) |
-| **Upload Interval** | 15 seconds (batched) |
-| **Modbus Poll Rate** | 2 seconds (continuous) |
-| **FOTA Chunk Size** | 2 KB (memory-efficient) |
-| **Power Savings** | 10-20mA (UART gating) |
-| **Security Level** | HMAC-SHA256 + RSA-2048 |
-| **Response Time** | < 1 second (commands) |
-| **Test Coverage** | 30+ test suites |
-
-</div>
+> **Note on Performance**: Current metrics are based on simulated inverter implementation using WiFi polling. Production deployment with Modbus RTU communication will enable additional power-saving features including CPU frequency scaling and sleep modes.
 
 ---
 

@@ -1,6 +1,6 @@
 # 📚 EcoWatt Documentation Index
 
-Welcome to the comprehensive documentation for the EcoWatt Smart Energy Monitoring System.
+Welcome to the comprehensive documentation for the EcoWatt Smart Inverter Monitoring System.
 
 ---
 
@@ -49,6 +49,22 @@ Covers:
 - Security best practices for deployment
 
 **Best for**: Understanding security implementations and hardening the system
+
+---
+
+### ⚙️ [Implementation Notes](IMPLEMENTATION.md)
+**Simulation vs Production architecture differences**
+
+Covers:
+- Current WiFi simulation implementation
+- Production Modbus RTU architecture
+- Power management differences
+- Hardware requirements
+- Configuration parameters
+- Migration path from development to production
+- Performance expectations
+
+**Best for**: Understanding implementation context and deployment planning
 
 ---
 

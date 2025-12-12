@@ -1,6 +1,8 @@
-# 🌟 EcoWatt Features Guide
+# EcoWatt Features Guide
 
-This document provides in-depth explanations of all major features in the EcoWatt system.
+This document provides in-depth explanations of all major features in the EcoWatt Smart Inverter Monitoring System.
+
+> **Implementation Note**: This system uses a simulated inverter over WiFi for development. Production deployment will use Modbus RTU communication with physical solar inverters.
 
 ---
 
@@ -8,15 +10,15 @@ This document provides in-depth explanations of all major features in the EcoWat
 
 - [Security Architecture](#security-architecture)
 - [Compression System](#compression-system)
-- [FOTA Updates](#fota-updates)
+- [FOTA System](#fota-system)
 - [Power Management](#power-management)
-- [Remote Control](#remote-control)
+- [Remote Configuration](#remote-configuration)
 - [Web Dashboard](#web-dashboard)
-- [Modbus Communication](#modbus-communication)
+- [Data Acquisition](#data-acquisition)
 
 ---
 
-## 🔐 Security Architecture
+## Security Architecture
 
 ### Multi-Layer Upload Protection
 
@@ -201,7 +203,7 @@ if (!verify_firmware()) {
 
 ---
 
-## 📦 Compression System
+## Compression System
 
 ### Intelligent Algorithm Selection
 
@@ -214,8 +216,8 @@ The system implements **4 specialized compression algorithms** and automatically
 │                                                      │
 │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌────┐
 │  │Dictionary │  │  Temporal │  │ Semantic  │  │Bit │
-│  │  (96.4%) │  │  Delta    │  │   RLE     │  │Pack│
-│  │   5 bytes│  │  28 bytes │  │  42 bytes │  │70 B│
+│  │  (~85%)  │  │  Delta    │  │   RLE     │  │Pack│
+│  │  21 bytes│  │  49 bytes │  │  63 bytes │  │84 B│
 │  └───────────┘  └───────────┘  └───────────┘  └────┘
 │                      ↓                               │
 │              Select Best (Dictionary)               │
@@ -245,7 +247,7 @@ State Dictionary:
        ID   ID
 ```
 
-**Compression Ratio**: 96.4% (140 bytes → 5 bytes)
+**Compression Ratio**: Up to 85% (140 bytes → 21 bytes) for stable patterns
 
 **Implementation**:
 ```cpp
@@ -294,7 +296,7 @@ else                        // 16-bit
     encode_16bit(delta);
 ```
 
-**Compression Ratio**: ~80% (140 bytes → 28 bytes)
+**Compression Ratio**: ~65% (140 bytes → 49 bytes)
 
 ### Algorithm 3: Semantic RLE (0x50)
 
@@ -316,7 +318,7 @@ Power         | 0, 0, 0, 0, 0            | 0 × 5
 - Current: ±0.1A considered identical
 - Temperature: ±0.5°C considered identical
 
-**Compression Ratio**: ~70% (140 bytes → 42 bytes)
+**Compression Ratio**: ~55% (140 bytes → 63 bytes)
 
 ### Algorithm 4: Bit-Packing (0x01)
 
@@ -335,17 +337,19 @@ Stored as 16-bit: 0x0FA5 = 0000111110100101
 Bit-packed: 111110100101 (12 bits)
 ```
 
-**Compression Ratio**: ~50% (140 bytes → 70 bytes)
+**Compression Ratio**: ~40% (140 bytes → 84 bytes)
 
 ---
 
-## ⚡ Power Management
+## Power Management
 
-### Peripheral Gating Strategy
+> **Simulation Limitation**: Current WiFi-based simulation requires continuous polling, limiting power optimization options. Production implementation with Modbus RTU will enable full power management capabilities.
 
-**Problem**: The Modbus UART transceiver consumes 10-20mA even when idle.
+### Current Implementation: Peripheral Gating
 
-**Solution**: Power gate the UART, turning it on only when needed.
+**Concept**: The Modbus UART transceiver consumes power even when idle.
+
+**Strategy**: Power gate the UART/Modbus interface, activating it only during communication windows.
 
 **Power States**:
 
@@ -400,19 +404,28 @@ struct power_stats_t {
 };
 ```
 
-**Why Not Deep Sleep?**:
-- **WiFi Connection**: Deep sleep disconnects WiFi
-- **Reconnection Overhead**: 3-5 seconds to reconnect
-- **Command Latency**: Real-time control requires low latency
-- **Trade-off**: Peripheral gating provides significant savings while maintaining connectivity
+### Simulation vs Production Power Management
+
+**Current Simulation Implementation:**
+- **WiFi Polling**: Continuous WiFi connection for simulated inverter
+- **No Sleep Modes**: Cannot use CPU frequency scaling or sleep modes
+- **Peripheral Gating Only**: Limited to UART power gating
+- **Rationale**: Maintains connection for rapid development and testing
+
+**Production Implementation (Modbus RTU):**
+- **CPU Frequency Scaling**: 240MHz for WiFi, 160MHz for processing, 80MHz for idle
+- **Light Sleep**: Between Modbus polls (1.8s sleep per 2s cycle)
+- **Deep Sleep**: For battery-powered remote installations (wake on timer)
+- **Modem Sleep**: WiFi radio off between uploads
+- **Combined Savings**: Estimated 50-70% power reduction vs continuous operation
 
 ---
 
-## 🎯 Remote Control System
+## Remote Configuration
 
 ### Command Queue Architecture
 
-**Bidirectional communication for real-time device control**:
+**Bidirectional communication for real-time device management**:
 
 ```
 User → Dashboard → Server → Queue → ESP32 → Modbus → Inverter
@@ -502,9 +515,9 @@ if (cmd.type == CMD_MODBUS_WRITE) {
 
 ---
 
-## 📊 Web Dashboard
+## Web Dashboard
 
-See the main README for dashboard screenshots.
+See the main README for dashboard screenshots and features.
 
 ### Real-Time Features
 
@@ -548,11 +561,14 @@ See the main README for dashboard screenshots.
 
 ---
 
-## 🔌 Modbus Communication
+## Data Acquisition
+
+> **Current Implementation**: Uses WiFi-based simulated inverter for development and testing.  
+> **Production Implementation**: Will use Modbus RTU over RS485 for communication with physical solar inverters.
 
 ### Ring Buffer Architecture
 
-**Problem**: Data acquisition (2s) and upload (15s) happen at different rates.
+**Problem**: Data acquisition (2s poll interval) and upload (15s batch interval) happen at different rates.
 
 **Solution**: 7-sample circular buffer
 
