@@ -16,13 +16,13 @@
 // ============================================
 // PRODUCTION WIFI CREDENTIALS
 // ============================================
-#define WIFI_SSID "Galaxy A32B46A"
-#define WIFI_PASSWORD "aubz5724"
+#define WIFI_SSID "HydroBK"
+#define WIFI_PASSWORD "Hydrolink123"
 
 // ============================================
 // PRODUCTION FLASK SERVER
 // ============================================
-#define FLASK_SERVER_URL "http://192.168.76.249:5001"
+#define FLASK_SERVER_URL "http://10.116.241.2:5001"
 
 // ============================================
 // PRODUCTION DEVICE IDENTIFICATION
