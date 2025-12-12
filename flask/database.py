@@ -83,8 +83,33 @@ class Database:
         return _thread_local.connection
     
     @staticmethod
+    def _verify_tables_exist():
+        """Check if required tables exist in database"""
+        required_tables = ['sensor_data', 'devices', 'commands', 'configurations', 
+                          'ota_updates', 'power_reports', 'fault_injections', 'fault_recovery_events']
+        try:
+            conn = Database.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            existing_tables = {row[0] for row in cursor.fetchall()}
+            missing = [t for t in required_tables if t not in existing_tables]
+            return len(missing) == 0, missing
+        except Exception as e:
+            logger.error(f"Error checking tables: {e}")
+            return False, required_tables
+    
+    @staticmethod
     def init_database():
         """Initialize database schema"""
+        # Check if tables already exist
+        tables_exist, missing_tables = Database._verify_tables_exist()
+        if tables_exist:
+            logger.info("Database tables already exist, skipping initialization")
+            return
+        
+        if missing_tables:
+            logger.info(f"Creating missing database tables: {missing_tables}")
+        
         conn = Database.get_connection()
         cursor = conn.cursor()
         
@@ -238,7 +263,14 @@ class Database:
             pass
         
         conn.commit()
-        log_success(logger, "Database schema initialized successfully")
+        
+        # Verify tables were created successfully
+        tables_exist, still_missing = Database._verify_tables_exist()
+        if tables_exist:
+            log_success(logger, "Database schema initialized successfully")
+        else:
+            logger.error(f"Failed to create tables: {still_missing}")
+            raise RuntimeError(f"Database initialization failed - missing tables: {still_missing}")
         
         # Run initial cleanup (only if retention period is set)
         if RETENTION_DAYS is not None:

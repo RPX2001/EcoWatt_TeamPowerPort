@@ -102,8 +102,8 @@ public:
     OTAProgress getProgress();
     String getStateString();
     bool isOTAInProgress();
-    bool canResume();
-    void clearProgress();
+    bool canResume();  // Always returns false - resume not supported
+    void clearProgress();  // Abort running update and reset to IDLE
     
     // Configuration methods
     void setServerURL(const String& url);
@@ -169,8 +169,6 @@ private:
     bool shouldInjectFault();
     
     // Private methods - Progress and state management
-    void saveProgress();
-    void loadProgress();
     // runDiagnostics() moved to public section
     void setError(const String& message);
     void setOTAState(OTAState newState);

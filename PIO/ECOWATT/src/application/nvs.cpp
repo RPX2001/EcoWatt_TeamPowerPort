@@ -491,7 +491,7 @@ uint64_t nvs::getEnergyPollFreq()
     esp_prefs_nvs.end();
     
     // Minimum 1 minute for energy polling
-    if (freq < 60000000) {
+    if (freq < 5000000) {
         return DEFAULT_ENERGY_POLL_FREQUENCY_US;
     }
     
@@ -502,7 +502,7 @@ uint64_t nvs::getEnergyPollFreq()
 bool nvs::setEnergyPollFreq(uint64_t freq)
 {
     // Validate input (minimum 1 minute)
-    if (freq < 60000000) {
+    if (freq < 5000000) {
         return false; // Too short for energy polling
     }
 

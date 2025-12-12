@@ -49,8 +49,9 @@ OTAManager::OTAManager(const String& serverURL, const String& deviceID, const St
         return;
     }
     
-    // Load any existing progress (for resume capability)
-    loadProgress();
+    // Clear any stale OTA progress from previous incomplete sessions
+    // (No resume support - always start from scratch)
+    nvs.clear();
     
     LOG_INFO(LOG_TAG_FOTA, "Device ID: %s", deviceID.c_str());
     LOG_INFO(LOG_TAG_FOTA, "Current Version: %s", currentVersion.c_str());
@@ -197,34 +198,44 @@ bool OTAManager::downloadAndApplyFirmware()
 {
     LOG_SECTION("STARTING FIRMWARE DOWNLOAD");
     
-    // Reset progress for fresh start (important for retry scenarios)
-    progress.chunks_received = 0;
-    progress.bytes_downloaded = 0;
-    progress.percentage = 0;
-    progress.state = OTA_DOWNLOADING;
-    
-    // Report start of download to server
-    reportProgress("downloading", 0, "Starting firmware download...");
-    
-    // Clear any stored NVS progress to ensure clean start
-    if (nvs.begin("ota_progress", false)) {
-        nvs.clear();
-        nvs.end();
-        LOG_INFO(LOG_TAG_FOTA, "Cleared previous OTA progress from NVS");
+    // Check if OTA is already in progress or in error state
+    if (progress.state == OTA_DOWNLOADING || progress.state == OTA_VERIFYING || 
+        progress.state == OTA_APPLYING) {
+        LOG_ERROR(LOG_TAG_FOTA, "OTA already in progress - cannot start new download");
+        LOG_ERROR(LOG_TAG_FOTA, "Current state: %s", getStateString().c_str());
+        LOG_ERROR(LOG_TAG_FOTA, "Aborting incomplete session - wait for next OTA cycle");
+        
+        // Abort any running update and reset to IDLE
+        if (Update.isRunning()) {
+            Update.abort();
+        }
+        progress.state = OTA_IDLE;
+        return false;
     }
     
     // Ensure Update library is clean for new session
     if (Update.isRunning()) {
         LOG_WARN(LOG_TAG_FOTA, "Previous OTA session still active - cleaning up...");
         Update.abort();
-        LOG_INFO(LOG_TAG_FOTA, "Previous OTA session aborted");
+        LOG_INFO(LOG_TAG_FOTA, "Previous OTA session aborted - will restart from scratch");
     }
+    
+    // Reset progress for fresh start (no resume support)
+    progress.chunks_received = 0;
+    progress.bytes_downloaded = 0;
+    progress.percentage = 0;
+    progress.state = OTA_DOWNLOADING;
+    progress.last_activity = millis();
+    
+    // Report start of download to server
+    reportProgress("downloading", 0, "Starting firmware download...");
     
     // Get OTA partition information
     const esp_partition_t* ota_partition = esp_ota_get_next_update_partition(NULL);
     if (ota_partition == NULL) {
         setError("No OTA partition available");
         LOG_ERROR(LOG_TAG_FOTA, "Could not find OTA partition");
+        progress.state = OTA_IDLE;
         return false;
     }
     
@@ -236,6 +247,7 @@ bool OTAManager::downloadAndApplyFirmware()
         setError("Firmware too large for OTA partition");
         LOG_ERROR(LOG_TAG_FOTA, "Firmware (%u bytes) exceeds partition size (%u bytes)\n",
                       manifest.encrypted_size, ota_partition->size);
+        progress.state = OTA_IDLE;
         return false;
     }
     
@@ -243,6 +255,7 @@ bool OTAManager::downloadAndApplyFirmware()
     if (!Update.begin(manifest.original_size)) {
         setError("OTA initialization failed: " + String(Update.errorString()));
         LOG_ERROR(LOG_TAG_FOTA, "Update.begin() failed: %s\n", Update.errorString());
+        progress.state = OTA_IDLE;
         return false;
     }
     
@@ -253,6 +266,8 @@ bool OTAManager::downloadAndApplyFirmware()
     if (aes_result != 0) {
         setError("AES key configuration failed");
         LOG_ERROR(LOG_TAG_FOTA, "AES key setup failed: %d\n", aes_result);
+        Update.abort();
+        progress.state = OTA_IDLE;
         return false;
     }
     
@@ -288,6 +303,8 @@ bool OTAManager::downloadAndApplyFirmware()
     if (!httpPost(initiateEndpoint, initiatePayload, initiateResponse)) {
         setError("Failed to initiate OTA session");
         LOG_ERROR(LOG_TAG_FOTA, "Failed to initiate OTA session with server");
+        Update.abort();
+        progress.state = OTA_IDLE;
         return false;
     }
     
@@ -298,6 +315,8 @@ bool OTAManager::downloadAndApplyFirmware()
         setError("OTA session initiation failed");
         LOG_ERROR(LOG_TAG_FOTA, "OTA session initiation failed: %s\n", 
                      sessionDoc["error"] | "Unknown error");
+        Update.abort();
+        progress.state = OTA_IDLE;
         return false;
     }
     
@@ -311,8 +330,13 @@ bool OTAManager::downloadAndApplyFirmware()
         if (!downloadChunk(chunk)) {
             setError("Chunk download failed at chunk " + String(chunk));
             LOG_ERROR(LOG_TAG_FOTA, "Failed to download chunk %u\n", chunk);
-            saveProgress(); // Save progress for resume
-            progress.state = OTA_ERROR;
+            LOG_ERROR(LOG_TAG_FOTA, "Aborting OTA - will restart from scratch on next cycle");
+            
+            // Abort the update and clean up
+            Update.abort();
+            progress.state = OTA_IDLE;  // Return to IDLE to allow next cycle
+            reportProgress("failed", progress.percentage, "Download failed - will retry on next cycle");
+            
             return false;
         }
         
@@ -338,7 +362,6 @@ bool OTAManager::downloadAndApplyFirmware()
             reportProgress("downloading", progress.percentage, progressMsg);
             
             lastProgressTime = currentTime;
-            saveProgress(); // Save progress periodically
         }
         
         // Yield every 10 chunks to prevent watchdog timeout
@@ -1188,33 +1211,24 @@ void OTAManager::reset()
 {
     LOG_INFO(LOG_TAG_FOTA, "Resetting OTA Manager");
     
+    // Abort any running OTA update
+    if (Update.isRunning()) {
+        Update.abort();
+        LOG_INFO(LOG_TAG_FOTA, "Aborted running OTA update");
+    }
+    
     // Reset state
     setOTAState(OTA_IDLE);
     
     // Clear progress
     memset(&progress, 0, sizeof(progress));
     progress.last_activity = millis();
+    progress.state = OTA_IDLE;
     
     // Clear manifest
     memset(&manifest, 0, sizeof(manifest));
     
-    // Clear NVS progress data
-    if (nvs.begin("ota_progress", false)) {
-        nvs.clear();
-        nvs.end();
-        LOG_INFO(LOG_TAG_FOTA, "Cleared OTA progress from NVS");
-    }
-    
-    // Clear NVS manifest data  
-    if (nvs.begin("ota_manifest", false)) {
-        nvs.clear();
-        nvs.end();
-        LOG_INFO(LOG_TAG_FOTA, "Cleared OTA manifest from NVS");
-    }
-    
-    // Arduino Update library handles cleanup automatically
-    
-    LOG_SUCCESS(LOG_TAG_FOTA, "OTA Manager reset complete");
+    LOG_SUCCESS(LOG_TAG_FOTA, "OTA Manager reset complete - ready for next cycle");
 }
 
 // Base64 decode helper (simplified for firmware chunks)
@@ -1262,56 +1276,19 @@ void OTAManager::setError(const String& message)
     progress.state = OTA_ERROR;
     state = OTA_ERROR;
     LOG_ERROR(LOG_TAG_FOTA, "OTA Error: %s", message.c_str());
+    LOG_ERROR(LOG_TAG_FOTA, "OTA will be retried on next scheduled cycle");
+    
+    // Note: State will be reset to IDLE in downloadAndApplyFirmware() on failure
+    // This allows the next OTA cycle to attempt download again
 }
 
-// Save OTA progress to NVS for resume capability
-void OTAManager::saveProgress()
-{
-    if (!nvs.begin("ota_progress", false)) {
-        LOG_ERROR(LOG_TAG_FOTA, "Failed to initialize NVS for progress saving");
-        return;
-    }
-    
-    nvs.putUInt("chunks_recv", progress.chunks_received);
-    nvs.putUInt("total_chunks", progress.total_chunks);
-    nvs.putUInt("bytes_down", progress.bytes_downloaded);
-    nvs.putUInt("percentage", progress.percentage);
-    nvs.putUInt("state", (uint32_t)progress.state);
-    nvs.putString("version", manifest.version);
-    nvs.putUInt("firmware_size", manifest.firmware_size);
-    
-    nvs.end();
-    
-    LOG_DEBUG(LOG_TAG_FOTA, "Progress saved: %u/%u chunks (%.1f%%)", 
-                  progress.chunks_received, progress.total_chunks, 
-                  (float)progress.percentage);
-}
-
-// Load OTA progress from NVS for resume capability
-void OTAManager::loadProgress()
-{
-    if (!nvs.begin("ota_progress", true)) { // Read-only mode
-        LOG_INFO(LOG_TAG_FOTA, "No previous OTA progress found");
-        return;
-    }
-    
-    progress.chunks_received = nvs.getUInt("chunks_recv", 0);
-    progress.total_chunks = nvs.getUInt("total_chunks", 0);
-    progress.bytes_downloaded = nvs.getUInt("bytes_down", 0);
-    progress.percentage = nvs.getUInt("percentage", 0);
-    progress.state = (OTAState)nvs.getUInt("state", OTA_IDLE);
-    manifest.version = nvs.getString("version", "");
-    manifest.firmware_size = nvs.getUInt("firmware_size", 0);
-    
-    nvs.end();
-    
-    if (progress.chunks_received > 0) {
-        LOG_INFO(LOG_TAG_FOTA, "Loaded previous progress: %u/%u chunks (%.1f%%)", 
-                      progress.chunks_received, progress.total_chunks, 
-                      (float)progress.percentage);
-        LOG_INFO(LOG_TAG_FOTA, "Previous OTA version: %s", manifest.version.c_str());
-    }
-}// OTA Fault Testing Implementation
+// NOTE: saveProgress() and loadProgress() removed
+// Resume functionality is not supported - OTA always starts from scratch
+// This ensures:
+// 1. AES-CBC IV state is always correct (streaming decryption requires sequential chunks)
+// 2. ESP32 magic byte validation on chunk 0
+// 3. Complete firmware hash verification
+// 4. Clean state after any interruption/failure// OTA Fault Testing Implementation
 // Add to the end of OTAManager.cpp
 
 /**
@@ -1381,27 +1358,32 @@ bool OTAManager::isOTAInProgress()
 
 /**
  * @brief Check if OTA download can be resumed
- * @return true if resume is possible
+ * @return Always false - resume not supported
+ * 
+ * Resume is intentionally disabled because:
+ * - AES-CBC streaming decryption requires sequential chunks (IV chaining)
+ * - ESP32 firmware validation requires chunk 0 (magic byte 0xE9)
+ * - SHA256 hash verification needs complete firmware
+ * - Clean state ensures reliability after interruptions
  */
 bool OTAManager::canResume()
 {
-    // Can resume if:
-    // 1. Progress exists (chunks_received > 0)
-    // 2. Not in error state
-    // 3. Total chunks is known
-    // 4. Current state is DOWNLOADING or IDLE
-    return (progress.chunks_received > 0 &&
-            progress.total_chunks > 0 &&
-            progress.chunks_received < progress.total_chunks &&
-            (progress.state == OTA_DOWNLOADING || progress.state == OTA_IDLE));
+    return false;  // Resume not supported - always restart from scratch
 }
 
 /**
- * @brief Clear saved OTA progress
+ * @brief Clear OTA progress and abort any running update
+ * Used to clean up after interruptions or errors
  */
 void OTAManager::clearProgress()
 {
-    LOG_INFO(LOG_TAG_FOTA, "Clearing OTA progress...");
+    LOG_INFO(LOG_TAG_FOTA, "Clearing OTA progress and aborting any running update...");
+    
+    // Abort any running OTA update
+    if (Update.isRunning()) {
+        Update.abort();
+        LOG_INFO(LOG_TAG_FOTA, "Running OTA update aborted");
+    }
     
     // Reset progress structure
     progress.chunks_received = 0;
@@ -1412,10 +1394,7 @@ void OTAManager::clearProgress()
     progress.error_message = "";
     progress.last_activity = 0;
     
-    // Clear from NVS storage
-    nvs.clear();
-    
-    LOG_SUCCESS(LOG_TAG_FOTA, "OTA progress cleared");
+    LOG_SUCCESS(LOG_TAG_FOTA, "OTA progress cleared - ready for next cycle");
 }
 
 /**

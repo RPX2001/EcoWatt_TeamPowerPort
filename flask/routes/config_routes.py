@@ -99,53 +99,59 @@ def validate_config(config: dict) -> tuple:
     unchanged = []
     errors = []
 
-    # Validate sampling_interval
+    # Validate sampling_interval (min 1s, max 300s, must be integer)
     if 'sampling_interval' in config:
-        if 1 <= config['sampling_interval'] <= 300:
+        val = config['sampling_interval']
+        if isinstance(val, int) and 1 <= val <= 300:
             accepted.append('sampling_interval')
         else:
             rejected.append('sampling_interval')
-            errors.append('sampling_interval must be between 1 and 300 seconds')
+            errors.append('sampling_interval must be an integer between 1 and 300 seconds')
 
-    # Validate upload_interval
+    # Validate upload_interval (min 1s, max 3600s, must be integer)
     if 'upload_interval' in config:
-        if 10 <= config['upload_interval'] <= 3600:
+        val = config['upload_interval']
+        if isinstance(val, int) and 1 <= val <= 3600:
             accepted.append('upload_interval')
         else:
             rejected.append('upload_interval')
-            errors.append('upload_interval must be between 10 and 3600 seconds')
+            errors.append('upload_interval must be an integer between 1 and 3600 seconds')
 
-    # Validate firmware_check_interval
+    # Validate firmware_check_interval (min 1s, max 86400s, must be integer)
     if 'firmware_check_interval' in config:
-        if 30 <= config['firmware_check_interval'] <= 86400:
+        val = config['firmware_check_interval']
+        if isinstance(val, int) and 1 <= val <= 86400:
             accepted.append('firmware_check_interval')
         else:
             rejected.append('firmware_check_interval')
-            errors.append('firmware_check_interval must be between 30 and 86400 seconds')
+            errors.append('firmware_check_interval must be an integer between 1 and 86400 seconds')
 
-    # Validate command_poll_interval
+    # Validate command_poll_interval (min 1s, max 300s, must be integer)
     if 'command_poll_interval' in config:
-        if 5 <= config['command_poll_interval'] <= 300:
+        val = config['command_poll_interval']
+        if isinstance(val, int) and 1 <= val <= 300:
             accepted.append('command_poll_interval')
         else:
             rejected.append('command_poll_interval')
-            errors.append('command_poll_interval must be between 5 and 300 seconds')
+            errors.append('command_poll_interval must be an integer between 1 and 300 seconds')
 
-    # Validate config_poll_interval
+    # Validate config_poll_interval (min 1s, max 300s, must be integer)
     if 'config_poll_interval' in config:
-        if 1 <= config['config_poll_interval'] <= 300:
+        val = config['config_poll_interval']
+        if isinstance(val, int) and 1 <= val <= 300:
             accepted.append('config_poll_interval')
         else:
             rejected.append('config_poll_interval')
-            errors.append('config_poll_interval must be between 1 and 300 seconds')
+            errors.append('config_poll_interval must be an integer between 1 and 300 seconds')
 
-    # Validate energy_poll_interval (in seconds)
+    # Validate energy_poll_interval (min 1s, max 3600s, must be integer)
     if 'energy_poll_interval' in config:
-        if 60 <= config['energy_poll_interval'] <= 3600:
+        val = config['energy_poll_interval']
+        if isinstance(val, int) and 1 <= val <= 3600:
             accepted.append('energy_poll_interval')
         else:
             rejected.append('energy_poll_interval')
-            errors.append('energy_poll_interval must be between 60 and 3600 seconds')
+            errors.append('energy_poll_interval must be an integer between 1 and 3600 seconds')
 
     # Validate compression_enabled
     if 'compression_enabled' in config:

@@ -22,7 +22,7 @@
 // ============================================
 // PRODUCTION FLASK SERVER
 // ============================================
-#define FLASK_SERVER_URL "http://192.168.201.249:5001"
+#define FLASK_SERVER_URL "http://192.168.76.249:5001"
 
 // ============================================
 // PRODUCTION DEVICE IDENTIFICATION

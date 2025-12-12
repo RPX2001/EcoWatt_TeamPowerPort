@@ -114,6 +114,7 @@ DeadlineMonitor TaskManager::deadlineMonitor_compression;
 // System state
 bool TaskManager::systemInitialized = false;
 bool TaskManager::systemSuspended = false;
+bool TaskManager::tasksNeedTimingReset = false;
 uint32_t TaskManager::systemStartTime = 0;
 
 // ============================================
@@ -328,6 +329,7 @@ void TaskManager::suspendAllTasks() {
     if (commandTask_h) vTaskSuspend(commandTask_h);
     if (configTask_h) vTaskSuspend(configTask_h);
     if (statisticsTask_h) vTaskSuspend(statisticsTask_h);
+    if (powerReportTask_h) vTaskSuspend(powerReportTask_h);  // Suspend power reporting during OTA
     // NOTE: Do NOT suspend otaTask_h - it's the one calling this function!
     if (watchdogTask_h) vTaskSuspend(watchdogTask_h);
     
@@ -338,17 +340,26 @@ void TaskManager::suspendAllTasks() {
 void TaskManager::resumeAllTasks() {
     LOG_INFO(LOG_TAG_BOOT, "Resuming all tasks...");
     
+    // Signal all tasks to reset their timing baselines
+    tasksNeedTimingReset = true;
+    
     if (sensorPollTask_h) vTaskResume(sensorPollTask_h);
     // compressionTask removed - compression now in upload task
     if (uploadTask_h) vTaskResume(uploadTask_h);
     if (commandTask_h) vTaskResume(commandTask_h);
     if (configTask_h) vTaskResume(configTask_h);
     if (statisticsTask_h) vTaskResume(statisticsTask_h);
+    if (powerReportTask_h) vTaskResume(powerReportTask_h);  // Resume power reporting after OTA
     if (otaTask_h) vTaskResume(otaTask_h);
     if (watchdogTask_h) vTaskResume(watchdogTask_h);
     
     systemSuspended = false;
-    LOG_INFO(LOG_TAG_BOOT, "All tasks resumed");
+    
+    // Give tasks time to check the flag and reset their timing (500ms should be plenty)
+    vTaskDelay(pdMS_TO_TICKS(500));
+    tasksNeedTimingReset = false;  // Clear flag after all tasks have had a chance to see it
+    
+    LOG_INFO(LOG_TAG_BOOT, "All tasks resumed - timing baselines will reset");
 }
 
 // ============================================
@@ -361,7 +372,6 @@ void TaskManager::sensorPollTask(void* parameter) {
     // Register this task with hardware watchdog
     esp_task_wdt_add(NULL);
     
-    TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xFrequency = pdMS_TO_TICKS(pollFrequency);  // NOT const - can update
     const uint32_t deadlineUs = SENSOR_POLL_DEADLINE_US;  // 2s deadline (Modbus takes ~1.8s)
     
@@ -376,8 +386,22 @@ void TaskManager::sensorPollTask(void* parameter) {
     LOG_INFO(LOG_TAG_DATA, "Deadline: %lu us", deadlineUs);
     
     while (1) {
-        // ALWAYS wait for the full interval before starting next cycle
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        // Wait for poll interval OR until notified of config change
+        uint32_t notifyValue = 0;
+        BaseType_t notified = xTaskNotifyWait(0, ULONG_MAX, &notifyValue, xFrequency);
+        
+        // Check if we were woken by config change notification
+        if (notified == pdTRUE && notifyValue == 1) {
+            // Config changed - reload frequency and restart wait
+            xFrequency = pdMS_TO_TICKS(pollFrequency);
+            LOG_INFO(LOG_TAG_DATA, "Config change - poll interval now %lu ms (restarting timer)", pollFrequency);
+            continue;  // Restart wait with new frequency
+        }
+        
+        // Check if tasks were resumed after suspension (e.g., after OTA)
+        if (tasksNeedTimingReset) {
+            LOG_INFO(LOG_TAG_DATA, "Timing baseline reset after task resume");
+        }
         
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
         // This ensures ALL samples in a buffer use the same config before any changes apply
@@ -389,7 +413,6 @@ void TaskManager::sensorPollTask(void* parameter) {
             TickType_t newFrequency = pdMS_TO_TICKS(pollFrequency);
             if (newFrequency != xFrequency) {
                 xFrequency = newFrequency;
-                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
                 LOG_INFO(LOG_TAG_DATA, "Poll frequency updated to %lu ms", pollFrequency);
             }
             
@@ -434,7 +457,6 @@ void TaskManager::sensorPollTask(void* parameter) {
                 TickType_t newFrequency = pdMS_TO_TICKS(pollFrequency);
                 if (newFrequency != xFrequency) {
                     xFrequency = newFrequency;
-                    xLastWakeTime = xTaskGetTickCount();
                     LOG_INFO(LOG_TAG_DATA, "Poll frequency updated to %lu ms", pollFrequency);
                 }
                 
@@ -707,7 +729,6 @@ void TaskManager::uploadTask(void* parameter) {
     // Register this task with hardware watchdog
     esp_task_wdt_add(NULL);
     
-    TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xFrequency = pdMS_TO_TICKS(uploadFrequency);  // NOT const - can update
     const uint32_t deadlineUs = UPLOAD_DEADLINE_US;  // 5s deadline per upload
     
@@ -715,8 +736,22 @@ void TaskManager::uploadTask(void* parameter) {
     LOG_INFO(LOG_TAG_UPLOAD, "Deadline: %lu us", deadlineUs);
     
     while (1) {
-        // ALWAYS wait for the full interval before starting next cycle
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        // Wait for upload interval OR until notified of config change
+        uint32_t notifyValue = 0;
+        BaseType_t notified = xTaskNotifyWait(0, ULONG_MAX, &notifyValue, xFrequency);
+        
+        // Check if we were woken by config change notification
+        if (notified == pdTRUE && notifyValue == 1) {
+            // Config changed - reload frequency and restart wait
+            xFrequency = pdMS_TO_TICKS(uploadFrequency);
+            LOG_INFO(LOG_TAG_UPLOAD, "Config change - upload interval now %lu ms (restarting timer)", uploadFrequency);
+            continue;  // Restart wait with new frequency
+        }
+        
+        // Check if tasks were resumed after suspension (e.g., after OTA)
+        if (tasksNeedTimingReset) {
+            LOG_INFO(LOG_TAG_UPLOAD, "Timing baseline reset after task resume");
+        }
         
         // Check if upload frequency was changed by ConfigManager (uses dedicated flag, not semaphore)
         // The semaphore is consumed by other tasks, so upload task uses its own flag
@@ -727,7 +762,6 @@ void TaskManager::uploadTask(void* parameter) {
                       (unsigned long)xFrequency, (unsigned long)newFrequency, uploadFrequency);
             if (newFrequency != xFrequency) {
                 xFrequency = newFrequency;
-                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
                 LOG_INFO(LOG_TAG_UPLOAD, "Upload frequency updated to %lu ms", uploadFrequency);
             }
         }
@@ -933,7 +967,6 @@ void TaskManager::commandTask(void* parameter) {
     // Register this task with hardware watchdog
     esp_task_wdt_add(NULL);
     
-    TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xFrequency = pdMS_TO_TICKS(commandFrequency);  // Use configurable frequency
     const uint32_t deadlineUs = COMMAND_DEADLINE_US;
     
@@ -941,19 +974,32 @@ void TaskManager::commandTask(void* parameter) {
     LOG_INFO(LOG_TAG_COMMAND, "Deadline: %lu us", deadlineUs);
     
     while (1) {
-        // ALWAYS wait for the full interval before starting next cycle
-        // This prevents rapid retries even if previous cycle missed deadline
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        // Wait for command poll interval OR until notified of config change
+        uint32_t notifyValue = 0;
+        BaseType_t notified = xTaskNotifyWait(0, ULONG_MAX, &notifyValue, xFrequency);
+        
+        // Check if we were woken by config change notification
+        if (notified == pdTRUE && notifyValue == 1) {
+            // Config changed - reload frequency and restart wait
+            xFrequency = pdMS_TO_TICKS(commandFrequency);
+            LOG_INFO(LOG_TAG_COMMAND, "Config change - command interval now %lu ms (restarting timer)", commandFrequency);
+            continue;  // Restart wait with new frequency
+        }
+        
+        // Check if tasks were resumed after suspension (e.g., after OTA)
+        if (tasksNeedTimingReset) {
+            LOG_INFO(LOG_TAG_COMMAND, "Timing baseline reset after task resume");
+        }
         
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
         if (commandConfigReloadPending) {
             commandConfigReloadPending = false;  // Clear the flag
-            // Reload command frequency from static variable (updated by ConfigManager)
+            // Reload command frequency from NVS (source of truth)
+            commandFrequency = nvs::getCommandFreq() / 1000;  // Convert μs to ms
             TickType_t newFrequency = pdMS_TO_TICKS(commandFrequency);
             if (newFrequency != xFrequency) {
                 xFrequency = newFrequency;
-                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
-                LOG_INFO(LOG_TAG_COMMAND, "Command frequency updated to %lu ms", commandFrequency);
+                LOG_INFO(LOG_TAG_COMMAND, "Command frequency updated to %lu ms (takes effect next cycle)", commandFrequency);
             }
         }
         
@@ -1004,7 +1050,6 @@ void TaskManager::configTask(void* parameter) {
     // Register this task with hardware watchdog
     esp_task_wdt_add(NULL);
     
-    TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xFrequency = pdMS_TO_TICKS(configFrequency);  // NOT const - can update
     const uint32_t deadlineUs = CONFIG_DEADLINE_US;  // 2s deadline
     
@@ -1017,18 +1062,32 @@ void TaskManager::configTask(void* parameter) {
     LOG_INFO(LOG_TAG_CONFIG, "Deadline: %lu us", deadlineUs);
     
     while (1) {
-        // ALWAYS wait for the full interval before starting next cycle
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        // Wait for config poll interval OR until notified of config change
+        uint32_t notifyValue = 0;
+        BaseType_t notified = xTaskNotifyWait(0, ULONG_MAX, &notifyValue, xFrequency);
+        
+        // Check if we were woken by config change notification
+        if (notified == pdTRUE && notifyValue == 1) {
+            // Config changed - reload frequency and restart wait
+            xFrequency = pdMS_TO_TICKS(configFrequency);
+            LOG_INFO(LOG_TAG_CONFIG, "Config change - config poll interval now %lu ms (restarting timer)", configFrequency);
+            continue;  // Restart wait with new frequency
+        }
+        
+        // Check if tasks were resumed after suspension (e.g., after OTA)
+        if (tasksNeedTimingReset) {
+            LOG_INFO(LOG_TAG_CONFIG, "Timing baseline reset after task resume");
+        }
         
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
         if (configTaskReloadPending) {
             configTaskReloadPending = false;  // Clear the flag
-            // Reload config check frequency from static variable (updated by ConfigManager)
+            // Reload config check frequency from NVS (source of truth)
+            configFrequency = nvs::getConfigFreq() / 1000;  // Convert μs to ms
             TickType_t newFrequency = pdMS_TO_TICKS(configFrequency);
             if (newFrequency != xFrequency) {
                 xFrequency = newFrequency;
-                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
-                LOG_INFO(LOG_TAG_CONFIG, "Config check frequency updated to %lu ms", configFrequency);
+                LOG_INFO(LOG_TAG_CONFIG, "Config check frequency updated to %lu ms (takes effect next cycle)", configFrequency);
             }
         }
         
@@ -1080,7 +1139,6 @@ void TaskManager::powerReportTask(void* parameter) {
     // Load frequency from NVS (converted to ms)
     powerReportFrequency = nvs::getEnergyPollFreq() / 1000;  // Convert μs to ms
     
-    TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xFrequency = pdMS_TO_TICKS(powerReportFrequency);
     const uint32_t deadlineUs = POWER_REPORT_DEADLINE_US;  // 5s deadline
     
@@ -1088,18 +1146,32 @@ void TaskManager::powerReportTask(void* parameter) {
     LOG_INFO(LOG_TAG_POWER, "Deadline: %lu us", deadlineUs);
     
     while (1) {
-        // Wait for power report interval
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        // Wait for power report interval OR until notified of config change
+        uint32_t notifyValue = 0;
+        BaseType_t notified = xTaskNotifyWait(0, ULONG_MAX, &notifyValue, xFrequency);
+        
+        // Check if we were woken by config change notification
+        if (notified == pdTRUE && notifyValue == 1) {
+            // Config changed - reload frequency and restart wait
+            xFrequency = pdMS_TO_TICKS(powerReportFrequency);
+            LOG_INFO(LOG_TAG_POWER, "Config change - power report interval now %lu ms (restarting timer)", powerReportFrequency);
+            continue;  // Restart wait with new frequency
+        }
+        
+        // Check if tasks were resumed after suspension (e.g., after OTA)
+        if (tasksNeedTimingReset) {
+            LOG_INFO(LOG_TAG_POWER, "Timing baseline reset after task resume");
+        }
         
         // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
         if (powerReportConfigReloadPending) {
             powerReportConfigReloadPending = false;  // Clear the flag
-            // Reload power report frequency from static variable (updated by ConfigManager)
+            // Reload power report frequency from NVS (source of truth)
+            powerReportFrequency = nvs::getEnergyPollFreq() / 1000;  // Convert μs to ms
             TickType_t newFrequency = pdMS_TO_TICKS(powerReportFrequency);
             if (newFrequency != xFrequency) {
                 xFrequency = newFrequency;
-                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
-                LOG_INFO(LOG_TAG_POWER, "Power report frequency updated to %lu ms", powerReportFrequency);
+                LOG_INFO(LOG_TAG_POWER, "Power report frequency updated to %lu ms (takes effect next cycle)", powerReportFrequency);
             }
         }
         
@@ -1199,7 +1271,6 @@ void TaskManager::otaTask(void* parameter) {
     // NOTE: OTA task NOT registered with watchdog - it runs every 60s
     // which exceeds the 30s watchdog timeout. OTA is low priority and infrequent.
     
-    TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xFrequency = pdMS_TO_TICKS(otaFrequency);  // NOT const - can update
     const uint32_t deadlineUs = OTA_DEADLINE_US;  // 120s deadline (when active)
     
@@ -1210,20 +1281,27 @@ void TaskManager::otaTask(void* parameter) {
     LOG_INFO(LOG_TAG_FOTA, "Deadline: %lu us", deadlineUs);
     
     while (1) {
-        // Wait for OTA check interval
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        // Wait for OTA check interval OR until notified of config change
+        // xTaskNotifyWait returns pdTRUE if notified, pdFALSE if timeout (normal OTA check)
+        uint32_t notifyValue = 0;
+        BaseType_t notified = xTaskNotifyWait(
+            0,                      // Don't clear bits on entry
+            ULONG_MAX,              // Clear all bits on exit
+            &notifyValue,           // Store notification value
+            xFrequency              // Wait for OTA interval (timeout)
+        );
         
-        // Check if configuration reload is needed (flag set by upload task AFTER buffer drain)
-        if (otaConfigReloadPending) {
-            otaConfigReloadPending = false;  // Clear the flag
-            // Reload OTA frequency from static variable (updated by ConfigManager)
-            TickType_t newFrequency = pdMS_TO_TICKS(otaFrequency);
-            if (newFrequency != xFrequency) {
-                xFrequency = newFrequency;
-                xLastWakeTime = xTaskGetTickCount();  // Reset timing baseline
-                LOG_INFO(LOG_TAG_FOTA, "OTA check frequency updated to %lu ms", otaFrequency);
-            }
+        // Check if we were woken by config change notification
+        if (notified == pdTRUE && notifyValue == 1) {
+            // Config changed - use the static variable (already updated by updateOtaFrequency)
+            // Don't read from NVS here as it may have race conditions
+            LOG_INFO(LOG_TAG_FOTA, "Notification received! Static otaFrequency = %lu ms", otaFrequency);
+            xFrequency = pdMS_TO_TICKS(otaFrequency);
+            LOG_INFO(LOG_TAG_FOTA, "Config change detected - OTA interval now %lu ms (restarting timer)", otaFrequency);
+            continue;  // Restart the wait with new frequency
         }
+        
+        // Normal timeout - time to check for OTA updates
         
         uint32_t startTime = micros();
         
@@ -1244,6 +1322,7 @@ void TaskManager::otaTask(void* parameter) {
                 // Perform OTA update (we already have the mutex)
                 bool otaSuccess = otaManager->downloadAndApplyFirmware();
                 
+                // ALWAYS release mutex and resume tasks before checking result
                 xSemaphoreGive(wifiClientMutex);
                 
                 if (otaSuccess) {
@@ -1251,8 +1330,10 @@ void TaskManager::otaTask(void* parameter) {
                     otaManager->verifyAndReboot();
                     // System will reboot - code won't reach here
                 } else {
-                    LOG_ERROR(LOG_TAG_FOTA, "Update failed! Resuming normal operation...");
+                    LOG_ERROR(LOG_TAG_FOTA, "Update failed or cancelled! Resuming normal operation...");
                     resumeAllTasks();
+                    LOG_INFO(LOG_TAG_FOTA, "All tasks resumed - system operational");
+                    LOG_INFO(LOG_TAG_FOTA, "Next OTA check in %lu ms", otaFrequency);
                 }
             } else {
                 xSemaphoreGive(wifiClientMutex);
@@ -1367,6 +1448,12 @@ void TaskManager::watchdogTask(void* parameter) {
 void TaskManager::updatePollFrequency(uint32_t newFreqMs) {
     pollFrequency = newFreqMs;
     LOG_INFO(LOG_TAG_BOOT, "Poll frequency updated to %lu ms", newFreqMs);
+    
+    // Wake up the sensor poll task immediately to apply new frequency
+    if (sensorPollTask_h != NULL) {
+        xTaskNotify(sensorPollTask_h, 1, eSetValueWithOverwrite);
+        LOG_INFO(LOG_TAG_BOOT, "Sensor poll task notified to apply new frequency immediately");
+    }
 }
 
 void TaskManager::updateUploadFrequency(uint32_t newFreqMs) {
@@ -1374,26 +1461,60 @@ void TaskManager::updateUploadFrequency(uint32_t newFreqMs) {
     uploadFrequency = newFreqMs;
     uploadFrequencyChanged = true;  // Signal the upload task to reload
     LOG_INFO(LOG_TAG_BOOT, "Upload frequency static var updated: %lu ms -> %lu ms", oldFreq, newFreqMs);
+    
+    // Wake up the upload task immediately to apply new frequency
+    if (uploadTask_h != NULL) {
+        xTaskNotify(uploadTask_h, 1, eSetValueWithOverwrite);
+        LOG_INFO(LOG_TAG_BOOT, "Upload task notified to apply new frequency immediately");
+    }
 }
 
 void TaskManager::updateConfigFrequency(uint32_t newFreqMs) {
     configFrequency = newFreqMs;
     LOG_INFO(LOG_TAG_BOOT, "Config check frequency updated to %lu ms", newFreqMs);
+    
+    // Wake up the config task immediately to apply new frequency
+    if (configTask_h != NULL) {
+        xTaskNotify(configTask_h, 1, eSetValueWithOverwrite);
+        LOG_INFO(LOG_TAG_BOOT, "Config task notified to apply new frequency immediately");
+    }
 }
 
 void TaskManager::updateCommandFrequency(uint32_t newFreqMs) {
     commandFrequency = newFreqMs;
     LOG_INFO(LOG_TAG_BOOT, "Command poll frequency updated to %lu ms", newFreqMs);
+    
+    // Wake up the command task immediately to apply new frequency
+    if (commandTask_h != NULL) {
+        xTaskNotify(commandTask_h, 1, eSetValueWithOverwrite);
+        LOG_INFO(LOG_TAG_BOOT, "Command task notified to apply new frequency immediately");
+    }
 }
 
 void TaskManager::updateOtaFrequency(uint32_t newFreqMs) {
+    uint32_t oldFreq = otaFrequency;
     otaFrequency = newFreqMs;
-    LOG_INFO(LOG_TAG_BOOT, "OTA check frequency updated to %lu ms", newFreqMs);
+    LOG_INFO(LOG_TAG_BOOT, "OTA check frequency updated: %lu ms -> %lu ms", oldFreq, newFreqMs);
+    
+    // Wake up the OTA task immediately so it can apply the new frequency
+    // This prevents waiting for the old (potentially very long) interval to expire
+    if (otaTask_h != NULL) {
+        BaseType_t result = xTaskNotify(otaTask_h, 1, eSetValueWithOverwrite);  // Value 1 = config change notification
+        LOG_INFO(LOG_TAG_BOOT, "OTA task notified (result=%d), otaFrequency static var is now %lu ms", result, otaFrequency);
+    } else {
+        LOG_WARN(LOG_TAG_BOOT, "OTA task handle is NULL - cannot notify!");
+    }
 }
 
 void TaskManager::updatePowerReportFrequency(uint32_t newFreqMs) {
     powerReportFrequency = newFreqMs;
     LOG_INFO(LOG_TAG_BOOT, "Power report frequency updated to %lu ms", newFreqMs);
+    
+    // Wake up the power report task immediately to apply new frequency
+    if (powerReportTask_h != NULL) {
+        xTaskNotify(powerReportTask_h, 1, eSetValueWithOverwrite);
+        LOG_INFO(LOG_TAG_BOOT, "Power report task notified to apply new frequency immediately");
+    }
 }
 
 void TaskManager::setCloudConfigChangePending(bool pending) {

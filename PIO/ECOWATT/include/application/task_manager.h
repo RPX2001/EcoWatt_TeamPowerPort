@@ -34,10 +34,8 @@
 // Task Priorities (0-24, higher = more important)
 #define PRIORITY_SENSOR_POLL    24  // CRITICAL - highest priority
 #define PRIORITY_UPLOAD         20  // HIGH - network operations
-#define PRIORITY_COMPRESSION    18  // HIGH - CPU intensive
 #define PRIORITY_COMMANDS       16  // MEDIUM-HIGH
 #define PRIORITY_CONFIG         12  // MEDIUM
-#define PRIORITY_STATISTICS     10  // MEDIUM-LOW
 #define PRIORITY_POWER_REPORT   8   // MEDIUM-LOW - periodic power stats
 #define PRIORITY_OTA            5   // LOW - runs when idle
 #define PRIORITY_WATCHDOG       1   // LOWEST - safety net
@@ -295,6 +293,7 @@ private:
     // System state
     static bool systemInitialized;
     static bool systemSuspended;
+    static bool tasksNeedTimingReset;  // Set after resume to reset task timing baselines
     static uint32_t systemStartTime;
 };
 
