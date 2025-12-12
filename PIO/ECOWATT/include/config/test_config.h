@@ -59,7 +59,7 @@
 // ============================================================================
 // For tests that need IP and PORT separately (like test_m4_integration)
 // Note: Update these if FLASK_SERVER_URL in credentials.h changes
-#define FLASK_SERVER_IP "192.168.194.249"
+#define FLASK_SERVER_IP "10.116.241.2"
 #define FLASK_SERVER_PORT 5001
 
 #endif // TEST_CONFIG_H
