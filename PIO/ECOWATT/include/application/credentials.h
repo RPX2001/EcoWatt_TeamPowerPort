@@ -22,11 +22,8 @@
 // ============================================
 // PRODUCTION FLASK SERVER
 // ============================================
-<<<<<<< Updated upstream
-#define FLASK_SERVER_URL "http://192.168.201.249:5001"
-=======
+
 #define FLASK_SERVER_URL "http://10.116.241.2:5001"
->>>>>>> Stashed changes
 
 // ============================================
 // PRODUCTION DEVICE IDENTIFICATION

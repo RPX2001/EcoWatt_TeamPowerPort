@@ -85,35 +85,18 @@ class Database:
     @staticmethod
     def init_database():
         """Initialize database schema"""
-<<<<<<< Updated upstream
         conn = Database.get_connection()
         cursor = conn.cursor()
         
-=======
-        # Check if tables already exist
-        tables_exist, missing_tables = Database._verify_tables_exist()
-        
-        conn = Database.get_connection()
-        cursor = conn.cursor()
-        
-        # Run migrations first (even if tables exist)
-        # Migration: Add peripheral_savings_mah column to existing power_reports table
+        # Run migration: Add peripheral_savings_mah column to existing power_reports table
         try:
             cursor.execute('ALTER TABLE power_reports ADD COLUMN peripheral_savings_mah REAL DEFAULT 0')
             conn.commit()
             logger.info("Migration: Added peripheral_savings_mah column to power_reports")
         except sqlite3.OperationalError:
-            # Column already exists, ignore
+            # Column already exists or table doesn't exist yet, ignore
             pass
         
-        if tables_exist:
-            logger.info("Database tables already exist, skipping table creation")
-            return
-        
-        if missing_tables:
-            logger.info(f"Creating missing database tables: {missing_tables}")
-        
->>>>>>> Stashed changes
         # Sensor data table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS sensor_data (
