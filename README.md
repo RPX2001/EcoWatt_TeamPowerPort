@@ -360,9 +360,11 @@ The project includes **30+ comprehensive test suites**:
 
 ```bash
 just test-all       # Run all test suites
+```
+
 ---
 
-## 📚 Documentation
+## Documentation
 
 Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
@@ -371,57 +373,22 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 | **[Features Guide](docs/FEATURES.md)** | In-depth feature explanations with examples |
 | **[Architecture](docs/ARCHITECTURE.md)** | System design, data flows, and state machines |
 | **[Security Guide](docs/SECURITY.md)** | Cryptographic implementations and threat model |
+| **[Implementation Notes](docs/IMPLEMENTATION.md)** | Simulation vs production architecture |
 | **[Setup Guide](docs/SETUP.md)** | Detailed installation and configuration |
 | **[API Reference](docs/API.md)** | Complete REST API documentation |
 
----
 
-## 👥 Team PowerPort
-
-<div align="center">
-
-**University of Moratuwa**  
-Department of Electronic and Telecommunication Engineering  
-**EN4440** - Embedded Systems and Design
-
----
-
-### Project Team
-
-*Team members and contributions detailed in project documentation*
-
----
-
-**Academic Year**: 2024/2025 | **Semester**: 7
-
-</div>
-
----
-
-## 📄 License
-
-This is an academic project developed for the EN4440 module at the University of Moratuwa.  
-© 2024-2025 Team PowerPort. All rights reserved.
-
----
-
-## 🔗 Quick Links
+## Quick Links
 
 <div align="center">
 
-[![Documentation](https://img.shields.io/badge/📚-Documentation-blue?style=for-the-badge)](docs/)
-[![Setup Guide](https://img.shields.io/badge/🚀-Setup%20Guide-green?style=for-the-badge)](docs/SETUP.md)
-[![API Reference](https://img.shields.io/badge/📡-API%20Reference-orange?style=for-the-badge)](docs/API.md)
-[![Architecture](https://img.shields.io/badge/🏛️-Architecture-red?style=for-the-badge)](docs/ARCHITECTURE.md)
+[![Documentation](https://img.shields.io/badge/Documentation-blue?style=for-the-badge)](docs/)
+[![Setup Guide](https://img.shields.io/badge/Setup%20Guide-green?style=for-the-badge)](docs/SETUP.md)
+[![API Reference](https://img.shields.io/badge/API%20Reference-orange?style=for-the-badge)](docs/API.md)
+[![Architecture](https://img.shields.io/badge/Architecture-red?style=for-the-badge)](docs/ARCHITECTURE.md)
 
-</div>
+**Version 1.3.5** | **Last Updated: December 12, 2024**
 
----
-
-<div align="center">
-
-**⭐ If you found this project interesting, please consider giving it a star! ⭐**
-
-**Version**: 1.3.5 | **Last Updated**: December 12, 2024
+⭐ If you found this project interesting, please consider giving it a star!
 
 </div>
